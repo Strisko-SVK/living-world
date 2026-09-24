@@ -2,13 +2,40 @@
   "name": "living-world",
   "version": "1.0.0",
   "description": "",
+  "type": "module",
   "main": "dist/index.js",
+  "packageManager": "pnpm@10.17.1",
   "scripts": {
-    "build": "tsc"
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepare": "husky",
+    "quality:gate": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build"
   },
-  "dependencies": {},
   "devDependencies": {
-    "typescript": "^6.0.3"
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^10.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.5.1",
+    "prettier": "^3.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.0.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,mjs,cjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yaml,yml}": "prettier --write"
   },
   "private": true
 }
