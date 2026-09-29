@@ -15,12 +15,20 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:db": "node --env-file=.env.example --env-file-if-exists=.env ./node_modules/vitest/vitest.mjs run --config vitest.db.config.ts",
+    "db:generate": "node --env-file=.env ./node_modules/drizzle-kit/bin.cjs generate",
+    "db:migrate": "node --env-file=.env ./node_modules/drizzle-kit/bin.cjs migrate",
+    "db:studio": "node --env-file=.env ./node_modules/drizzle-kit/bin.cjs studio",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
     "prepare": "husky",
     "quality:gate": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11",
     "eslint": "^10.0.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.5.1",
@@ -37,5 +45,10 @@
     ],
     "*.{json,md,yaml,yml}": "prettier --write"
   },
-  "private": true
+  "private": true,
+  "dependencies": {
+    "drizzle-orm": "^0.45.3",
+    "pg": "^8.23.0",
+    "zod": "^4.6.5"
+  }
 }
