@@ -19,3 +19,17 @@ that entities and aliases cannot be retrieved across worlds.
 NPC persistence separates the immutable baseline profile from mutable runtime
 state. Game profiles and semantic capabilities are stored independently, and all
 NPC repository APIs are world-scoped.
+
+NPC memory persistence stores subjective NPC history separately from Knowledge
+and World Truth. Provenance is stored independently from immutable memory
+summaries, while status and memory-to-memory relations may be added over time.
+All memory repository APIs are scoped by world and NPC.
+
+NPC knowledge persistence stores subjective claims separately from memory and
+World Truth. Confidence represents how strongly the NPC holds a claim, and not
+its objective probability. Conflicting claims may coexist, provenance is stored
+separately, and all knowledge APIs are world- and NPC-scoped.
+
+Relationships are directional and multidimensional state, separate from memory,
+knowledge, membership, and reputation. Explicit relationship events preserve why
+state changes occurred, and all relationship APIs are world-scoped.

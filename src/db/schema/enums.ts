@@ -42,6 +42,117 @@ export const capabilitySourceValues = [
   "manual",
   "derived",
 ] as const;
+export const memoryTypeValues = [
+  "episodic",
+  "social",
+  "emotional",
+  "traumatic",
+  "achievement",
+  "failure",
+  "relationship",
+  "world_event",
+  "routine",
+] as const;
+export const memoryDetailLevelValues = [
+  "high",
+  "medium",
+  "low",
+  "gist",
+] as const;
+export const memoryRetentionClassValues = [
+  "temporary",
+  "normal",
+  "important",
+  "permanent",
+] as const;
+export const memoryStatusValues = [
+  "active",
+  "consolidated",
+  "archived",
+  "invalidated",
+] as const;
+export const memorySourceTypeValues = [
+  "interaction",
+  "witnessed",
+  "heard",
+  "read",
+  "official",
+  "inferred",
+  "archive",
+  "dm",
+  "system",
+  "imported",
+] as const;
+export const memoryRelationTypeValues = [
+  "consolidated_from",
+  "summarizes",
+  "related_to",
+  "contradicts",
+  "supersedes",
+] as const;
+export const knowledgeClassificationValues = [
+  "fact",
+  "reported_claim",
+  "rumor",
+  "inference",
+  "assumption",
+  "misinformation",
+] as const;
+export const knowledgeSecrecyValues = [
+  "public",
+  "private",
+  "restricted",
+  "secret",
+] as const;
+export const knowledgeStatusValues = [
+  "current",
+  "outdated",
+  "disputed",
+  "invalidated",
+] as const;
+export const knowledgeSourceTypeValues = [
+  "witnessed",
+  "heard",
+  "read",
+  "official",
+  "inferred",
+  "rumor_chain",
+  "memory",
+  "archive",
+  "dm",
+  "system",
+  "imported",
+] as const;
+export const knowledgeConflictStatusValues = [
+  "unresolved",
+  "reviewed",
+  "resolved",
+] as const;
+export const relationshipIntentValues = [
+  "genuine",
+  "transactional",
+  "manipulative",
+  "opportunistic",
+  "coercive",
+  "protective",
+  "mixed",
+] as const;
+export const relationshipEventTypeValues = [
+  "interaction",
+  "assistance",
+  "betrayal",
+  "insult",
+  "threat",
+  "gift",
+  "obligation_created",
+  "obligation_fulfilled",
+  "shared_experience",
+  "conflict",
+  "reconciliation",
+  "dm_adjustment",
+  "imported",
+  "other",
+] as const;
 
 export const worldStatus = pgEnum("world_status", worldStatusValues);
 export const entityStatus = pgEnum("entity_status", entityStatusValues);
@@ -61,4 +172,50 @@ export const capabilityLevel = pgEnum(
 export const capabilitySource = pgEnum(
   "capability_source",
   capabilitySourceValues,
+);
+export const memoryType = pgEnum("memory_type", memoryTypeValues);
+export const memoryDetailLevel = pgEnum(
+  "memory_detail_level",
+  memoryDetailLevelValues,
+);
+export const memoryRetentionClass = pgEnum(
+  "memory_retention_class",
+  memoryRetentionClassValues,
+);
+export const memoryStatus = pgEnum("memory_status", memoryStatusValues);
+export const memorySourceType = pgEnum(
+  "memory_source_type",
+  memorySourceTypeValues,
+);
+export const memoryRelationType = pgEnum(
+  "memory_relation_type",
+  memoryRelationTypeValues,
+);
+export const knowledgeClassification = pgEnum(
+  "knowledge_classification",
+  knowledgeClassificationValues,
+);
+export const knowledgeSecrecy = pgEnum(
+  "knowledge_secrecy",
+  knowledgeSecrecyValues,
+);
+export const knowledgeStatus = pgEnum(
+  "knowledge_status",
+  knowledgeStatusValues,
+);
+export const knowledgeSourceType = pgEnum(
+  "knowledge_source_type",
+  knowledgeSourceTypeValues,
+);
+export const knowledgeConflictStatus = pgEnum(
+  "knowledge_conflict_status",
+  knowledgeConflictStatusValues,
+);
+export const relationshipIntent = pgEnum(
+  "relationship_intent",
+  relationshipIntentValues,
+);
+export const relationshipEventType = pgEnum(
+  "relationship_event_type",
+  relationshipEventTypeValues,
 );

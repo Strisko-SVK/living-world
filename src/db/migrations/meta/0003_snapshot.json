@@ -1,0 +1,1668 @@
+{
+  "id": "a442119d-e660-415a-a4c2-3fdf20e6c469",
+  "prevId": "e995d52b-1c09-4991-a5e3-861a5fde9230",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.entities": {
+      "name": "entities",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "world_id": {
+          "name": "world_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "entity_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "canonical_name": {
+          "name": "canonical_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "entity_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "entities_world_id_idx": {
+          "name": "entities_world_id_idx",
+          "columns": [
+            {
+              "expression": "world_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "entities_world_id_canonical_name_idx": {
+          "name": "entities_world_id_canonical_name_idx",
+          "columns": [
+            {
+              "expression": "world_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "canonical_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "entities_world_id_worlds_id_fk": {
+          "name": "entities_world_id_worlds_id_fk",
+          "tableFrom": "entities",
+          "tableTo": "worlds",
+          "columnsFrom": ["world_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.entity_aliases": {
+      "name": "entity_aliases",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alias": {
+          "name": "alias",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "normalized_alias": {
+          "name": "normalized_alias",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "entity_aliases_entity_id_normalized_alias_unique": {
+          "name": "entity_aliases_entity_id_normalized_alias_unique",
+          "columns": [
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "normalized_alias",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "entity_aliases_normalized_alias_idx": {
+          "name": "entity_aliases_normalized_alias_idx",
+          "columns": [
+            {
+              "expression": "normalized_alias",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "entity_aliases_entity_id_idx": {
+          "name": "entity_aliases_entity_id_idx",
+          "columns": [
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "entity_aliases_entity_id_entities_id_fk": {
+          "name": "entity_aliases_entity_id_entities_id_fk",
+          "tableFrom": "entity_aliases",
+          "tableTo": "entities",
+          "columnsFrom": ["entity_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.knowledge_conflicts": {
+      "name": "knowledge_conflicts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "world_id": {
+          "name": "world_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "npc_id": {
+          "name": "npc_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "claim_a_id": {
+          "name": "claim_a_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "claim_b_id": {
+          "name": "claim_b_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "knowledge_conflict_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'unresolved'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolution_note": {
+          "name": "resolution_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "knowledge_conflicts_world_npc_idx": {
+          "name": "knowledge_conflicts_world_npc_idx",
+          "columns": [
+            {
+              "expression": "world_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "npc_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "knowledge_conflicts_unique_pair_idx": {
+          "name": "knowledge_conflicts_unique_pair_idx",
+          "columns": [
+            {
+              "expression": "claim_a_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "claim_b_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "knowledge_conflicts_world_id_worlds_id_fk": {
+          "name": "knowledge_conflicts_world_id_worlds_id_fk",
+          "tableFrom": "knowledge_conflicts",
+          "tableTo": "worlds",
+          "columnsFrom": ["world_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "knowledge_conflicts_npc_id_npcs_entity_id_fk": {
+          "name": "knowledge_conflicts_npc_id_npcs_entity_id_fk",
+          "tableFrom": "knowledge_conflicts",
+          "tableTo": "npcs",
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "knowledge_conflicts_claim_a_id_npc_knowledge_id_fk": {
+          "name": "knowledge_conflicts_claim_a_id_npc_knowledge_id_fk",
+          "tableFrom": "knowledge_conflicts",
+          "tableTo": "npc_knowledge",
+          "columnsFrom": ["claim_a_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "knowledge_conflicts_claim_b_id_npc_knowledge_id_fk": {
+          "name": "knowledge_conflicts_claim_b_id_npc_knowledge_id_fk",
+          "tableFrom": "knowledge_conflicts",
+          "tableTo": "npc_knowledge",
+          "columnsFrom": ["claim_b_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "knowledge_conflicts_distinct_claims": {
+          "name": "knowledge_conflicts_distinct_claims",
+          "value": "\"knowledge_conflicts\".\"claim_a_id\" <> \"knowledge_conflicts\".\"claim_b_id\""
+        },
+        "knowledge_conflicts_canonical_pair": {
+          "name": "knowledge_conflicts_canonical_pair",
+          "value": "\"knowledge_conflicts\".\"claim_a_id\" < \"knowledge_conflicts\".\"claim_b_id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.knowledge_sources": {
+      "name": "knowledge_sources",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "knowledge_id": {
+          "name": "knowledge_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_type": {
+          "name": "source_type",
+          "type": "knowledge_source_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_entity_id": {
+          "name": "source_entity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_knowledge_id": {
+          "name": "source_knowledge_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_memory_id": {
+          "name": "source_memory_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "external_ref": {
+          "name": "external_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "chain_depth": {
+          "name": "chain_depth",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provenance_note": {
+          "name": "provenance_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "knowledge_sources_knowledge_id_idx": {
+          "name": "knowledge_sources_knowledge_id_idx",
+          "columns": [
+            {
+              "expression": "knowledge_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "knowledge_sources_knowledge_id_npc_knowledge_id_fk": {
+          "name": "knowledge_sources_knowledge_id_npc_knowledge_id_fk",
+          "tableFrom": "knowledge_sources",
+          "tableTo": "npc_knowledge",
+          "columnsFrom": ["knowledge_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "knowledge_sources_source_entity_id_entities_id_fk": {
+          "name": "knowledge_sources_source_entity_id_entities_id_fk",
+          "tableFrom": "knowledge_sources",
+          "tableTo": "entities",
+          "columnsFrom": ["source_entity_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "knowledge_sources_source_knowledge_id_npc_knowledge_id_fk": {
+          "name": "knowledge_sources_source_knowledge_id_npc_knowledge_id_fk",
+          "tableFrom": "knowledge_sources",
+          "tableTo": "npc_knowledge",
+          "columnsFrom": ["source_knowledge_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "knowledge_sources_source_memory_id_npc_memories_id_fk": {
+          "name": "knowledge_sources_source_memory_id_npc_memories_id_fk",
+          "tableFrom": "knowledge_sources",
+          "tableTo": "npc_memories",
+          "columnsFrom": ["source_memory_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "knowledge_sources_chain_depth_nonnegative": {
+          "name": "knowledge_sources_chain_depth_nonnegative",
+          "value": "\"knowledge_sources\".\"chain_depth\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.memory_relations": {
+      "name": "memory_relations",
+      "schema": "",
+      "columns": {
+        "parent_memory_id": {
+          "name": "parent_memory_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "child_memory_id": {
+          "name": "child_memory_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "relation_type": {
+          "name": "relation_type",
+          "type": "memory_relation_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "memory_relations_parent_memory_id_npc_memories_id_fk": {
+          "name": "memory_relations_parent_memory_id_npc_memories_id_fk",
+          "tableFrom": "memory_relations",
+          "tableTo": "npc_memories",
+          "columnsFrom": ["parent_memory_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "memory_relations_child_memory_id_npc_memories_id_fk": {
+          "name": "memory_relations_child_memory_id_npc_memories_id_fk",
+          "tableFrom": "memory_relations",
+          "tableTo": "npc_memories",
+          "columnsFrom": ["child_memory_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "memory_relations_parent_memory_id_child_memory_id_relation_type_pk": {
+          "name": "memory_relations_parent_memory_id_child_memory_id_relation_type_pk",
+          "columns": ["parent_memory_id", "child_memory_id", "relation_type"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "memory_relations_no_self_relation": {
+          "name": "memory_relations_no_self_relation",
+          "value": "\"memory_relations\".\"parent_memory_id\" <> \"memory_relations\".\"child_memory_id\""
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.memory_sources": {
+      "name": "memory_sources",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "memory_id": {
+          "name": "memory_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_type": {
+          "name": "source_type",
+          "type": "memory_source_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_entity_id": {
+          "name": "source_entity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_interaction_id": {
+          "name": "source_interaction_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provenance_note": {
+          "name": "provenance_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "memory_sources_memory_id_idx": {
+          "name": "memory_sources_memory_id_idx",
+          "columns": [
+            {
+              "expression": "memory_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "memory_sources_memory_id_npc_memories_id_fk": {
+          "name": "memory_sources_memory_id_npc_memories_id_fk",
+          "tableFrom": "memory_sources",
+          "tableTo": "npc_memories",
+          "columnsFrom": ["memory_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "memory_sources_source_entity_id_entities_id_fk": {
+          "name": "memory_sources_source_entity_id_entities_id_fk",
+          "tableFrom": "memory_sources",
+          "tableTo": "entities",
+          "columnsFrom": ["source_entity_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.npc_capabilities": {
+      "name": "npc_capabilities",
+      "schema": "",
+      "columns": {
+        "npc_id": {
+          "name": "npc_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "capability_key": {
+          "name": "capability_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "level": {
+          "name": "level",
+          "type": "capability_level",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "capability_source",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "confidence": {
+          "name": "confidence",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "npc_capabilities_npc_id_npcs_entity_id_fk": {
+          "name": "npc_capabilities_npc_id_npcs_entity_id_fk",
+          "tableFrom": "npc_capabilities",
+          "tableTo": "npcs",
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "npc_capabilities_npc_id_capability_key_pk": {
+          "name": "npc_capabilities_npc_id_capability_key_pk",
+          "columns": ["npc_id", "capability_key"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "npc_capabilities_confidence_range": {
+          "name": "npc_capabilities_confidence_range",
+          "value": "\"npc_capabilities\".\"confidence\" between 0 and 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.npc_game_profiles": {
+      "name": "npc_game_profiles",
+      "schema": "",
+      "columns": {
+        "npc_id": {
+          "name": "npc_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "game_system": {
+          "name": "game_system",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stat_depth": {
+          "name": "stat_depth",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "characteristics": {
+          "name": "characteristics",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "skills": {
+          "name": "skills",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "talents": {
+          "name": "talents",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "combat": {
+          "name": "combat",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "gear": {
+          "name": "gear",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "derived_values": {
+          "name": "derived_values",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "source_notes": {
+          "name": "source_notes",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "npc_game_profiles_npc_id_npcs_entity_id_fk": {
+          "name": "npc_game_profiles_npc_id_npcs_entity_id_fk",
+          "tableFrom": "npc_game_profiles",
+          "tableTo": "npcs",
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "npc_game_profiles_stat_depth_range": {
+          "name": "npc_game_profiles_stat_depth_range",
+          "value": "\"npc_game_profiles\".\"stat_depth\" between 0 and 3"
+        },
+        "npc_game_profiles_version_positive": {
+          "name": "npc_game_profiles_version_positive",
+          "value": "\"npc_game_profiles\".\"version\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.npc_knowledge": {
+      "name": "npc_knowledge",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "world_id": {
+          "name": "world_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "npc_id": {
+          "name": "npc_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject_entity_id": {
+          "name": "subject_entity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "predicate": {
+          "name": "predicate",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "object_entity_id": {
+          "name": "object_entity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "object_value": {
+          "name": "object_value",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "claim_text": {
+          "name": "claim_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "classification": {
+          "name": "classification",
+          "type": "knowledge_classification",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "confidence": {
+          "name": "confidence",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "secrecy": {
+          "name": "secrecy",
+          "type": "knowledge_secrecy",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "knowledge_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'current'"
+        },
+        "acquired_at": {
+          "name": "acquired_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "npc_knowledge_world_npc_idx": {
+          "name": "npc_knowledge_world_npc_idx",
+          "columns": [
+            {
+              "expression": "world_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "npc_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "npc_knowledge_world_npc_status_idx": {
+          "name": "npc_knowledge_world_npc_status_idx",
+          "columns": [
+            {
+              "expression": "world_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "npc_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "npc_knowledge_world_id_worlds_id_fk": {
+          "name": "npc_knowledge_world_id_worlds_id_fk",
+          "tableFrom": "npc_knowledge",
+          "tableTo": "worlds",
+          "columnsFrom": ["world_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "npc_knowledge_npc_id_npcs_entity_id_fk": {
+          "name": "npc_knowledge_npc_id_npcs_entity_id_fk",
+          "tableFrom": "npc_knowledge",
+          "tableTo": "npcs",
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "npc_knowledge_subject_entity_id_entities_id_fk": {
+          "name": "npc_knowledge_subject_entity_id_entities_id_fk",
+          "tableFrom": "npc_knowledge",
+          "tableTo": "entities",
+          "columnsFrom": ["subject_entity_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "npc_knowledge_object_entity_id_entities_id_fk": {
+          "name": "npc_knowledge_object_entity_id_entities_id_fk",
+          "tableFrom": "npc_knowledge",
+          "tableTo": "entities",
+          "columnsFrom": ["object_entity_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "npc_knowledge_confidence_range": {
+          "name": "npc_knowledge_confidence_range",
+          "value": "\"npc_knowledge\".\"confidence\" between 0 and 1"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.npc_memories": {
+      "name": "npc_memories",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "world_id": {
+          "name": "world_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "npc_id": {
+          "name": "npc_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "memory_type": {
+          "name": "memory_type",
+          "type": "memory_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "importance": {
+          "name": "importance",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detail_level": {
+          "name": "detail_level",
+          "type": "memory_detail_level",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "retention_class": {
+          "name": "retention_class",
+          "type": "memory_retention_class",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "memory_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "emotional_tags": {
+          "name": "emotional_tags",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "npc_memories_world_npc_idx": {
+          "name": "npc_memories_world_npc_idx",
+          "columns": [
+            {
+              "expression": "world_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "npc_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "npc_memories_world_npc_status_idx": {
+          "name": "npc_memories_world_npc_status_idx",
+          "columns": [
+            {
+              "expression": "world_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "npc_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "npc_memories_world_id_worlds_id_fk": {
+          "name": "npc_memories_world_id_worlds_id_fk",
+          "tableFrom": "npc_memories",
+          "tableTo": "worlds",
+          "columnsFrom": ["world_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "npc_memories_npc_id_npcs_entity_id_fk": {
+          "name": "npc_memories_npc_id_npcs_entity_id_fk",
+          "tableFrom": "npc_memories",
+          "tableTo": "npcs",
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "npc_memories_importance_range": {
+          "name": "npc_memories_importance_range",
+          "value": "\"npc_memories\".\"importance\" between 0 and 100"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.npc_state": {
+      "name": "npc_state",
+      "schema": "",
+      "columns": {
+        "npc_id": {
+          "name": "npc_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "current_location_id": {
+          "name": "current_location_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "location_certainty": {
+          "name": "location_certainty",
+          "type": "location_certainty",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "physical_state": {
+          "name": "physical_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "emotional_state": {
+          "name": "emotional_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "material_state": {
+          "name": "material_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "availability_state": {
+          "name": "availability_state",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "npc_state_npc_id_npcs_entity_id_fk": {
+          "name": "npc_state_npc_id_npcs_entity_id_fk",
+          "tableFrom": "npc_state",
+          "tableTo": "npcs",
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "npc_state_version_positive": {
+          "name": "npc_state_version_positive",
+          "value": "\"npc_state\".\"version\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.npcs": {
+      "name": "npcs",
+      "schema": "",
+      "columns": {
+        "entity_id": {
+          "name": "entity_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "simulation_depth": {
+          "name": "simulation_depth",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "narrative_weight": {
+          "name": "narrative_weight",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lifecycle_state": {
+          "name": "lifecycle_state",
+          "type": "npc_lifecycle_state",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "canon_protected": {
+          "name": "canon_protected",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "template_version": {
+          "name": "template_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "profile_version": {
+          "name": "profile_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "baseline_profile": {
+          "name": "baseline_profile",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "npcs_entity_id_entities_id_fk": {
+          "name": "npcs_entity_id_entities_id_fk",
+          "tableFrom": "npcs",
+          "tableTo": "entities",
+          "columnsFrom": ["entity_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "npcs_simulation_depth_range": {
+          "name": "npcs_simulation_depth_range",
+          "value": "\"npcs\".\"simulation_depth\" between 0 and 3"
+        },
+        "npcs_narrative_weight_range": {
+          "name": "npcs_narrative_weight_range",
+          "value": "\"npcs\".\"narrative_weight\" between 0 and 100"
+        },
+        "npcs_template_version_positive": {
+          "name": "npcs_template_version_positive",
+          "value": "\"npcs\".\"template_version\" > 0"
+        },
+        "npcs_profile_version_positive": {
+          "name": "npcs_profile_version_positive",
+          "value": "\"npcs\".\"profile_version\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.worlds": {
+      "name": "worlds",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "system_type": {
+          "name": "system_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "world_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "config": {
+          "name": "config",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "worlds_key_unique": {
+          "name": "worlds_key_unique",
+          "columns": [
+            {
+              "expression": "key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.capability_level": {
+      "name": "capability_level",
+      "schema": "public",
+      "values": ["untrained", "basic", "competent", "experienced", "expert"]
+    },
+    "public.capability_source": {
+      "name": "capability_source",
+      "schema": "public",
+      "values": ["profile", "game_system", "background", "manual", "derived"]
+    },
+    "public.entity_status": {
+      "name": "entity_status",
+      "schema": "public",
+      "values": ["active", "inactive", "archived"]
+    },
+    "public.entity_type": {
+      "name": "entity_type",
+      "schema": "public",
+      "values": [
+        "npc",
+        "player_character",
+        "location",
+        "organization",
+        "faction",
+        "ship",
+        "group",
+        "population_node",
+        "item",
+        "other"
+      ]
+    },
+    "public.knowledge_classification": {
+      "name": "knowledge_classification",
+      "schema": "public",
+      "values": [
+        "fact",
+        "reported_claim",
+        "rumor",
+        "inference",
+        "assumption",
+        "misinformation"
+      ]
+    },
+    "public.knowledge_conflict_status": {
+      "name": "knowledge_conflict_status",
+      "schema": "public",
+      "values": ["unresolved", "reviewed", "resolved"]
+    },
+    "public.knowledge_secrecy": {
+      "name": "knowledge_secrecy",
+      "schema": "public",
+      "values": ["public", "private", "restricted", "secret"]
+    },
+    "public.knowledge_source_type": {
+      "name": "knowledge_source_type",
+      "schema": "public",
+      "values": [
+        "witnessed",
+        "heard",
+        "read",
+        "official",
+        "inferred",
+        "rumor_chain",
+        "memory",
+        "archive",
+        "dm",
+        "system",
+        "imported"
+      ]
+    },
+    "public.knowledge_status": {
+      "name": "knowledge_status",
+      "schema": "public",
+      "values": ["current", "outdated", "disputed", "invalidated"]
+    },
+    "public.location_certainty": {
+      "name": "location_certainty",
+      "schema": "public",
+      "values": ["certain", "probable", "uncertain", "unknown"]
+    },
+    "public.memory_detail_level": {
+      "name": "memory_detail_level",
+      "schema": "public",
+      "values": ["high", "medium", "low", "gist"]
+    },
+    "public.memory_relation_type": {
+      "name": "memory_relation_type",
+      "schema": "public",
+      "values": [
+        "consolidated_from",
+        "summarizes",
+        "related_to",
+        "contradicts",
+        "supersedes"
+      ]
+    },
+    "public.memory_retention_class": {
+      "name": "memory_retention_class",
+      "schema": "public",
+      "values": ["temporary", "normal", "important", "permanent"]
+    },
+    "public.memory_source_type": {
+      "name": "memory_source_type",
+      "schema": "public",
+      "values": [
+        "interaction",
+        "witnessed",
+        "heard",
+        "read",
+        "official",
+        "inferred",
+        "archive",
+        "dm",
+        "system",
+        "imported"
+      ]
+    },
+    "public.memory_status": {
+      "name": "memory_status",
+      "schema": "public",
+      "values": ["active", "consolidated", "archived", "invalidated"]
+    },
+    "public.memory_type": {
+      "name": "memory_type",
+      "schema": "public",
+      "values": [
+        "episodic",
+        "social",
+        "emotional",
+        "traumatic",
+        "achievement",
+        "failure",
+        "relationship",
+        "world_event",
+        "routine"
+      ]
+    },
+    "public.npc_lifecycle_state": {
+      "name": "npc_lifecycle_state",
+      "schema": "public",
+      "values": [
+        "active",
+        "dormant",
+        "travelling",
+        "missing",
+        "archived",
+        "dead"
+      ]
+    },
+    "public.world_status": {
+      "name": "world_status",
+      "schema": "public",
+      "values": ["active", "archived"]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

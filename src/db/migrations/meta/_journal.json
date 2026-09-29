@@ -15,6 +15,27 @@
       "when": 1790250202078,
       "tag": "0001_petite_gravity",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790668018203,
+      "tag": "0002_strange_annihilus",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790668371766,
+      "tag": "0003_free_surge",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790668977094,
+      "tag": "0004_outstanding_sharon_carter",
+      "breakpoints": true
     }
   ]
 }
