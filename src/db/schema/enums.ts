@@ -153,6 +153,75 @@ export const relationshipEventTypeValues = [
   "imported",
   "other",
 ] as const;
+export const interactionContextTypeValues = [
+  "direct",
+  "scene",
+  "npc_primary",
+  "group",
+  "system",
+] as const;
+export const interactionContextStatusValues = [
+  "active",
+  "inactive",
+  "archived",
+] as const;
+export const interactionTypeValues = [
+  "direct_question",
+  "social",
+  "immediate_action_request",
+  "deferred_task_request",
+  "system",
+] as const;
+export const communicationModeValues = ["local", "remote", "unknown"] as const;
+export const interactionStatusValues = [
+  "received",
+  "processing",
+  "responded",
+  "completed",
+  "failed",
+] as const;
+export const taskStatusValues = [
+  "proposed",
+  "accepted",
+  "active",
+  "blocked",
+  "completed",
+  "failed",
+  "abandoned",
+  "cancelled",
+] as const;
+export const taskUrgencyValues = ["low", "normal", "high", "critical"] as const;
+export const taskReportTypeValues = [
+  "progress",
+  "blocked",
+  "completion",
+  "failure",
+  "cancellation",
+  "other",
+] as const;
+export const taskReportDeliveryStatusValues = [
+  "pending",
+  "delivered",
+  "failed",
+  "skipped",
+] as const;
+export const discordIdentityMappingTypeValues = [
+  "player_character",
+  "npc_operator",
+  "observer",
+  "other",
+] as const;
+export const discordIdentityStatusValues = ["active", "inactive"] as const;
+export const discordContextMappingTypeValues = [
+  "scene",
+  "npc_primary",
+  "direct",
+  "system",
+] as const;
+export const discordContextMappingStatusValues = [
+  "active",
+  "inactive",
+] as const;
 
 export const worldStatus = pgEnum("world_status", worldStatusValues);
 export const entityStatus = pgEnum("entity_status", entityStatusValues);
@@ -218,4 +287,47 @@ export const relationshipIntent = pgEnum(
 export const relationshipEventType = pgEnum(
   "relationship_event_type",
   relationshipEventTypeValues,
+);
+export const interactionContextType = pgEnum(
+  "interaction_context_type",
+  interactionContextTypeValues,
+);
+export const interactionContextStatus = pgEnum(
+  "interaction_context_status",
+  interactionContextStatusValues,
+);
+export const interactionType = pgEnum(
+  "interaction_type",
+  interactionTypeValues,
+);
+export const communicationMode = pgEnum(
+  "communication_mode",
+  communicationModeValues,
+);
+export const interactionStatus = pgEnum(
+  "interaction_status",
+  interactionStatusValues,
+);
+export const taskStatus = pgEnum("task_status", taskStatusValues);
+export const taskUrgency = pgEnum("task_urgency", taskUrgencyValues);
+export const taskReportType = pgEnum("task_report_type", taskReportTypeValues);
+export const taskReportDeliveryStatus = pgEnum(
+  "task_report_delivery_status",
+  taskReportDeliveryStatusValues,
+);
+export const discordIdentityMappingType = pgEnum(
+  "discord_identity_mapping_type",
+  discordIdentityMappingTypeValues,
+);
+export const discordIdentityStatus = pgEnum(
+  "discord_identity_status",
+  discordIdentityStatusValues,
+);
+export const discordContextMappingType = pgEnum(
+  "discord_context_mapping_type",
+  discordContextMappingTypeValues,
+);
+export const discordContextMappingStatus = pgEnum(
+  "discord_context_mapping_status",
+  discordContextMappingStatusValues,
 );

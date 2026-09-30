@@ -33,3 +33,18 @@ separately, and all knowledge APIs are world- and NPC-scoped.
 Relationships are directional and multidimensional state, separate from memory,
 knowledge, membership, and reputation. Explicit relationship events preserve why
 state changes occurred, and all relationship APIs are world-scoped.
+
+Interactions are transport-neutral; Discord will later be an adapter rather than
+the domain model. A conversation context is distinct from a world location, and
+communication mode is distinct from physical presence. Interaction lifecycle and
+trace IDs are persisted for future observability and processors; no automatic
+memory, knowledge, or relationship extraction exists yet.
+
+Tasks persist beyond their originating interactions and have an explicit,
+world-scoped lifecycle. Task execution state is separate from report delivery;
+transport delivery will be added later.
+
+Discord mapping persistence is transport metadata only: a Discord user is not a
+player character and may map to multiple world entities. Discord contexts and
+NPC primary spaces are not world locations or physical presence. Discord
+integration itself is not implemented yet.
