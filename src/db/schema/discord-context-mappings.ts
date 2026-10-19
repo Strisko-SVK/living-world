@@ -1,9 +1,12 @@
+import { sql } from "drizzle-orm";
 import {
+  foreignKey,
   index,
   pgTable,
   text,
   timestamp,
   uniqueIndex,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -14,6 +17,7 @@ import {
   discordContextMappingType,
 } from "./enums.js";
 import { worlds } from "./worlds.js";
+import { entities } from "./entities.js";
 
 export const discordContextMappings = pgTable(
   "discord_context_mappings",
@@ -42,12 +46,22 @@ export const discordContextMappings = pgTable(
       .defaultNow(),
   },
   (table) => [
-    uniqueIndex("discord_context_mappings_location_idx").on(
-      table.worldId,
-      table.guildId,
-      table.channelId,
-      table.threadId,
-    ),
+    unique("discord_context_mappings_location_unique")
+      .on(table.worldId, table.guildId, table.channelId, table.threadId)
+      .nullsNotDistinct(),
+    uniqueIndex("discord_context_mappings_active_npc_unique")
+      .on(table.worldId, table.npcId)
+      .where(sql`${table.status} = 'active' and ${table.npcId} is not null`),
+    foreignKey({
+      name: "discord_context_world_fk",
+      columns: [table.worldId, table.contextId],
+      foreignColumns: [interactionContexts.worldId, interactionContexts.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "discord_npc_world_fk",
+      columns: [table.worldId, table.npcId],
+      foreignColumns: [entities.worldId, entities.id],
+    }).onDelete("restrict"),
     index("discord_context_mappings_world_context_idx").on(
       table.worldId,
       table.contextId,

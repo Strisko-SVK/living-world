@@ -1,4 +1,7 @@
+import { sql } from "drizzle-orm";
 import {
+  check,
+  foreignKey,
   boolean,
   index,
   pgTable,
@@ -34,6 +37,18 @@ export const discordIdentities = pgTable(
       .defaultNow(),
   },
   (table) => [
+    check(
+      "discord_identity_primary_active",
+      sql`not ${table.isPrimary} or ${table.status} = 'active'`,
+    ),
+    uniqueIndex("discord_identity_active_primary_unique")
+      .on(table.worldId, table.discordUserId)
+      .where(sql`${table.isPrimary} and ${table.status} = 'active'`),
+    foreignKey({
+      name: "discord_identity_world_fk",
+      columns: [table.worldId, table.entityId],
+      foreignColumns: [entities.worldId, entities.id],
+    }).onDelete("restrict"),
     index("discord_identities_world_user_idx").on(
       table.worldId,
       table.discordUserId,

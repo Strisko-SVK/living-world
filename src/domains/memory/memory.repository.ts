@@ -5,6 +5,7 @@ import type { DatabaseClient } from "../../db/client.js";
 import { entities } from "../../db/schema/entities.js";
 import { memoryRelations } from "../../db/schema/memory-relations.js";
 import { memorySources } from "../../db/schema/memory-sources.js";
+import { interactions } from "../../db/schema/interactions.js";
 import { npcMemories } from "../../db/schema/npc-memories.js";
 import { getNpc } from "../npc/npc.repository.js";
 
@@ -135,6 +136,23 @@ export async function addMemorySource(
     }
   }
 
+  if (value.sourceInteractionId) {
+    const [interaction] = await database
+      .select({ id: interactions.id })
+      .from(interactions)
+      .where(
+        and(
+          eq(interactions.id, value.sourceInteractionId),
+          eq(interactions.worldId, worldId),
+          eq(interactions.npcId, npcId),
+        ),
+      )
+      .limit(1);
+    if (!interaction)
+      throw new Error(
+        "Source interaction is not available for this memory's world and NPC.",
+      );
+  }
   const [source] = await database
     .insert(memorySources)
     .values({ id: randomUUID(), memoryId, ...value })

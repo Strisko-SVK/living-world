@@ -1,9 +1,11 @@
 import {
+  foreignKey,
   index,
   jsonb,
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -37,6 +39,12 @@ export const interactionContexts = pgTable(
       .defaultNow(),
   },
   (table) => [
+    unique("interactionContexts_world_id_unique").on(table.worldId, table.id),
+    foreignKey({
+      name: "context_location_world_fk",
+      columns: [table.worldId, table.linkedLocationEntityId],
+      foreignColumns: [entities.worldId, entities.id],
+    }).onDelete("restrict"),
     index("interaction_contexts_world_id_idx").on(table.worldId),
     index("interaction_contexts_external_ref_idx").on(
       table.worldId,

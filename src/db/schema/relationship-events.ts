@@ -8,6 +8,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { relationshipEventType } from "./enums.js";
+import { interactions } from "./interactions.js";
 import { npcKnowledge } from "./npc-knowledge.js";
 import { npcMemories } from "./npc-memories.js";
 import { relationships } from "./relationships.js";
@@ -22,7 +23,10 @@ export const relationshipEvents = pgTable(
     eventType: relationshipEventType("event_type").notNull(),
     delta: jsonb("delta").$type<Record<string, number>>().notNull(),
     reasonSummary: text("reason_summary").notNull(),
-    sourceInteractionId: uuid("source_interaction_id"),
+    sourceInteractionId: uuid("source_interaction_id").references(
+      () => interactions.id,
+      { onDelete: "restrict" },
+    ),
     sourceMemoryId: uuid("source_memory_id").references(() => npcMemories.id, {
       onDelete: "restrict",
     }),

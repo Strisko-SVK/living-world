@@ -16,6 +16,61 @@ const interactionInput = {
 };
 
 describe("interaction validation", () => {
+  it.each([
+    "",
+    " ",
+    " padded",
+    "two words",
+    "line\nbreak",
+    "nul\u0000byte",
+    "x".repeat(2001),
+  ])("rejects malformed message provenance %j", (reference) => {
+    expect(
+      createInteractionInputSchema.safeParse({
+        ...interactionInput,
+        sourceMessageId: reference,
+      }).success,
+    ).toBe(false);
+    expect(
+      recordInteractionResponseInputSchema.safeParse({
+        responseText: "ok",
+        responseMessageId: reference,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("preserves opaque message IDs and does not invent absent references", () => {
+    const sourceMessageId = "00012345678901234567890:opaque-ID";
+    expect(
+      createInteractionInputSchema.parse({
+        ...interactionInput,
+        sourceMessageId,
+      }).sourceMessageId,
+    ).toBe(sourceMessageId);
+    expect(
+      createInteractionInputSchema.parse(interactionInput).sourceMessageId,
+    ).toBeUndefined();
+    expect(
+      recordInteractionResponseInputSchema.parse({ responseText: "ok" })
+        .responseMessageId,
+    ).toBeUndefined();
+  });
+
+  it("rejects incomplete context provenance", () => {
+    expect(
+      createInteractionContextInputSchema.safeParse({
+        ...contextInput,
+        externalChannelId: "channel",
+      }).success,
+    ).toBe(false);
+    expect(
+      createInteractionContextInputSchema.safeParse({
+        ...contextInput,
+        externalProvider: "discord",
+        externalThreadId: "thread",
+      }).success,
+    ).toBe(false);
+  });
   it("accepts transport-neutral context and interaction inputs", () => {
     expect(
       createInteractionContextInputSchema.parse(contextInput),

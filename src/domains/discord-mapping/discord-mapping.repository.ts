@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import type { DatabaseClient } from "../../db/client.js";
@@ -19,6 +19,30 @@ import {
 
 type Database = Omit<DatabaseClient["db"], "$client">;
 
+export class DiscordMappingConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DiscordMappingConflictError";
+  }
+}
+
+// Transaction locks also serialize first assignments, when no identity row exists.
+async function lockRouting(database: Database, key: string[]) {
+  await database.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${JSON.stringify(key)}, 0))`,
+  );
+}
+
+function mappingError(error: unknown): never {
+  const cause = error as { code?: string; cause?: { code?: string } };
+  if ((cause.code ?? cause.cause?.code) === "23505") {
+    throw new DiscordMappingConflictError(
+      "Discord mapping conflicts with an existing location or identity mapping.",
+    );
+  }
+  throw error;
+}
+
 export async function mapDiscordUserToEntity(
   database: Database,
   worldId: string,
@@ -26,28 +50,35 @@ export async function mapDiscordUserToEntity(
 ) {
   const value = mapDiscordUserToEntityInputSchema.parse(input);
   await assertEntityInWorld(database, worldId, value.entityId);
-  return database.transaction(async (transaction) => {
-    if (value.isPrimary) {
-      await transaction
-        .update(discordIdentities)
-        .set({ isPrimary: false, updatedAt: new Date() })
-        .where(
-          and(
-            eq(discordIdentities.worldId, worldId),
-            eq(discordIdentities.discordUserId, value.discordUserId),
-          ),
+  return database
+    .transaction(async (transaction) => {
+      await lockRouting(transaction, [
+        "identity",
+        worldId,
+        value.discordUserId,
+      ]);
+      if (value.isPrimary) {
+        await transaction
+          .update(discordIdentities)
+          .set({ isPrimary: false, updatedAt: new Date() })
+          .where(
+            and(
+              eq(discordIdentities.worldId, worldId),
+              eq(discordIdentities.discordUserId, value.discordUserId),
+            ),
+          );
+      }
+      const [mapping] = await transaction
+        .insert(discordIdentities)
+        .values({ id: randomUUID(), worldId, ...value })
+        .returning();
+      if (!mapping)
+        throw new Error(
+          "Discord identity mapping creation did not return a record.",
         );
-    }
-    const [mapping] = await transaction
-      .insert(discordIdentities)
-      .values({ id: randomUUID(), worldId, ...value })
-      .returning();
-    if (!mapping)
-      throw new Error(
-        "Discord identity mapping creation did not return a record.",
-      );
-    return mapping;
-  });
+      return mapping;
+    })
+    .catch(mappingError);
 }
 
 export async function listDiscordUserMappings(
@@ -105,35 +136,65 @@ export async function setPrimaryDiscordEntity(
 ) {
   const value = listDiscordUserMappingsInputSchema.parse({ discordUserId });
   await assertEntityInWorld(database, worldId, entityId);
-  return database.transaction(async (transaction) => {
-    const [mapping] = await transaction
-      .select()
-      .from(discordIdentities)
-      .where(
-        and(
-          eq(discordIdentities.worldId, worldId),
-          eq(discordIdentities.discordUserId, value.discordUserId),
-          eq(discordIdentities.entityId, entityId),
-        ),
-      )
-      .limit(1);
-    if (!mapping) return null;
-    await transaction
-      .update(discordIdentities)
-      .set({ isPrimary: false, updatedAt: new Date() })
-      .where(
-        and(
-          eq(discordIdentities.worldId, worldId),
-          eq(discordIdentities.discordUserId, value.discordUserId),
-        ),
-      );
-    const [updated] = await transaction
-      .update(discordIdentities)
-      .set({ isPrimary: true, updatedAt: new Date() })
-      .where(eq(discordIdentities.id, mapping.id))
-      .returning();
-    return updated ?? null;
-  });
+  return database
+    .transaction(async (transaction) => {
+      await lockRouting(transaction, [
+        "identity",
+        worldId,
+        value.discordUserId,
+      ]);
+      const mappings = await transaction
+        .select()
+        .from(discordIdentities)
+        .where(
+          and(
+            eq(discordIdentities.worldId, worldId),
+            eq(discordIdentities.discordUserId, value.discordUserId),
+            eq(discordIdentities.entityId, entityId),
+            eq(discordIdentities.status, "active"),
+          ),
+        )
+        .limit(2);
+      if (mappings.length === 0) {
+        const [inactive] = await transaction
+          .select({ id: discordIdentities.id })
+          .from(discordIdentities)
+          .where(
+            and(
+              eq(discordIdentities.worldId, worldId),
+              eq(discordIdentities.discordUserId, value.discordUserId),
+              eq(discordIdentities.entityId, entityId),
+            ),
+          )
+          .limit(1);
+        if (inactive)
+          throw new Error(
+            "Inactive Discord identity mappings cannot be primary.",
+          );
+        return null;
+      }
+      if (mappings.length > 1)
+        throw new DiscordMappingConflictError(
+          "Primary entity selection requires an unambiguous identity mapping.",
+        );
+      const mapping = mappings[0]!;
+      await transaction
+        .update(discordIdentities)
+        .set({ isPrimary: false, updatedAt: new Date() })
+        .where(
+          and(
+            eq(discordIdentities.worldId, worldId),
+            eq(discordIdentities.discordUserId, value.discordUserId),
+          ),
+        );
+      const [updated] = await transaction
+        .update(discordIdentities)
+        .set({ isPrimary: true, updatedAt: new Date() })
+        .where(eq(discordIdentities.id, mapping.id))
+        .returning();
+      return updated ?? null;
+    })
+    .catch(mappingError);
 }
 
 export async function deactivateDiscordUserMapping(
@@ -141,17 +202,35 @@ export async function deactivateDiscordUserMapping(
   worldId: string,
   mappingId: string,
 ) {
-  const [updated] = await database
-    .update(discordIdentities)
-    .set({ status: "inactive", isPrimary: false, updatedAt: new Date() })
-    .where(
-      and(
-        eq(discordIdentities.id, mappingId),
-        eq(discordIdentities.worldId, worldId),
-      ),
-    )
-    .returning();
-  return updated ?? null;
+  return database.transaction(async (transaction) => {
+    const [mapping] = await transaction
+      .select()
+      .from(discordIdentities)
+      .where(
+        and(
+          eq(discordIdentities.id, mappingId),
+          eq(discordIdentities.worldId, worldId),
+        ),
+      )
+      .limit(1);
+    if (!mapping) return null;
+    await lockRouting(transaction, [
+      "identity",
+      worldId,
+      mapping.discordUserId,
+    ]);
+    const [updated] = await transaction
+      .update(discordIdentities)
+      .set({ status: "inactive", isPrimary: false, updatedAt: new Date() })
+      .where(
+        and(
+          eq(discordIdentities.id, mappingId),
+          eq(discordIdentities.worldId, worldId),
+        ),
+      )
+      .returning();
+    return updated ?? null;
+  });
 }
 
 export async function mapDiscordContext(
@@ -168,7 +247,8 @@ export async function mapDiscordContext(
   const [mapping] = await database
     .insert(discordContextMappings)
     .values({ id: randomUUID(), worldId, ...value })
-    .returning();
+    .returning()
+    .catch(mappingError);
   if (!mapping)
     throw new Error(
       "Discord context mapping creation did not return a record.",
@@ -226,7 +306,7 @@ export async function getDiscordMappingForContext(
 ) {
   const context = await getContextInWorld(database, worldId, contextId);
   if (!context) return null;
-  const [mapping] = await database
+  const mappings = await database
     .select()
     .from(discordContextMappings)
     .where(
@@ -236,9 +316,12 @@ export async function getDiscordMappingForContext(
         eq(discordContextMappings.status, "active"),
       ),
     )
-    .orderBy(asc(discordContextMappings.createdAt))
-    .limit(1);
-  return mapping ?? null;
+    .limit(2);
+  if (mappings.length > 1)
+    throw new DiscordMappingConflictError(
+      "Context has multiple active Discord mappings; primary routing is ambiguous.",
+    );
+  return mappings[0] ?? null;
 }
 
 export async function setNpcPrimaryContext(
@@ -247,49 +330,67 @@ export async function setNpcPrimaryContext(
   npcId: string,
   contextId: string,
 ) {
-  const [npc, context, mapping] = await Promise.all([
-    getNpc(database, worldId, npcId),
-    getContextInWorld(database, worldId, contextId),
-    getDiscordMappingForContext(database, worldId, contextId),
-  ]);
-  if (!npc) return null;
-  if (!context)
-    throw new Error("Interaction context was not found in the NPC's world.");
-  if (!mapping)
-    throw new Error(
-      "Interaction context does not have an active Discord mapping.",
-    );
-  if (mapping.npcId && mapping.npcId !== npcId)
-    throw new Error(
-      "Discord context mapping is already primary for another NPC.",
-    );
-  return database.transaction(async (transaction) => {
-    await transaction
-      .update(discordContextMappings)
-      .set({ status: "inactive", updatedAt: new Date() })
-      .where(
-        and(
-          eq(discordContextMappings.worldId, worldId),
-          eq(discordContextMappings.npcId, npcId),
-          eq(discordContextMappings.status, "active"),
-        ),
+  return database
+    .transaction(async (transaction) => {
+      await lockRouting(transaction, ["npc", worldId, npcId]);
+      const [npc, context] = await Promise.all([
+        getNpc(transaction, worldId, npcId),
+        getContextInWorld(transaction, worldId, contextId),
+      ]);
+      if (!npc) return null;
+      if (!context)
+        throw new Error(
+          "Interaction context was not found in the NPC's world.",
+        );
+      const candidate = await getDiscordMappingForContext(
+        transaction,
+        worldId,
+        contextId,
       );
-    const [updated] = await transaction
-      .update(discordContextMappings)
-      .set({
-        npcId,
-        mappingType: "npc_primary",
-        status: "active",
-        updatedAt: new Date(),
-      })
-      .where(eq(discordContextMappings.id, mapping.id))
-      .returning();
-    if (!updated)
-      throw new Error(
-        "NPC primary Discord context update did not return a record.",
-      );
-    return updated;
-  });
+      if (!candidate)
+        throw new Error(
+          "Interaction context does not have an active Discord mapping.",
+        );
+      const [mapping] = await transaction
+        .select()
+        .from(discordContextMappings)
+        .where(eq(discordContextMappings.id, candidate.id))
+        .for("update");
+      if (!mapping || mapping.status !== "active")
+        throw new DiscordMappingConflictError(
+          "Discord context mapping changed during primary selection.",
+        );
+      if (mapping.npcId && mapping.npcId !== npcId)
+        throw new Error(
+          "Discord context mapping is already primary for another NPC.",
+        );
+      await transaction
+        .update(discordContextMappings)
+        .set({ status: "inactive", updatedAt: new Date() })
+        .where(
+          and(
+            eq(discordContextMappings.worldId, worldId),
+            eq(discordContextMappings.npcId, npcId),
+            eq(discordContextMappings.status, "active"),
+          ),
+        );
+      const [updated] = await transaction
+        .update(discordContextMappings)
+        .set({
+          npcId,
+          mappingType: "npc_primary",
+          status: "active",
+          updatedAt: new Date(),
+        })
+        .where(eq(discordContextMappings.id, mapping.id))
+        .returning();
+      if (!updated)
+        throw new Error(
+          "NPC primary Discord context update did not return a record.",
+        );
+      return updated;
+    })
+    .catch(mappingError);
 }
 
 export async function getNpcPrimaryContext(

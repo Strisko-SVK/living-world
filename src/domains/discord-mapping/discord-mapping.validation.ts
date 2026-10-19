@@ -9,13 +9,18 @@ import {
 
 const discordId = z.string().trim().min(1).max(2_000);
 
-export const mapDiscordUserToEntityInputSchema = z.object({
-  discordUserId: discordId,
-  entityId: z.string().uuid(),
-  mappingType: z.enum(discordIdentityMappingTypeValues),
-  isPrimary: z.boolean().default(false),
-  status: z.enum(discordIdentityStatusValues).default("active"),
-});
+export const mapDiscordUserToEntityInputSchema = z
+  .object({
+    discordUserId: discordId,
+    entityId: z.string().uuid(),
+    mappingType: z.enum(discordIdentityMappingTypeValues),
+    isPrimary: z.boolean().default(false),
+    status: z.enum(discordIdentityStatusValues).default("active"),
+  })
+  .refine((value) => !value.isPrimary || value.status === "active", {
+    message: "Inactive Discord identity mappings cannot be primary.",
+    path: ["isPrimary"],
+  });
 
 export const listDiscordUserMappingsInputSchema = z.object({
   discordUserId: discordId,

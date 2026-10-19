@@ -1,4 +1,11 @@
-import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  foreignKey,
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 import { entities } from "./entities.js";
 import { interactionContexts } from "./interaction-contexts.js";
@@ -43,6 +50,26 @@ export const tasks = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
   },
   (table) => [
+    foreignKey({
+      name: "task_assignee_world_fk",
+      columns: [table.worldId, table.assigneeEntityId],
+      foreignColumns: [entities.worldId, entities.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "task_requester_world_fk",
+      columns: [table.worldId, table.requesterEntityId],
+      foreignColumns: [entities.worldId, entities.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "task_interaction_world_fk",
+      columns: [table.worldId, table.originInteractionId],
+      foreignColumns: [interactions.worldId, interactions.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "task_context_world_fk",
+      columns: [table.worldId, table.originContextId],
+      foreignColumns: [interactionContexts.worldId, interactionContexts.id],
+    }).onDelete("restrict"),
     index("tasks_world_assignee_idx").on(table.worldId, table.assigneeEntityId),
     index("tasks_world_requester_idx").on(
       table.worldId,

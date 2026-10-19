@@ -1,4 +1,11 @@
-import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  index,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 import { entityStatus, entityType } from "./enums.js";
 import { worlds } from "./worlds.js";
@@ -21,6 +28,7 @@ export const entities = pgTable(
       .defaultNow(),
   },
   (table) => [
+    unique("entities_world_id_unique").on(table.worldId, table.id),
     index("entities_world_id_idx").on(table.worldId),
     index("entities_world_id_canonical_name_idx").on(
       table.worldId,

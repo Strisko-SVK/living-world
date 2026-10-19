@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 
 import type { DatabaseClient } from "../../db/client.js";
 import { entities } from "../../db/schema/entities.js";
+import { interactions } from "../../db/schema/interactions.js";
 import { npcKnowledge } from "../../db/schema/npc-knowledge.js";
 import { npcMemories } from "../../db/schema/npc-memories.js";
 import { relationshipEvents } from "../../db/schema/relationship-events.js";
@@ -272,7 +273,12 @@ async function assertEventProvenance(
   relationship: typeof relationships.$inferSelect,
   input: ApplyRelationshipEventInput,
 ) {
-  if (!input.sourceMemoryId && !input.sourceKnowledgeId) return;
+  if (
+    !input.sourceMemoryId &&
+    !input.sourceKnowledgeId &&
+    !input.sourceInteractionId
+  )
+    return;
   const sourceEntity = await getEntityInWorld(
     database,
     relationship.worldId,
@@ -282,6 +288,26 @@ async function assertEventProvenance(
     throw new Error("Relationship source entity was not found in its world.");
   }
 
+  if (input.sourceInteractionId) {
+    const [interaction] = await database
+      .select()
+      .from(interactions)
+      .where(
+        and(
+          eq(interactions.id, input.sourceInteractionId),
+          eq(interactions.worldId, relationship.worldId),
+        ),
+      )
+      .limit(1);
+    if (
+      !interaction ||
+      (sourceEntity.entityType === "npc" &&
+        interaction.npcId !== sourceEntity.id)
+    )
+      throw new Error(
+        "Source interaction is not available for this relationship's world and NPC.",
+      );
+  }
   if (input.sourceMemoryId) {
     const [memory] = await database
       .select({ id: npcMemories.id, npcId: npcMemories.npcId })

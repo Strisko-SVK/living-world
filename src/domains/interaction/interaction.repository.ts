@@ -243,6 +243,14 @@ export async function recordInteractionResponse(
   if (!interaction) return null;
   if (interaction.responseText !== null)
     throw new Error("Interaction response has already been recorded.");
+  if (
+    value.responseMessageId &&
+    value.responseMessageId === interaction.sourceMessageId
+  ) {
+    throw new Error(
+      "Response message reference must differ from the source message reference.",
+    );
+  }
   assertInteractionTransition(interaction.status, "responded");
   const [updated] = await database
     .update(interactions)

@@ -10,6 +10,24 @@ const entityId = "7d444ea9-18af-4a0e-8a66-1fa7994453df";
 const contextId = "90b3c817-7fc6-45e8-92db-779862fef863";
 
 describe("Discord mapping validation", () => {
+  it("rejects inactive primary identities while allowing inactive non-primary mappings", () => {
+    const input = {
+      discordUserId: "user",
+      entityId,
+      mappingType: "player_character",
+      status: "inactive",
+    };
+    expect(
+      mapDiscordUserToEntityInputSchema.safeParse({ ...input, isPrimary: true })
+        .success,
+    ).toBe(false);
+    expect(
+      mapDiscordUserToEntityInputSchema.safeParse({
+        ...input,
+        isPrimary: false,
+      }).success,
+    ).toBe(true);
+  });
   it("accepts opaque identity and context mapping inputs", () => {
     expect(
       mapDiscordUserToEntityInputSchema.parse({

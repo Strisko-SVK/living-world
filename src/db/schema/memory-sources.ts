@@ -1,6 +1,7 @@
 import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 import { entities } from "./entities.js";
+import { interactions } from "./interactions.js";
 import { memorySourceType } from "./enums.js";
 import { npcMemories } from "./npc-memories.js";
 
@@ -16,7 +17,10 @@ export const memorySources = pgTable(
     sourceEntityId: uuid("source_entity_id").references(() => entities.id, {
       onDelete: "set null",
     }),
-    sourceInteractionId: uuid("source_interaction_id"),
+    sourceInteractionId: uuid("source_interaction_id").references(
+      () => interactions.id,
+      { onDelete: "restrict" },
+    ),
     provenanceNote: text("provenance_note"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

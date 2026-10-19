@@ -1,4 +1,12 @@
-import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  foreignKey,
+  index,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 import { entities } from "./entities.js";
 import {
@@ -42,6 +50,22 @@ export const interactions = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
   },
   (table) => [
+    unique("interactions_world_id_unique").on(table.worldId, table.id),
+    foreignKey({
+      name: "interaction_context_world_fk",
+      columns: [table.worldId, table.contextId],
+      foreignColumns: [interactionContexts.worldId, interactionContexts.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "interaction_npc_world_fk",
+      columns: [table.worldId, table.npcId],
+      foreignColumns: [entities.worldId, entities.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "interaction_speaker_world_fk",
+      columns: [table.worldId, table.speakerEntityId],
+      foreignColumns: [entities.worldId, entities.id],
+    }).onDelete("restrict"),
     index("interactions_world_npc_idx").on(table.worldId, table.npcId),
     index("interactions_world_npc_status_idx").on(
       table.worldId,
