@@ -53,6 +53,11 @@ export function interaction(overrides: Partial<Interaction> = {}): Interaction {
     createdAt: currentDate,
     respondedAt: null,
     completedAt: null,
+    responseClaimId: null,
+    responseClaimedAt: null,
+    responseDispatchedAt: null,
+    responsePromptVersion: null,
+    responseGenerationOutcome: null,
     ...overrides,
   };
 }

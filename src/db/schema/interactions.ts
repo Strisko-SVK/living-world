@@ -52,8 +52,28 @@ export const interactions = pgTable(
       .defaultNow(),
     respondedAt: timestamp("responded_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    responseClaimId: uuid("response_claim_id"),
+    responseClaimedAt: timestamp("response_claimed_at", { withTimezone: true }),
+    responseDispatchedAt: timestamp("response_dispatched_at", {
+      withTimezone: true,
+    }),
+    responsePromptVersion: text("response_prompt_version"),
+    responseGenerationOutcome: text("response_generation_outcome"),
   },
   (table) => [
+    check(
+      "interaction_response_claim_shape",
+      sql`
+      (${table.responseClaimId} is null and ${table.responseClaimedAt} is null
+        and ${table.responseDispatchedAt} is null and ${table.responsePromptVersion} is null
+        and ${table.responseGenerationOutcome} is null)
+      or (${table.responseClaimId} is not null and ${table.responseClaimedAt} is not null
+        and ${table.responsePromptVersion} is not null and length(${table.responsePromptVersion}) > 0
+        and ${table.responseGenerationOutcome} is not null
+        and ${table.responseGenerationOutcome} in ('claimed','dispatched','responded','failed','uncertain')
+        and (${table.responseGenerationOutcome} not in ('dispatched','responded','uncertain')
+          or ${table.responseDispatchedAt} is not null))`,
+    ),
     check(
       "interaction_source_provider_message",
       sql`${table.sourceProvider} is null or (${table.sourceMessageId} is not null and length(${table.sourceMessageId}) > 0 and length(${table.sourceProvider}) > 0)`,

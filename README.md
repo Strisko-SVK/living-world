@@ -470,3 +470,167 @@ schemas, exercise concurrent independent connections and constraints, then remov
 only those fixture tables/schemas. Existing production accounting is untouched.
 SDK/API references: [official TypeScript SDK documentation](https://developers.openai.com/api/reference/typescript)
 and [input-token counting](https://developers.openai.com/api/reference/typescript/resources/responses/subresources/input_tokens/methods/count).
+
+### M2.7 NPC Response Pipeline
+
+`createNpcResponsePipeline(database.db, environment, safeDiagnosticSink)` from
+`src/response/composition.ts` constructs explicit application operations:
+
+```ts
+const pipeline = createNpcResponsePipeline(
+  database.db,
+  process.env,
+  diagnostics,
+);
+const result = await pipeline.generateNpcResponse(
+  worldId,
+  npcId,
+  interactionId,
+  {
+    context: { maxBytes: 48_000, limits: { knowledge: 12 } },
+    maxResponseChars: 2000,
+    maxOutputTokens: 512, // may only lower the M2.6 configured cap
+    requestBudgetMicros, // optional additional ceiling, not a separate budget
+    signal: abortController.signal,
+  },
+);
+// Deliberately invoked by an operator after interruption, never a polling job.
+const recovery = await pipeline.reconcileNpcResponse(
+  worldId,
+  npcId,
+  interactionId,
+);
+```
+
+Import/construction does not generate anything. Startup and Discord intake never
+invoke this pipeline. `createNpcResponseOrchestrator(dependencies, diagnose)` is
+the transport-neutral injectable service, separate from repositories, Context
+Builder and M2.6 generation. It imports no SDK or Discord client. Identifiers must
+be UUIDs. `ResponseResult` is success with a persisted interaction and status
+`responded`/`already_recorded`, or a normalized failure: `invalid_request`,
+`not_found`, `ineligible`, `visibility_blocked`, `context_unavailable`, `claim_lost`,
+`invalid_response`, `persistence`, `cancelled`, `generation_failed`. Generation
+failures may carry an existing safe M2.6 code, never raw provider/database errors.
+Reconciliation returns `not_found`, `not_claimed`, `active`, `responded`,
+`reconciled_failed`, `reconciled_uncertain` or `terminal`.
+
+Speech limits default to 2000 characters, configurable from 1–20000 and bounded
+again by the domain validator. Context options go to M2.5; oversized prompts fail
+before claiming or spending. There is no silent expansion or model switch.
+
+Prompt version `npc-speech-v1` is stored on the claim. Trusted static system and
+developer instructions define speech-only behavior, uncertainty, no tools/state
+authority, and the exact `{"speech":"..."}` contract. Every retrieved value is
+serialized exclusively into user-role JSON, with separate sections for world/game
+system, stored NPC persona, current state, permitted beliefs/memories,
+relationships, scene/current request and unknown chronology/presence. There is no
+default NPC. Baseline identity/summary/personality and stored characteristics are
+untrusted self-profile data for characterization, not policy, disclosure grants
+or authoritative World Truth. Arbitrary baseline keys, profile source notes,
+routing IDs and scene metadata are excluded. Existing manually recorded responses
+retain their recorded prompt version, possibly null; provenance is not fabricated.
+
+Conservative access boundary:
+
+- Recheck world/NPC/interaction/context/requester consistency against the original
+  interaction and M2.5 snapshot. Require an active NPC and active context.
+- The current request requires explicit stored `local` communication mode, a
+  linked scene location, and the NPC's independently stored `certain` current
+  location matching it. This consumes existing domain assertions, not new
+  presence simulation. Discord mappings, mentions and metadata never establish
+  this evidence. `unknown`/`remote` requests are blocked without spending or
+  lifecycle changes. M2.4 intake normally persists `unknown`, so those requests
+  remain blocked until a separately authorized domain workflow establishes valid
+  communication. An anonymous speaker is allowed for an otherwise eligible
+  request; missing/foreign entities for known speakers fail closed.
+- All history is omitted, including same-scene/same-NPC directed messages: these
+  records do not establish historical perception. Current location is not proof
+  of previous presence. Parallel scenes are not sequenced; game time and scene
+  chronology remain unknown. Technical dates exclude later-stored material but
+  are never interpreted as game time or fabricated scene timestamps.
+- The orchestrator forces M2.5's `history` limit to zero, even if a caller requests
+  more, so unperceived history cannot influence term/participant-based relevance.
+  Mapped speaker canonical names are withheld: mapping is not proof of the NPC's
+  recognition of that character. The current request may contain a self-introduction,
+  but that remains an untrusted claim, not confirmed identity.
+- Only owned same-world `public` current/disputed beliefs with complete, uncapped,
+  available provenance enter. Require direct witnessed/heard/read/official sources
+  naming this NPC or the known requester, no archive/external references, chained
+  claims or memory references, and no claim/update/source rows stored after the
+  interaction. This is recorded subjective evidence, not proof of truth or scene
+  perception. Provenance notes/object values/conflict resolution notes are omitted.
+- Conflict groups are indivisible. If any member is private/restricted/secret or
+  lacks admissible provenance, omit the group. Included contradictions preserve
+  classification/confidence/disputed status and are explicitly subjective; a
+  claim labeled `fact` is not elevated to World Truth.
+- All memories and relationship details are omitted: existing records have no
+  disclosure classification proving permission to share with the requester.
+  Prompt sections remain empty with explicit missing-information labels.
+  Internal ownership alone does not authorize disclosure. Archive contents are
+  never fetched. Omission counts remain available at the internal filter boundary;
+  omitted text is kept only for local validation, never sent to the provider.
+
+These restrictions intentionally sacrifice richness. No permission, exposure or
+presence record is invented, and no filter-bypass option exists. The policy uses
+one consistent snapshot, not a dynamic ACL/revocation model or proof of historical
+game chronology. Persona JSON is not semantically verified biography.
+
+Lifecycle and recovery:
+
+- Apply `0011_npc_response_claims` via `pnpm db:migrate`. Five nullable interaction
+  claim/audit fields and a shape constraint preserve all existing records. No
+  previous migration changes, new tables or world-state schema are needed.
+- Lock the scoped interaction, confirm it is unchanged/received with no response
+  or previous claim, and use existing `received -> processing` validation. Claim
+  ID, database timestamp and prompt version commit together. Competing processes
+  cannot claim it. An atomic `claimed -> dispatched` fence records intent before
+  M2.6 invocation, not proof that HTTP reached the provider. No lock is held across
+  context retrieval or generation. Only the matching live claim may persist;
+  immutable response persistence and the `responded` audit outcome commit together.
+- `responded` means generated/validated/persisted, not delivered. No automatic
+  completion or Discord response message ID occurs. Responded/completed requests
+  return existing text without generation. Failed/processing requests are not
+  auto-retried, and previous claims are never cleared to permit regeneration.
+- Claims expire after ten technical minutes. Expiry never permits stealing.
+  Explicit reconciliation leaves live claims alone; expired processing claims
+  transition legally to failed with audit outcome `failed` before dispatch or
+  `uncertain` after possible dispatch. A late worker cannot persist afterward.
+  Reconciliation is idempotent for terminal records and never overwrites speech.
+  There is no scheduler, polling, automatic renewal or automatic regeneration.
+  Unclaimed legacy processing records are left to their original workflow.
+- Process death/lost acknowledgment can leave a durable claim. On persistence
+  errors, inspect the stored interaction first: committed speech is returned,
+  never transitioned `responded -> failed`. Failure repositories independently
+  lock and guard claim/status/response. If PostgreSQL remains unavailable, retain
+  the claim for explicit reconciliation. Recovery never refunds LLM reservations.
+
+M2.6 remains the only generation/budget implementation: token preflight, atomic
+full-attempt reservations, fixed priced model/currency checks, deadlines,
+cancellation, bounded transient retries and usage settlement. One orchestrator
+invocation may include M2.6's bounded retries within the existing reservation; the
+pipeline adds no generation/repair retry. Invalid speech still consumed provider
+usage; interaction failure does not imply a financial refund.
+
+Validation requires JSON containing only bounded nonempty `speech` and reuses the
+domain response validator. It rejects extra tool/action keys, code fences, common
+executable/tool markers, control characters, internal UUIDs and common English
+claims of DM/system approval. Normalized verbatim matches against omitted
+claim/memory/history text (at least eight normalized characters) also reject
+speech without sending that withheld text to the model. These guards can reject
+innocuous repetitions and cannot detect all paraphrased disclosure, multilingual
+approvals or hallucinations. They are not perfect semantic safety or disclosure
+authorization. Speech is untrusted text, never executed; future outbound workflows
+must enforce their own authorization/knowledge boundaries.
+
+Diagnostics contain only safe event/trace/version/outcome metadata, never prompts,
+speech, withheld material, keys or raw errors. Diagnostic sink failures cannot
+change persistence. No task acceptance, memory/knowledge/relationship updates,
+world-time progression, game mechanics, physical movement, autonomous actions,
+Discord outbound messaging, webhooks, avatars or background work are introduced.
+
+Run `pnpm quality:gate`, `pnpm db:migrate`, `pnpm test:db`. Unit tests compose actual
+M2.5/M2.6 services with fakes. PostgreSQL tests exercise actual claims, lifecycle,
+rollback, concurrent connections, interrupted/late-worker fencing, immutable speech
+and domain-state non-mutation. Every provider call uses offline fakes: no paid API
+or outbound Discord calls. Cleanup removes only UUID-scoped fixtures created by
+the tests, never existing application data.
