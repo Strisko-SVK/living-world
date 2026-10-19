@@ -71,6 +71,13 @@
       "when": 1792432355849,
       "tag": "0009_discord_event_idempotency",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792434787205,
+      "tag": "0010_llm_budget_accounting",
+      "breakpoints": true
     }
   ]
 }

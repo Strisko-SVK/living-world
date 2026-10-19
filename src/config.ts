@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getLlmConfig } from "./llm/config.js";
 
 const requiredIntents = ["Guilds", "GuildMessages", "MessageContent"] as const;
 const environmentSchema = z.object({
@@ -30,6 +31,7 @@ export function getApplicationConfig(
   if (enabled && !result.data.DISCORD_TOKEN)
     throw new Error("DISCORD_TOKEN is required when Discord is enabled.");
   return {
+    llm: getLlmConfig(environment),
     discord: {
       enabled,
       token: result.data.DISCORD_TOKEN,

@@ -49,6 +49,7 @@
   "dependencies": {
     "discord.js": "^14.27.0",
     "drizzle-orm": "^0.45.3",
+    "openai": "^7.38.0",
     "pg": "^8.23.0",
     "zod": "^4.6.5"
   }

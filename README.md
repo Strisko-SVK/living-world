@@ -1,5 +1,6 @@
 ## Development
 
+- Runtime: Node.js 22+ (required by the official OpenAI SDK)
 - Package manager: pnpm
 - Install: `pnpm install`
 - Develop: `pnpm dev`
@@ -325,3 +326,147 @@ autonomous actions or scheduling are introduced.
 Verify with `pnpm quality:gate` and `pnpm test:db`. Unit tests inject readers;
 PostgreSQL composition tests exercise real repositories, isolation, contradictions,
 provenance, budgets, deterministic output and absence of state/lifecycle changes.
+
+### M2.6 LLM Provider Foundation
+
+This is explicitly invoked text-generation infrastructure, not NPC orchestration.
+Neither application startup, Discord intake nor Context Builder calls an LLM.
+There are no Discord sends, domain writes, tools, agents or scheduled work.
+
+Architecture: `llm/contracts.ts` owns transport-neutral requests, typed results,
+usage and normalized failures. `llm/generation.ts` controls validation, deadlines,
+retries and spending. `adapters/openai/provider.ts` isolates the official `openai`
+SDK and Responses API behind `TextProvider`; SDK types/errors do not cross this
+boundary. `llm/budget.repository.ts` supplies PostgreSQL accounting. Explicit
+composition uses `createLlmService(database.db, environment, safeDiagnosticSink)`;
+construction/import never makes a provider request. Tests inject providers and
+budget stores into `createTextGenerator`, or inject a fake-fetch SDK into the
+adapter. No framework or NPC response pipeline is introduced.
+
+Configuration in `.env` (never committed):
+
+- `LLM_PROVIDER`: `disabled` (default) or `openai`. Unsupported providers fail closed.
+- `OPENAI_API_KEY`: required when enabled, nonempty and without whitespace. Create
+  a restricted project key privately; set provider-side spending alerts/limits as
+  an additional safeguard. No key or real model/price is supplied in examples.
+- `LLM_MODEL`: exact identifier covered by your independently verified pricing.
+  Choose a supported text-only Responses model with input-token counting and a
+  standard-tier price. Requests may omit model or specify that same identifier;
+  unpriced per-request model overrides are rejected. Model-specific unsupported
+  generation parameters fail as permanent validation errors, not fallback calls.
+- `LLM_TIMEOUT_MS`: default 30000, range 1–120000.
+- `LLM_MAX_OUTPUT_TOKENS`: default 512, range 1–32768; callers can only lower it.
+  This provider limit includes reasoning tokens, not only visible text.
+- `LLM_MAX_ATTEMPTS`: default 2, range 1–3, including the first generation attempt.
+- `LLM_CURRENCY` and `LLM_PRICE_CURRENCY`: required matching `USD` or `EUR`.
+  Use prices actually denominated in that currency. USD and EUR are never
+  equated; there is no exchange-rate source or automatic conversion.
+- `LLM_MONTHLY_BUDGET_MICROS`: required integer 1–10000000. One million micro-units
+  equals one reporting-currency unit. Choose an LLM-only ceiling substantially
+  below the project's roughly €10–15 total monthly operating target, leaving
+  infrastructure headroom. The 10-unit technical maximum is not an FX comparison
+  or a claim that the full operating budget is available to the LLM.
+- `LLM_REQUEST_BUDGET_MICROS`: optional positive integer ceiling, at most 10000000.
+- `LLM_INPUT_MICROS_PER_MILLION` / `LLM_OUTPUT_MICROS_PER_MILLION`: required positive
+  integer standard-tier rates, up to 1000000000 micro-units per million tokens.
+  Verify rates against current official pricing for the configured model before
+  enabling. No model prices are hardcoded. If a rate has finer precision than
+  one micro-unit per million tokens, round it upward, never down.
+
+Apply migration `0010_llm_budget_accounting` with `pnpm db:migrate` before use.
+The minimal API is:
+
+```ts
+const generate = createLlmService(database.db, process.env, diagnostics);
+const result = await generate({
+  traceId, // UUID, safe correlation identifier, never raw user text
+  instructions: {
+    system: applicationOwnedPolicy,
+    developer: applicationOwnedFormattingPolicy,
+  },
+  messages: [{ role: "user", content: untrustedContext }],
+  maxOutputTokens: 128,
+  // Optional lower per-request ceiling, in the configured currency's micro-units.
+  requestBudgetMicros,
+  signal: abortController.signal,
+});
+```
+
+Only trusted application code may provide `instructions`. NPC context, retrieved
+records and Discord/user content belong in `user` messages, never system/developer
+roles. The request validator rejects privileged roles in supplied messages, and
+the adapter preserves role boundaries without template interpolation. This is
+structural separation, not a guarantee against semantic prompt injection. Future
+orchestration must enforce authorization, fictional knowledge and disclosure
+boundaries. Treat generated text as untrusted data; never execute it. The service
+does not render prompts from Context Builder or expose text through Discord.
+
+Accounting and concurrency:
+
+- Input tokens are preflighted using the provider's token-count endpoint on the
+  same model/input/tools configuration, not guessed from characters. Failure or
+  invalid token metadata prevents generation. Preflight sends supplied content
+  to the provider only on explicit invocation; there is no history scraping.
+- Before generation, reserve the full priced input plus maximum output cost for
+  **all** permitted attempts. The optional configured/caller per-request ceiling
+  applies to that full worst case. Prices use exact bigint arithmetic, rounding
+  each attempt upward to whole micro-units. No caching discounts are assumed.
+- A singleton budget account is locked with PostgreSQL `FOR UPDATE` for every
+  reservation/settlement. Its currency cannot silently change, and concurrent
+  callers cannot increase its ceiling: the lowest configured ceiling seen is
+  retained. Increasing it or changing currency requires deliberate operator
+  reconciliation, not merely deploying a more permissive process. All models,
+  worlds and service instances share this installation-wide account.
+- The UTC month contains settled charges by database settlement time. Reservations
+  spanning midnight/month-end remain fully charged until settled. Pending and
+  uncertain charges from **any** month also reduce available capacity. This is
+  deliberately more conservative than an invoice's billing calendar.
+- Successful usage records provider input/output/total tokens and an
+  `estimated_from_usage` cost calculated from configured prices, not invoice cost.
+  Store price snapshots, provider/model, trace/request IDs, outcome, retries and
+  latency; never prompts, output text, credentials or complete response objects.
+- Definitive authentication/validation/rate-limit rejections release that attempt's
+  unused allowance. Transport errors/timeouts may have been billed, so their full
+  per-attempt allowance stays charged. Missing/invalid usage also retains a full
+  allowance, explicitly labeled `conservative_reservation`. Known token totals in
+  an uncertain request are lower bounds, not fabricated totals for failed attempts.
+- Unused, never-dispatched attempts are released at settlement. Abandoned calls
+  retain their full reservation indefinitely, including after restart/month-end.
+  There is no automatic lease expiry/refund: an operator must reconcile uncertain
+  or abandoned records with provider evidence before intentionally adjusting them.
+  Settlement failures leave the original full reservation and withhold generated
+  text. Unexpected higher reported usage is recorded rather than hidden and blocks
+  subsequent requests once the ceiling is reached.
+- `getLlmBudgetSummary(db)` reports the account, evaluated liability, lifetime
+  known token totals, current UTC-month known tokens/settled estimates, unresolved
+  allowances, pending count and unknown-usage count. Per-request observations expose
+  cost kind, currency, usage, provider/model, trace, outcome, latency and retry count.
+
+The SDK's own retries/logging are disabled. Generation retries only normalized
+connection/408/409/429/5xx transient failures, bounded by the attempt limit and the
+overall timeout. Backoff starts at 250ms and doubles, respecting `Retry-After` or
+`retry-after-ms`; if guidance exceeds 5 seconds or the remaining deadline, stop
+instead of retrying early. Input-token preflight is not retried. Timeout and caller
+cancellation abort the transport and stop further attempts, even if a test/provider
+ignores abort. PostgreSQL reservation/settlement may still need to finish; a
+transport timeout is not a PostgreSQL statement deadline. Unknown server-side
+completion remains conservatively charged. Safe diagnostic sink failures cannot
+trigger retries or expose provider exception bodies. `store:false`, standard
+service tier, no background generation and no tools are explicitly requested;
+provider retention/security policies still apply.
+
+Limitations: configured prices must remain accurate; this is conservative local
+accounting, not billing reconciliation or a provider-enforced financial guarantee.
+It cannot account for requests made outside this installation, taxes, FX, provider
+price changes or an API that violates its documented token/output limits. Use
+provider project restrictions/alerts too. Streaming, tools, external actions,
+multimodal inputs, automatic reconciliation, response orchestration and outbound
+messaging are deferred.
+
+Verification: `pnpm quality:gate` and `pnpm test:db`. All provider tests are offline
+fakes, including SDK fake-fetch wire tests; no paid requests or live credentials
+are used. PostgreSQL tests apply the real new migration in UUID-named fixture
+schemas, exercise concurrent independent connections and constraints, then remove
+only those fixture tables/schemas. Existing production accounting is untouched.
+SDK/API references: [official TypeScript SDK documentation](https://developers.openai.com/api/reference/typescript)
+and [input-token counting](https://developers.openai.com/api/reference/typescript/resources/responses/subresources/input_tokens/methods/count).
