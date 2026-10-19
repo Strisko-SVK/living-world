@@ -13,7 +13,7 @@ import {
   type CreateEntityInput,
 } from "./entity.validation.js";
 
-type Database = DatabaseClient["db"];
+type Database = Omit<DatabaseClient["db"], "$client">;
 
 export async function createEntity(
   database: Database,

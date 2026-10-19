@@ -9,7 +9,7 @@ import {
   type CreateWorldInput,
 } from "./world.validation.js";
 
-type Database = DatabaseClient["db"];
+type Database = Omit<DatabaseClient["db"], "$client">;
 
 export async function createWorld(database: Database, input: CreateWorldInput) {
   const value = createWorldInputSchema.parse(input);

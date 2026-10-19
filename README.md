@@ -192,3 +192,136 @@ Run `pnpm quality:gate` for deterministic tests and all static/build checks, the
 idempotency, routing and atomic rollback. Unit tests use fake transports and
 repositories; they never open Discord connections. A live gateway smoke test
 requires a separately configured bot token and mappings and is not automated.
+
+### M2.5 NPC Context Builder
+
+`createNpcContextBuilder(database.db)` from
+`src/context/context.repository.ts` creates a read-only application service:
+
+```ts
+const buildContext = createNpcContextBuilder(database.db);
+const bundle = await buildContext({
+  worldId,
+  npcId,
+  interactionId,
+  maxBytes: 48_000,
+  limits: {
+    knowledge: 12,
+    memories: 8,
+    relationships: 8,
+    history: 10,
+    capabilities: 12,
+    sourcesPerRecord: 4,
+  },
+});
+```
+
+IDs must be UUIDs. Limits are optional integers from 0 through 500; the example
+shows their defaults. `maxBytes` is a positive integer up to 10,000,000. Tests can
+inject the read-only `ContextReader` port into `createContextBuilder(reader)`.
+Production composition reuses the existing world, entity, NPC, interaction,
+knowledge, memory and relationship repositories inside one PostgreSQL
+`REPEATABLE READ READ ONLY` transaction. Reads use that connection sequentially.
+There is no Discord/LLM dependency, listener, scheduled job or automatic invocation
+from intake. Existing entity/world repository database types now also accept
+transactions; their runtime behavior is unchanged.
+
+The typed `NpcContextBundle` includes the NPC identity/baseline, stored state and
+game profile; current interaction, requester and originating scene; subjective
+knowledge with registered conflicts; memories with provenance; outgoing
+relationships with known participants; recent scene history and capabilities.
+It also includes missing-information codes, per-item selection reasons,
+per-category counts, configured limits and byte-budget/truncation metadata.
+Missing core world/NPC/interaction records or mismatched ownership throw
+`ContextUnavailableError`. Missing state, game profile, speaker or scene are
+represented explicitly. Missing or inactive scenes yield no history.
+
+Scope and visibility rules:
+
+- History comes only from this NPC's interactions in the originating world and
+  context, excluding the current interaction and rows stored after its
+  `createdAt`. Other NPCs' conversations are not assumed visible: there is no
+  scene-membership/visibility model yet. Parallel/unrelated scenes are never
+  fetched as history. Empty history is explicitly reported.
+- Knowledge is restricted to this world/NPC and `current`/`disputed` statuses.
+  Subject/object references must resolve in this world. Classification,
+  confidence and secrecy remain subjective metadata, including claims labeled
+  `fact`; they are never promoted to World Truth. Other NPCs' private beliefs
+  and archive contents are not retrieved or expanded.
+- Registered conflict-connected claims form indivisible groups. If one member
+  is unavailable/ineligible, the accessible component is omitted and counted
+  as unavailable. Count or byte limits omit whole groups rather than presenting
+  one side without its recorded contradiction. Unregistered semantic
+  contradictions are not inferred or resolved.
+- Only `active` memories are included; archived, consolidated and invalidated
+  memories and outdated/invalidated knowledge are excluded. Provenance is scoped
+  through its owning record. Sources referencing unavailable/foreign entities,
+  another NPC's interaction/knowledge, or ineligible memories/claims are omitted
+  and counted. Archive/external references already recorded for this NPC remain
+  references; the builder never follows them or fetches archive content.
+- Relationships are only the NPC's outgoing perspective on the requester or
+  speakers in the first `history`-limit eligible scene rows. Incoming feelings
+  and unrelated participants' relationships are not disclosed. Knowing a
+  participant from a recorded interaction does not establish physical presence.
+
+Selection and budget rules are deterministic:
+
+1. Retain the complete current interaction, scene projection, requester, world
+   identity, NPC baseline/state and game profile as essential context. Arbitrary
+   scene metadata and transport routing fields are excluded from the scene
+   projection; they cannot assert game time or presence.
+2. Rank eligible knowledge by scene-location matches (+20), known participant
+   or self references (+10), distinct request-term overlap (+3 each), and scene
+   history-term overlap (+1 each). A conflict group's score is its maximum claim
+   score. Ignore zero-score groups; ties use the smallest claim ID ascending.
+   Preserve all eligible secrecy levels because this is internal NPC context,
+   not an authorized disclosure to another actor.
+3. Rank memories by same-scene interaction provenance (+20), participant
+   provenance (+10), and the same lexical scores. Ignore zero-score memories;
+   ties use importance descending, technical `createdAt` descending, then ID
+   ascending. Provenance caps affect output, not relevance scoring.
+4. Add relevant relationships (requester first, then participant ID and row ID
+   ascending), optional scene history (technical `createdAt` descending, then ID
+   ascending), and capabilities (key ascending). Current scene/core information
+   therefore precedes identity details, knowledge, memories, relationships and
+   optional historical content. History terms/participants used for relevance
+   are restricted to the first `history`-limit eligible rows, regardless of
+   whether the eventual byte budget admits those rows.
+5. Terms are lowercased Unicode letter/number runs of at least three characters;
+   take the first 128 word tokens per text, then deduplicate. ID/key tie-breaking
+   uses JavaScript ordinal string comparison, not locale-dependent collation.
+   Provenance uses technical `createdAt` descending and ID ascending.
+6. Category limits count records (knowledge limits count claims, not groups).
+   Consider candidates in the priority order above. If an optional item/group
+   cannot fit, omit it and continue to smaller candidates. Never shorten stored
+   text or split a registered conflict group. Counts distinguish excluded,
+   irrelevant, unavailable, limit-omitted and budget-omitted rows. Provenance
+   reports total, unavailable and capped-source counts for every included record.
+7. The full bundle, including metadata and reasons, must fit `maxBytes`.
+   `estimateContextBytes` measures UTF-8 bytes of JSON with recursively sorted
+   object keys and ISO serialization of existing Date values. This is a size
+   estimate for future model input, not a tokenizer. The returned estimate
+   includes its own budget field. If essentials and metadata cannot fit, throw
+   `ContextBudgetExceededError` with `requiredBytes` and `maxBytes`; do not silently
+   damage essential information. Output truncation is explicit.
+
+No wall-clock timestamp is synthesized for the bundle. Storage timestamps only
+support technical retrieval order, never in-game chronology. Existing recorded
+dates are preserved without using them to sequence parallel scenes. The bundle
+always reports unknown game time/scene chronology, unsequenced parallel scenes,
+unestablished scene presence and unknown remote reachability. Stored physical
+location/certainty remain separate from the conversation location. Nothing
+advances world time, NPC state or interaction lifecycle.
+
+Current limitations: repository list APIs enumerate owned rows before in-memory
+ranking; output limits are not SQL pagination or an I/O bound. Large NPC archives
+will need bounded/paged retrieval later. There is no semantic ranking, permission
+model beyond world/NPC ownership, scene visibility model, reachability resolver,
+tokenizer, prompt renderer or response/disclosure policy. The bundle is trusted
+internal context and must not be exposed directly as an outbound NPC response.
+No migrations, persistence writes, LLM calls, generated responses, Discord sends,
+autonomous actions or scheduling are introduced.
+
+Verify with `pnpm quality:gate` and `pnpm test:db`. Unit tests inject readers;
+PostgreSQL composition tests exercise real repositories, isolation, contradictions,
+provenance, budgets, deterministic output and absence of state/lifecycle changes.
