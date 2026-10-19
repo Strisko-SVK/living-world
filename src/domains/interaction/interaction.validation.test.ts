@@ -16,6 +16,21 @@ const interactionInput = {
 };
 
 describe("interaction validation", () => {
+  it("requires message provenance when a source provider is supplied", () => {
+    expect(
+      createInteractionInputSchema.safeParse({
+        ...interactionInput,
+        sourceProvider: "discord",
+      }).success,
+    ).toBe(false);
+    expect(
+      createInteractionInputSchema.parse({
+        ...interactionInput,
+        sourceProvider: "discord",
+        sourceMessageId: "000123",
+      }).sourceMessageId,
+    ).toBe("000123");
+  });
   it.each([
     "",
     " ",

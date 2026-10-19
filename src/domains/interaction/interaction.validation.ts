@@ -73,20 +73,26 @@ export const findInteractionContextByExternalRefInputSchema = z
     }
   });
 
-export const createInteractionInputSchema = z.object({
-  contextId: z.string().uuid(),
-  speakerEntityId: z.string().uuid().nullable().optional(),
-  interactionType: z.enum(interactionTypeValues),
-  intentType: z.enum(interactionTypeValues).nullable().optional(),
-  communicationMode: z.enum(communicationModeValues),
-  requestText: z
-    .string()
-    .trim()
-    .min(1, "Request text is required.")
-    .max(20_000),
-  sourceMessageId: externalId,
-  traceId: z.string().uuid().optional(),
-});
+export const createInteractionInputSchema = z
+  .object({
+    contextId: z.string().uuid(),
+    speakerEntityId: z.string().uuid().nullable().optional(),
+    interactionType: z.enum(interactionTypeValues),
+    intentType: z.enum(interactionTypeValues).nullable().optional(),
+    communicationMode: z.enum(communicationModeValues),
+    requestText: z
+      .string()
+      .trim()
+      .min(1, "Request text is required.")
+      .max(20_000),
+    sourceMessageId: externalId,
+    sourceProvider: opaqueReference.max(100).nullable().optional(),
+    traceId: z.string().uuid().optional(),
+  })
+  .refine((value) => !value.sourceProvider || !!value.sourceMessageId, {
+    message: "Source provider requires a source message reference.",
+    path: ["sourceMessageId"],
+  });
 
 export const recordInteractionResponseInputSchema = z.object({
   responseText: z

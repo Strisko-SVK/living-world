@@ -1,0 +1,3 @@
+ALTER TABLE "interactions" ADD COLUMN "source_provider" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "interactions_source_event_npc_unique" ON "interactions" USING btree ("world_id","npc_id","source_provider","source_message_id") WHERE "interactions"."source_provider" is not null and "interactions"."source_message_id" is not null;--> statement-breakpoint
+ALTER TABLE "interactions" ADD CONSTRAINT "interaction_source_provider_message" CHECK ("interactions"."source_provider" is null or ("interactions"."source_message_id" is not null and length("interactions"."source_message_id") > 0 and length("interactions"."source_provider") > 0));

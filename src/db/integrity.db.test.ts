@@ -4,6 +4,23 @@ import { and, eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createDatabaseClient } from "./client.js";
+import { createDiscordPersistence } from "../adapters/discord/persistence.js";
+import {
+  createDiscordIntake,
+  type IncomingMessage,
+} from "../intake/discord-intake.js";
+import { getNpcWithState } from "../domains/npc/npc.repository.js";
+import { completeInteraction } from "../domains/interaction/interaction.repository.js";
+
+const incoming: IncomingMessage = {
+  sourceMessageId: "discord-event",
+  authorId: "unknown-user",
+  guildId: "integrity-guild",
+  channelId: "integrity-channel",
+  threadId: null,
+  content: "Please check the manifest.",
+  mentionedUserIds: [],
+};
 import { discordContextMappings } from "./schema/discord-context-mappings.js";
 import { discordIdentities } from "./schema/discord-identities.js";
 import { interactionContexts } from "./schema/interaction-contexts.js";
@@ -487,6 +504,298 @@ describe("M2.3.1 mapping constraints", () => {
         mappingType: "npc_primary",
       }),
     ).rejects.toMatchObject({ cause: { code: "23505" } });
+  });
+});
+
+describe("M2.4 durable Discord intake", () => {
+  it("deduplicates concurrent events and preserves the original interaction and terminal lifecycle", async () => {
+    const input = {
+      contextId: channel,
+      interactionType: "social" as const,
+      communicationMode: "unknown" as const,
+      requestText: "Original",
+      sourceProvider: "discord",
+      sourceMessageId: incoming.sourceMessageId,
+    };
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        createInteraction(database.db, world, npc, input),
+      ),
+    );
+    expect(new Set(results.map((row) => row!.id)).size).toBe(1);
+    const original = results[0]!;
+    expect(original).toMatchObject({
+      status: "received",
+      responseText: null,
+      sourceProvider: "discord",
+    });
+    await recordInteractionResponse(database.db, world, npc, original.id, {
+      responseText: "Recorded by a later processor",
+    });
+    await completeInteraction(database.db, world, npc, original.id);
+    const retried = await createInteraction(database.db, world, npc, {
+      ...input,
+      contextId: thread,
+      requestText: "Replacement attempt",
+    });
+    expect(retried).toMatchObject({
+      id: original.id,
+      requestText: "Original",
+      contextId: channel,
+      traceId: original.traceId,
+      status: "completed",
+    });
+    await expect(
+      database.db.insert(interactions).values({
+        id: randomUUID(),
+        worldId: world,
+        npcId: npc,
+        traceId: randomUUID(),
+        ...input,
+      }),
+    ).rejects.toMatchObject({ cause: { code: "23505" } });
+  });
+
+  it("allows distinct targets, worlds, providers and legacy unqualified references", async () => {
+    const base = {
+      interactionType: "social" as const,
+      communicationMode: "unknown" as const,
+      requestText: "test",
+      sourceMessageId: incoming.sourceMessageId,
+      sourceProvider: "discord",
+    };
+    const rows = await Promise.all([
+      createInteraction(database.db, world, npc, {
+        ...base,
+        contextId: channel,
+      }),
+      createInteraction(database.db, world, otherNpc, {
+        ...base,
+        contextId: channel,
+      }),
+      createInteraction(database.db, foreignWorld, foreignNpc, {
+        ...base,
+        contextId: foreignContext,
+      }),
+      createInteraction(database.db, world, npc, {
+        ...base,
+        contextId: channel,
+        sourceProvider: "other",
+      }),
+      createInteraction(database.db, world, npc, {
+        ...base,
+        contextId: channel,
+        sourceProvider: null,
+      }),
+      createInteraction(database.db, world, npc, {
+        ...base,
+        contextId: channel,
+        sourceProvider: null,
+      }),
+    ]);
+    expect(new Set(rows.map((row) => row!.id)).size).toBe(6);
+    await expect(
+      database.db.insert(interactions).values({
+        id: randomUUID(),
+        worldId: world,
+        npcId: npc,
+        contextId: channel,
+        traceId: randomUUID(),
+        interactionType: "social",
+        communicationMode: "unknown",
+        requestText: "test",
+        sourceProvider: "discord",
+      }),
+    ).rejects.toMatchObject({ cause: { code: "23514" } });
+  });
+
+  it("persists multiple mentioned NPCs atomically through the real intake during concurrent redelivery", async () => {
+    await mapDiscordContext(database.db, world, {
+      ...location,
+      contextId: channel,
+    });
+    for (const [discordUserId, entityId] of [
+      ["123", npc],
+      ["456", otherNpc],
+    ])
+      await mapDiscordUserToEntity(database.db, world, {
+        discordUserId,
+        entityId,
+        mappingType: "npc_operator",
+      });
+    const intake = createDiscordIntake(createDiscordPersistence(database.db));
+    const message = {
+      ...incoming,
+      content: "<@123> <@456> Please check.",
+      mentionedUserIds: ["123", "456"],
+    };
+    expect(
+      await Promise.all(Array.from({ length: 4 }, () => intake(message))),
+    ).toEqual(["accepted", "accepted", "accepted", "accepted"]);
+    const rows = await database.db
+      .select()
+      .from(interactions)
+      .where(eq(interactions.worldId, world));
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((row) => row.npcId))).toEqual(
+      new Set([npc, otherNpc]),
+    );
+    expect(new Set(rows.map((row) => row.traceId)).size).toBe(1);
+    for (const row of rows)
+      expect(row).toMatchObject({
+        sourceProvider: "discord",
+        sourceMessageId: incoming.sourceMessageId,
+        contextId: channel,
+        speakerEntityId: null,
+        status: "received",
+        communicationMode: "unknown",
+        interactionType: "social",
+        responseText: null,
+      });
+  });
+
+  it("uses exact thread context before fallback, preserving NPC state and other domain data", async () => {
+    await mapDiscordContext(database.db, world, {
+      ...location,
+      contextId: channel,
+    });
+    await setNpcPrimaryContext(database.db, world, npc, channel);
+    await mapDiscordContext(database.db, world, {
+      ...location,
+      contextId: thread,
+      threadId: "known-thread",
+    });
+    await setNpcPrimaryContext(database.db, world, otherNpc, thread);
+    const before = await Promise.all([
+      getNpcWithState(database.db, world, npc),
+      getNpcWithState(database.db, world, otherNpc),
+    ]);
+    const intake = createDiscordIntake(createDiscordPersistence(database.db));
+    expect(
+      await intake({
+        ...incoming,
+        sourceMessageId: "thread-event",
+        threadId: "known-thread",
+      }),
+    ).toBe("accepted");
+    expect(
+      await intake({
+        ...incoming,
+        sourceMessageId: "fallback-event",
+        threadId: "unknown-thread",
+      }),
+    ).toBe("accepted");
+    const rows = await database.db
+      .select()
+      .from(interactions)
+      .where(eq(interactions.worldId, world));
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceMessageId: "thread-event",
+          contextId: thread,
+          npcId: otherNpc,
+        }),
+        expect.objectContaining({
+          sourceMessageId: "fallback-event",
+          contextId: channel,
+          npcId: npc,
+        }),
+      ]),
+    );
+    expect(
+      await Promise.all([
+        getNpcWithState(database.db, world, npc),
+        getNpcWithState(database.db, world, otherNpc),
+      ]),
+    ).toEqual(before);
+    for (const table of [
+      "npc_memories",
+      "npc_knowledge",
+      "relationships",
+      "tasks",
+    ]) {
+      const result = await database.pool.query(
+        `select count(*)::int as count from ${table} where world_id = $1`,
+        [world],
+      );
+      expect(result.rows).toEqual([{ count: 0 }]);
+    }
+  });
+
+  it("rejects unmapped and cross-world ambiguous locations", async () => {
+    const intake = createDiscordIntake(createDiscordPersistence(database.db));
+    expect(await intake(incoming)).toBe("unmapped");
+    await mapDiscordContext(database.db, world, {
+      ...location,
+      contextId: channel,
+    });
+    await setNpcPrimaryContext(database.db, world, npc, channel);
+    expect(await intake({ ...incoming, guildId: "unmapped-guild" })).toBe(
+      "unmapped",
+    );
+    expect(await intake({ ...incoming, channelId: "unmapped-channel" })).toBe(
+      "unmapped",
+    );
+    await mapDiscordContext(database.db, foreignWorld, {
+      ...location,
+      contextId: foreignContext,
+    });
+    expect(await intake(incoming)).toBe("ambiguous_world");
+    expect(
+      await database.db
+        .select()
+        .from(interactions)
+        .where(eq(interactions.worldId, world)),
+    ).toHaveLength(0);
+  });
+
+  it("rejects ambiguous speakers and resolves explicit primaries through real mappings", async () => {
+    await mapDiscordContext(database.db, world, {
+      ...location,
+      contextId: channel,
+    });
+    await setNpcPrimaryContext(database.db, world, npc, channel);
+    for (const entityId of [first, second])
+      await mapDiscordUserToEntity(database.db, world, {
+        ...identity,
+        entityId,
+      });
+    const intake = createDiscordIntake(createDiscordPersistence(database.db));
+    const message = { ...incoming, authorId: identity.discordUserId };
+    expect(await intake(message)).toBe("ambiguous_speaker");
+    await setPrimaryDiscordEntity(
+      database.db,
+      world,
+      identity.discordUserId,
+      second,
+    );
+    expect(await intake(message)).toBe("accepted");
+    const rows = await database.db
+      .select()
+      .from(interactions)
+      .where(eq(interactions.worldId, world));
+    expect(rows).toMatchObject([{ speakerEntityId: second }]);
+  });
+
+  it("rolls back all targets if one target becomes unavailable", async () => {
+    const persistence = createDiscordPersistence(database.db);
+    await expect(
+      persistence.persist({
+        worldId: world,
+        contextId: channel,
+        speakerEntityId: null,
+        npcIds: [npc, randomUUID()],
+        message: incoming,
+        traceId: randomUUID(),
+      }),
+    ).rejects.toThrow("no longer available");
+    expect(
+      await database.db
+        .select()
+        .from(interactions)
+        .where(eq(interactions.worldId, world)),
+    ).toHaveLength(0);
   });
 });
 

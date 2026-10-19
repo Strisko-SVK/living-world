@@ -1,10 +1,13 @@
+import { sql } from "drizzle-orm";
 import {
+  check,
   foreignKey,
   index,
   pgTable,
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -41,6 +44,7 @@ export const interactions = pgTable(
     responseText: text("response_text"),
     status: interactionStatus("status").notNull().default("received"),
     sourceMessageId: text("source_message_id"),
+    sourceProvider: text("source_provider"),
     responseMessageId: text("response_message_id"),
     traceId: uuid("trace_id").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -50,6 +54,20 @@ export const interactions = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
   },
   (table) => [
+    check(
+      "interaction_source_provider_message",
+      sql`${table.sourceProvider} is null or (${table.sourceMessageId} is not null and length(${table.sourceMessageId}) > 0 and length(${table.sourceProvider}) > 0)`,
+    ),
+    uniqueIndex("interactions_source_event_npc_unique")
+      .on(
+        table.worldId,
+        table.npcId,
+        table.sourceProvider,
+        table.sourceMessageId,
+      )
+      .where(
+        sql`${table.sourceProvider} is not null and ${table.sourceMessageId} is not null`,
+      ),
     unique("interactions_world_id_unique").on(table.worldId, table.id),
     foreignKey({
       name: "interaction_context_world_fk",

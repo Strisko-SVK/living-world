@@ -6,9 +6,9 @@
   "main": "dist/index.js",
   "packageManager": "pnpm@10.17.1",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "node --env-file-if-exists=.env --import tsx --watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node --env-file-if-exists=.env dist/index.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -47,6 +47,7 @@
   },
   "private": true,
   "dependencies": {
+    "discord.js": "^14.27.0",
     "drizzle-orm": "^0.45.3",
     "pg": "^8.23.0",
     "zod": "^4.6.5"

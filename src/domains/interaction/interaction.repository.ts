@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import type { DatabaseClient } from "../../db/client.js";
@@ -157,7 +157,31 @@ export async function createInteraction(
       traceId: value.traceId ?? randomUUID(),
       status: "received",
     })
+    .onConflictDoNothing({
+      target: [
+        interactions.worldId,
+        interactions.npcId,
+        interactions.sourceProvider,
+        interactions.sourceMessageId,
+      ],
+      where: sql`${interactions.sourceProvider} is not null and ${interactions.sourceMessageId} is not null`,
+    })
     .returning();
+  if (!interaction && value.sourceProvider && value.sourceMessageId) {
+    const [existing] = await database
+      .select()
+      .from(interactions)
+      .where(
+        and(
+          eq(interactions.worldId, worldId),
+          eq(interactions.npcId, npcId),
+          eq(interactions.sourceProvider, value.sourceProvider),
+          eq(interactions.sourceMessageId, value.sourceMessageId),
+        ),
+      )
+      .limit(1);
+    if (existing) return existing;
+  }
   if (!interaction)
     throw new Error("Interaction creation did not return a record.");
   return interaction;
