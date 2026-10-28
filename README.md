@@ -101,6 +101,11 @@ the task/report delivery workflow and are not needed for M2.4 inbound intake.
 
 ### M2.4 Discord adapter
 
+This section documents the foundation's legacy mapped-target contract. The
+application runtime now uses M2.8 explicit alias triggers and default-deny intake
+authorization, described below. Legacy primary/operator targeting is available
+only through the explicit internal `mapped` compatibility mode.
+
 Use a Discord application bot account, not a user token. In the
 [Discord Developer Portal](https://discord.com/developers/applications), create a
 bot, enable **Message Content Intent**, and install it in the intended server
@@ -766,3 +771,141 @@ leases, authorization checks before provider calls, immutable results, recovery
 and accounting ownership remain in place. No migrations, provider/model pricing,
 Discord delivery, exposure model, autonomous tasks or domain-state writes are
 introduced.
+
+### M2.8 Explicit Discord NPC Trigger & Authorized Interaction Intake
+
+M2.8 extends the existing Discord adapter/intake/persistence path. One central
+Living World bot receives an explicit request addressed to a registered NPC alias:
+
+```text
+<@BOT_ID> [Garak] Check the manifest.
+```
+
+`<@!BOT_ID>` is also supported. In Discord, insert a real user mention of the
+application bot; typing its display name is not a trigger. The authenticated SDK
+client supplies the bot ID separately from normalized message data. Events with
+no authenticated client identity are ignored. No bot ID is accepted from message
+fields, aliases, mappings or configuration. Literal mention and SDK mention
+metadata must agree. Existing exclusions for bot/webhook/system/partial messages,
+DMs, unsupported channels/types and edits remain in place. Replies require their
+own explicit trigger; reply-author metadata is never a selector.
+
+The pure `parseDiscordTrigger` function requires the leading mention, horizontal
+whitespace, one bracketed alias and horizontal whitespace before a nonempty
+request. Outer whitespace is trimmed under the existing incoming-message
+contract. Aliases cannot contain brackets, line breaks, control/format characters
+or exceed 200 characters. Empty and mention-only requests fail closed. Additional
+mentions/brackets in the request body are data, never secondary targets. Requests
+retain the existing 20000-character trimmed-content bound. Stored `requestText`
+remains the complete original trimmed message, including its trigger.
+
+Intake authorization is separate from response authorization. There is no trusted
+persisted permission model in the current schema; arbitrary context metadata,
+channel visibility, primary spaces, character/operator identities and mentions do
+not grant permission. Configure an explicit operator-owned JSON allowlist:
+
+```dotenv
+DISCORD_ENABLED=true
+DISCORD_INTAKE_ALLOWLIST='[{"worldId":"00000000-0000-4000-8000-000000000001","contextId":"00000000-0000-4000-8000-000000000002","authorId":"123456789012345678"}]'
+```
+
+These are illustrative IDs only. Use an existing world/context and the actual
+Discord author's ID. The default is `[]` (deny every intake request). Each strict
+grant contains exactly `worldId`, `contextId` and `authorId`; there are no wildcards,
+roles or response permissions. UUIDs and opaque author references are validated;
+configuration is limited to 1000 grants and 250000 characters. Invalid JSON,
+unknown grant fields or malformed references fail startup with a generic error
+before connecting resources. Do not log the allowlist or private environment.
+The persistence adapter copies a validated startup policy. To revoke permission,
+stop and drain every old intake instance, then restart with replacement
+configuration. There is no hot-reload/revocation service or database ACL table.
+
+Provision mappings and aliases explicitly through the existing repositories:
+
+```ts
+await addEntityAlias(database.db, worldId, npcId, { alias: "Garak" });
+```
+
+The existing alias normalizer trims, lowercases and collapses whitespace. Resolve
+only registered aliases in the world selected from active Discord mappings. A
+canonical name or baseline-profile alias is not automatically registered. Exactly
+one distinct entity must match, and it must be an active NPC entity/profile.
+Same-world collisions, including inactive or non-NPC entities, are rejected;
+there is no preferred winner, fuzzy matching, canonical fallback or global alias
+uniqueness constraint. Identical aliases across different worlds remain valid.
+
+`createDiscordIntake` defaults to `explicit_alias`; `startApplication` explicitly
+selects that mode and passes the configured grants to existing Discord
+persistence. The foundation's `mapped` mode is an explicit trusted compatibility
+API for existing primary/operator routing, not a runtime fallback or a public
+authorization endpoint. The runtime never falls back to it. Do not run legacy
+receivers alongside strict receivers for the same bot if relying on M2.8 policy.
+No second intake service, generic permission framework, queue or scheduler exists.
+
+The existing persistence transaction now handles authoritative explicit routing:
+
+1. Revalidate the normalized message and authenticated-bot trigger. Serialize the
+   guild/parent-channel location, then lock matching mapping rows and their worlds.
+   Exactly one active world must match; cross-world ambiguity is rejected even
+   when one world has an exact thread mapping.
+2. Reuse exact-thread-before-channel context resolution. Lock and require the
+   resolved active context; an inactive exact context never falls back to a
+   different scene. Evaluate the precise world/context/author allowlist tuple.
+3. Serialize the scoped source event and existing author-identity writers. Lock
+   identity/entity rows and reuse the existing speaker rule: a unique active
+   player character, or exactly one explicit primary among multiple characters.
+   Ambiguity is rejected. An explicitly authorized author may remain an unknown
+   speaker (`null`); operator identity does not fabricate NPC speech identity.
+4. Serialize alias registration/resolution and lock matching alias/entity rows
+   plus the target NPC profile. `addEntityAlias` and `mapDiscordContext` cooperate
+   with the same advisory-lock patterns, protecting new alias/mapping insertions
+   even when no matching row existed previously. Active status is checked inside
+   the transaction; no channel or primary space becomes a physical location.
+5. Lock up to two existing interaction rows for this world's Discord event.
+   Exactly one matching target/context/speaker/original request yields `duplicate`
+   without changing its trace, text, lifecycle, claim or response. Conflicting
+   routing or legacy multi-target events yield `event_conflict`; reassigned aliases
+   cannot create another NPC interaction on retry. Removed/ambiguous/inactive
+   aliases also fail without altering the original interaction.
+6. For a new eligible event, call the existing `createInteraction` repository with
+   one target, `received` status, `social` type, `unknown` communication mode,
+   provider `discord`, original source ID and trace. Existing database uniqueness
+   and immutable response/lifecycle behavior remain unchanged.
+
+Lock waits are limited to two seconds and statements to five seconds in the
+strict transaction. A database/lock failure rolls back and returns safe `error`;
+there is no automatic retry queue. Scope locks are short database operations and
+never span an external provider call. Diagnostics contain fixed outcome codes,
+not messages, aliases, identities, policy configuration or raw database errors.
+Other outcomes include `invalid_trigger`, `unsupported`, `unmapped`,
+`ambiguous_world`, `unauthorized`, `ambiguous_speaker`, `ambiguous_target`,
+`invalid_target`, `accepted`, `duplicate` and `event_conflict`.
+
+Limitations are explicit: uniqueness/retry binding remains scoped to the world
+and existing per-NPC event contract. Reassigning a Discord location to a different
+world during redelivery can create an independent interaction there; there is no
+global event receipt or cross-world immutability guarantee. Operator SQL that
+inserts aliases/mappings must honor the same locking protocol when intake runs;
+application repository writes coordinate automatically. Same-location strict
+intake is serialized, and the cross-NPC event lookup uses existing indexes; this
+is a small bounded transaction design, not a high-throughput routing platform.
+No migrations or schema changes are required; `0000`–`0011` remain unchanged.
+
+M2.8 does not call M2.7. An accepted trigger is permission to record intake, not
+permission to generate a response. `unknown` communication remains blocked by
+M2.7 before token counting, budget reservation or generation, even when independent
+stored location evidence happens to match. Nothing changes NPC location,
+perception, knowledge, memories, relationships, tasks or world time. No Discord
+outbound/webhooks, passive perception, autonomous actions, archive synchronization,
+background scene monitoring, paid/live test calls or deployment are introduced.
+
+Verification uses parser/config/adapter/runtime unit tests and
+`src/db/discord-trigger.db.test.ts` against real PostgreSQL. Tests cover scoped
+permissions and replacement-policy revocation, alias collisions/normalization,
+wrong-world isolation, thread precedence, primary/unknown speakers, concurrent
+redelivery, alias reassignment, immutable terminal interactions, concurrent
+scene/NPC/world/mapping revocation, cooperating alias/mapping insertion and the
+unknown-mode M2.7 generation boundary. All transports/providers are offline fakes;
+PostgreSQL cleanup removes only UUID-scoped fixtures created by the suite. Run
+`pnpm quality:gate`, `pnpm db:migrate`, `pnpm test:db`, Drizzle integrity/drift
+checks and `git diff --check` before independent review.

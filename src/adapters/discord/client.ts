@@ -6,11 +6,11 @@ import type {
 } from "../../intake/discord-intake.js";
 import { normalizeDiscordMessage } from "./message.js";
 
-type ClientPort = Pick<Client, "on" | "off" | "login" | "destroy">;
+type ClientPort = Pick<Client, "on" | "off" | "login" | "destroy" | "user">;
 
 export function createDiscordAdapter(
-  config: ApplicationConfig["discord"],
-  intake: (message: IncomingMessage) => Promise<unknown>,
+  config: Pick<ApplicationConfig["discord"], "enabled" | "token" | "intents">,
+  intake: (message: IncomingMessage, botId: string) => Promise<unknown>,
   diagnose: Diagnostics = () => {},
   client: ClientPort = new Client({
     intents: config.intents.map((name) => GatewayIntentBits[name]),
@@ -21,11 +21,12 @@ export function createDiscordAdapter(
   let started = false;
   let stopPromise: Promise<void> | undefined;
   const onMessage = (message: Message) => {
-    if (stopping) return;
+    if (stopping || !client.user?.id) return;
+    const botId = client.user.id;
     const work = (async () => {
       try {
         const normalized = normalizeDiscordMessage(message);
-        if (normalized) await intake(normalized);
+        if (normalized) await intake(normalized, botId);
       } catch {
         diagnose({ event: "discord_message_error" });
       }

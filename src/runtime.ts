@@ -21,7 +21,11 @@ export async function startApplication(
   const database = createDatabaseClient(environment);
   const adapter = createDiscordAdapter(
     config.discord,
-    createDiscordIntake(createDiscordPersistence(database.db), diagnose),
+    createDiscordIntake(
+      createDiscordPersistence(database.db, config.discord.intakeAllowlist),
+      diagnose,
+      "explicit_alias",
+    ),
     diagnose,
   );
   let stopPromise: Promise<void> | undefined;
