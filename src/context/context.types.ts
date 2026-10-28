@@ -25,7 +25,17 @@ type StoredNpc = NonNullable<Awaited<ReturnType<typeof getNpcWithState>>>;
 export type NpcSnapshot = Omit<StoredNpc, "state"> & {
   state: StoredNpc["state"] | null;
 };
+export interface ContextSelection {
+  terms: string[];
+  entityIds: string[];
+  participantIds: string[];
+  interactionIds: string[];
+  limit: number;
+}
 export interface ContextReader {
+  // Populated by bounded SQL source batches; omitted rows remain explicit.
+  sourceTotals?: Map<string, number>;
+  memoryRelevance?: Map<string, { scene: boolean; participant: boolean }>;
   world(
     worldId: string,
   ): Promise<Awaited<ReturnType<typeof getWorldById>> | null>;
@@ -37,6 +47,7 @@ export interface ContextReader {
   capabilities(
     worldId: string,
     npcId: string,
+    limit?: number,
   ): ReturnType<typeof listNpcCapabilities>;
   entity(
     worldId: string,
@@ -55,26 +66,39 @@ export interface ContextReader {
     worldId: string,
     npcId: string,
     contextId: string,
+    window?: { before: Date; exclude: string; limit: number },
   ): ReturnType<typeof listInteractionsForNpc>;
-  knowledge(worldId: string, npcId: string): ReturnType<typeof listKnowledge>;
+  knowledge(
+    worldId: string,
+    npcId: string,
+    selection?: ContextSelection,
+  ): ReturnType<typeof listKnowledge>;
   knowledgeSources(
     worldId: string,
     npcId: string,
     knowledgeId: string,
+    limit?: number,
   ): ReturnType<typeof listKnowledgeSources>;
   conflicts(
     worldId: string,
     npcId: string,
+    claimIds?: string[],
   ): ReturnType<typeof listKnowledgeConflicts>;
-  memories(worldId: string, npcId: string): ReturnType<typeof listMemories>;
+  memories(
+    worldId: string,
+    npcId: string,
+    selection?: ContextSelection,
+  ): ReturnType<typeof listMemories>;
   memorySources(
     worldId: string,
     npcId: string,
     memoryId: string,
+    limit?: number,
   ): ReturnType<typeof listMemorySources>;
   relationships(
     worldId: string,
     npcId: string,
+    participantIds?: string[],
   ): ReturnType<typeof listRelationshipsFrom>;
 }
 export type Interaction = NonNullable<

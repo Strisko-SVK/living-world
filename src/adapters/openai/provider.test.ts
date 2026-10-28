@@ -38,6 +38,83 @@ function fixture(
   return { fetch, provider: createOpenAiProvider(enabledConfig(), sdk) };
 }
 describe("OpenAI SDK transport boundary (fake fetch only)", () => {
+  it("sends strict native schema configuration in token counting and generation", async () => {
+    const { provider, fetch } = fixture();
+    const responseFormat = {
+      name: "npc_speech",
+      schema: {
+        type: "object",
+        properties: { speech: { type: "string" } },
+        required: ["speech"],
+        additionalProperties: false,
+      },
+    };
+    await provider.countInput({ ...request, responseFormat }, signal());
+    // Token-count fixture is not a completion; only inspect wire configuration.
+    const completion = fixture(200, {
+      object: "response",
+      status: "completed",
+      output: [
+        {
+          type: "message",
+          role: "assistant",
+          content: [
+            {
+              type: "output_text",
+              text: '{"speech":"Hello."}',
+              annotations: [],
+            },
+          ],
+        },
+      ],
+      usage: { input_tokens: 12, output_tokens: 3, total_tokens: 15 },
+    });
+    expect(
+      await completion.provider.generate(
+        { ...request, responseFormat },
+        signal(),
+      ),
+    ).toMatchObject({ completed: true, text: '{"speech":"Hello."}' });
+    for (const body of [
+      JSON.parse(fetch.mock.calls[0][1].body),
+      JSON.parse(completion.fetch.mock.calls[0][1].body),
+    ])
+      expect(body.text.format).toEqual({
+        type: "json_schema",
+        ...responseFormat,
+        strict: true,
+      });
+    expect(provider.supportsStructuredOutput).toBe(true);
+  });
+  it.each(["refusal", "incomplete"])(
+    "fails closed for %s output without losing usage",
+    async (kind) => {
+      const { provider } = fixture(200, {
+        status: kind === "incomplete" ? "incomplete" : "completed",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content:
+              kind === "refusal"
+                ? [{ type: "refusal", refusal: "Rejected" }]
+                : [
+                    {
+                      type: "output_text",
+                      text: '{"speech":',
+                      annotations: [],
+                    },
+                  ],
+          },
+        ],
+        usage: { input_tokens: 12, output_tokens: 3, total_tokens: 15 },
+      });
+      expect(await provider.generate(request, signal())).toMatchObject({
+        completed: false,
+        usage: { inputTokens: 12, outputTokens: 3, totalTokens: 15 },
+      });
+    },
+  );
   it("treats exhausted provider quota as permanent rather than retryable", () => {
     expect(
       normalizeError(

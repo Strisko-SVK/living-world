@@ -2,13 +2,28 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { DatabaseClient } from "./client.js";
 import { getDatabaseConfig } from "./config.js";
 import {
   createBudgetStore,
   getLlmBudgetSummary,
 } from "../llm/budget.repository.js";
+import { createTextGenerator } from "../llm/generation.js";
+import {
+  enabledConfig,
+  fakeProvider,
+  request,
+} from "../llm/llm.test-fixture.js";
+import { ProviderFailure } from "../llm/contracts.js";
 import type { Reservation, Settlement } from "../llm/contracts.js";
 
 // A unique schema applies the actual forward migration, with only its explicit
@@ -65,6 +80,138 @@ const settlement = (overrides: Partial<Settlement> = {}): Settlement => ({
   ...overrides,
 });
 describe("durable LLM accounting", () => {
+  it.each(["normal", "overrun", "retry", "uncertain", "unbilled"])(
+    "settles one durable invocation through actual generation: %s",
+    async (mode) => {
+      const provider = fakeProvider();
+      if (mode === "overrun" || mode === "retry")
+        vi.mocked(provider.generate).mockResolvedValue({
+          text: "Synthetic",
+          completed: true,
+          usage: { inputTokens: 10, outputTokens: 300, totalTokens: 310 },
+        });
+      if (mode === "retry")
+        vi.mocked(provider.generate).mockRejectedValueOnce(
+          new ProviderFailure("unavailable", true),
+        );
+      if (mode === "uncertain")
+        vi.mocked(provider.generate).mockResolvedValue({
+          text: "Synthetic",
+          completed: true,
+          usage: null,
+        });
+      if (mode === "unbilled")
+        vi.mocked(provider.generate).mockRejectedValue(
+          new ProviderFailure("authentication", false, undefined, true),
+        );
+      const result = await createTextGenerator(
+        { ...enabledConfig(), monthlyMicros: 1000n },
+        provider,
+        store,
+      )(request);
+      const expected =
+        mode === "normal"
+          ? "20"
+          : mode === "overrun"
+            ? "610"
+            : mode === "retry"
+              ? "820"
+              : mode === "uncertain"
+                ? "210"
+                : "0";
+      expect(result.observation.costMicros).toBe(expected);
+      const { rows } = await pool.query(
+        "select reserved_micros::text,charged_micros::text,status,retries from llm_usage",
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toEqual({
+        reserved_micros: "420",
+        charged_micros: expected,
+        status: ["retry", "uncertain"].includes(mode) ? "uncertain" : "settled",
+        retries: mode === "retry" ? 1 : 0,
+      });
+      expect((await getLlmBudgetSummary(db)).usage.reservationOverruns).toBe(
+        ["overrun", "retry"].includes(mode) ? 1 : 0,
+      );
+      expect(provider.generate).toHaveBeenCalledTimes(mode === "retry" ? 2 : 1);
+    },
+  );
+  it.each([
+    {
+      charged: 10n,
+      uncertain: false,
+      outcome: "success",
+      overruns: 0,
+      overage: "0",
+    },
+    {
+      charged: 60n,
+      uncertain: false,
+      outcome: "success",
+      overruns: 0,
+      overage: "0",
+    },
+    {
+      charged: 110n,
+      uncertain: false,
+      outcome: "invalid_response",
+      overruns: 1,
+      overage: "50",
+    },
+    {
+      charged: 110n,
+      uncertain: true,
+      outcome: "timeout",
+      overruns: 1,
+      overage: "50",
+    },
+    {
+      charged: 0n,
+      uncertain: false,
+      outcome: "authentication",
+      overruns: 0,
+      overage: "0",
+    },
+  ])(
+    "derives durable reservation anomalies for $charged/$uncertain",
+    async ({ charged, uncertain, outcome, overruns, overage }) => {
+      const value = reservation();
+      expect(await store.reserve(value)).toBe(true);
+      await store.settle(value.id, settlement({ charged, uncertain, outcome }));
+      const summary = await getLlmBudgetSummary(db);
+      expect(summary.usage).toMatchObject({
+        liabilityMicros: String(charged),
+        reservationOverruns: overruns,
+        reservationOverageMicros: overage,
+        pending: 0,
+      });
+      expect(summary.account?.ceiling).toBe(100n);
+      await expect(
+        store.settle(value.id, settlement({ charged: 0n })),
+      ).rejects.toThrow("not pending");
+      expect(
+        (await getLlmBudgetSummary(db)).usage.reservationOverageMicros,
+      ).toBe(overage);
+    },
+  );
+  it("allows only one concurrent settlement and reports its overage once", async () => {
+    const value = reservation();
+    await store.reserve(value);
+    const results = await Promise.allSettled(
+      Array.from({ length: 6 }, () =>
+        store.settle(value.id, settlement({ charged: 110n })),
+      ),
+    );
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect((await getLlmBudgetSummary(db)).usage).toMatchObject({
+      liabilityMicros: "110",
+      reservationOverruns: 1,
+      reservationOverageMicros: "50",
+    });
+    expect(await store.reserve(reservation({ reserved: 1n }))).toBe(false);
+  });
   it("marks partial known usage as incomplete when earlier attempts may have been billed", async () => {
     const value = reservation();
     await store.reserve(value);

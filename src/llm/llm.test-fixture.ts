@@ -32,6 +32,7 @@ export const request: GenerationRequest = {
 };
 export function fakeProvider(): TextProvider {
   return {
+    supportsStructuredOutput: true,
     countInput: vi.fn().mockResolvedValue(10),
     generate: vi.fn().mockResolvedValue({
       text: "Synthetic text",

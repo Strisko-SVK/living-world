@@ -102,6 +102,10 @@ export async function getLlmBudgetSummary(database: Database) {
       monthlyEstimatedMicros: sql<string>`coalesce(sum(charged_micros) filter (where status = 'settled' and settled_at >= date_trunc('month', current_timestamp at time zone 'UTC') at time zone 'UTC'),0)::text`,
       unresolvedMicros: sql<string>`coalesce(sum(charged_micros) filter (where status in ('reserved', 'uncertain')),0)::text`,
       unknownUsage: sql<number>`count(*) filter (where input_tokens is null or status in ('reserved', 'uncertain'))::int`,
+      // The original reservation and truthful settlement already form a durable
+      // anomaly record. Derive this signal without another ledger or migration.
+      reservationOverruns: sql<number>`count(*) filter (where status <> 'reserved' and charged_micros > reserved_micros)::int`,
+      reservationOverageMicros: sql<string>`coalesce(sum(greatest(charged_micros-reserved_micros,0)) filter (where status <> 'reserved'),0)::text`,
       pending: sql<number>`count(*) filter (where status = 'reserved')::int`,
     })
     .from(llmUsage);

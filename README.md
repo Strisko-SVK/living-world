@@ -470,3 +470,299 @@ schemas, exercise concurrent independent connections and constraints, then remov
 only those fixture tables/schemas. Existing production accounting is untouched.
 SDK/API references: [official TypeScript SDK documentation](https://developers.openai.com/api/reference/typescript)
 and [input-token counting](https://developers.openai.com/api/reference/typescript/resources/responses/subresources/input_tokens/methods/count).
+
+### M2.7 NPC Response Pipeline
+
+`createNpcResponsePipeline(database.db, environment, safeDiagnosticSink)` from
+`src/response/composition.ts` constructs explicit application operations:
+
+```ts
+const pipeline = createNpcResponsePipeline(
+  database.db,
+  process.env,
+  diagnostics,
+);
+const result = await pipeline.generateNpcResponse(
+  worldId,
+  npcId,
+  interactionId,
+  {
+    context: { maxBytes: 48_000, limits: { knowledge: 12 } },
+    maxResponseChars: 2000,
+    maxOutputTokens: 512, // may only lower the M2.6 configured cap
+    requestBudgetMicros, // optional additional ceiling, not a separate budget
+    signal: abortController.signal,
+  },
+);
+// Deliberately invoked by an operator after interruption, never a polling job.
+const recovery = await pipeline.reconcileNpcResponse(
+  worldId,
+  npcId,
+  interactionId,
+);
+```
+
+Import/construction does not generate anything. Startup and Discord intake never
+invoke this pipeline. `createNpcResponseOrchestrator(dependencies, diagnose)` is
+the transport-neutral injectable service, separate from repositories, Context
+Builder and M2.6 generation. It imports no SDK or Discord client. Identifiers must
+be UUIDs. `ResponseResult` is success with a persisted interaction and status
+`responded`/`already_recorded`, or a normalized failure: `invalid_request`,
+`not_found`, `ineligible`, `visibility_blocked`, `context_unavailable`, `claim_lost`,
+`invalid_response`, `persistence`, `cancelled`, `generation_failed`. Generation
+failures may carry an existing safe M2.6 code, never raw provider/database errors.
+Reconciliation returns `not_found`, `not_claimed`, `active`, `responded`,
+`reconciled_failed`, `reconciled_uncertain` or `terminal`.
+
+Speech limits default to 2000 characters, configurable from 1–20000 and bounded
+again by the domain validator. Context options go to M2.5; oversized prompts fail
+before claiming or spending. There is no silent expansion or model switch.
+
+Prompt version `npc-speech-v1` is stored on the claim. Trusted static system and
+developer instructions define speech-only behavior, uncertainty, no tools/state
+authority, and the exact `{"speech":"..."}` contract. Every retrieved value is
+serialized exclusively into user-role JSON, with separate sections for world/game
+system, stored NPC persona, current state, permitted beliefs/memories,
+relationships, scene/current request and unknown chronology/presence. There is no
+default NPC. Baseline identity/summary/personality and stored characteristics are
+untrusted self-profile data for characterization, not policy, disclosure grants
+or authoritative World Truth. Arbitrary baseline keys, profile source notes,
+routing IDs and scene metadata are excluded. Existing manually recorded responses
+retain their recorded prompt version, possibly null; provenance is not fabricated.
+
+Conservative access boundary:
+
+- Recheck world/NPC/interaction/context/requester consistency against the original
+  interaction and M2.5 snapshot. Require an active NPC and active context.
+- The current request requires explicit stored `local` communication mode, a
+  linked scene location, and the NPC's independently stored `certain` current
+  location matching it. This consumes existing domain assertions, not new
+  presence simulation. Discord mappings, mentions and metadata never establish
+  this evidence. `unknown`/`remote` requests are blocked without spending or
+  lifecycle changes. M2.4 intake normally persists `unknown`, so those requests
+  remain blocked until a separately authorized domain workflow establishes valid
+  communication. An anonymous speaker is allowed for an otherwise eligible
+  request; missing/foreign entities for known speakers fail closed.
+- All history is omitted, including same-scene/same-NPC directed messages: these
+  records do not establish historical perception. Current location is not proof
+  of previous presence. Parallel scenes are not sequenced; game time and scene
+  chronology remain unknown. Technical dates exclude later-stored material but
+  are never interpreted as game time or fabricated scene timestamps.
+- The orchestrator forces M2.5's `history` limit to zero, even if a caller requests
+  more, so unperceived history cannot influence term/participant-based relevance.
+  Mapped speaker canonical names are withheld: mapping is not proof of the NPC's
+  recognition of that character. The current request may contain a self-introduction,
+  but that remains an untrusted claim, not confirmed identity.
+- All retrieved knowledge is withheld, including public current/disputed claims.
+  Existing sources record attribution and labels, not reliable NPC exposure.
+  `heard`, `witnessed`, `read`, `official`, requester/NPC identity, source notes,
+  Discord routing and storage dates cannot prove perception. Persistence has no
+  admissible exposure evidence for these claims; no source type is exempt.
+  Whole conflict groups are withheld, preserving world/NPC isolation and avoiding
+  partial contradictions. This restriction remains until a future capability can
+  represent reliable exposure and disclosure evidence; no exposure data is created.
+- All memories and relationship details are omitted: existing records have no
+  disclosure classification proving permission to share with the requester.
+  Prompt sections remain empty with explicit missing-information labels.
+  Internal ownership alone does not authorize disclosure. Archive contents are
+  never fetched. Omission counts remain available at the internal filter boundary;
+  omitted text is kept only for local validation, never sent to the provider.
+
+These restrictions intentionally sacrifice richness. No permission, exposure or
+presence record is invented, and no filter-bypass option exists. The policy uses
+an initial consistent snapshot plus authoritative checks at transaction boundaries,
+not a dynamic ACL system or proof of historical game chronology. Persona JSON is not semantically verified biography.
+
+Lifecycle and recovery:
+
+- Apply `0011_npc_response_claims` via `pnpm db:migrate`. Five nullable interaction
+  claim/audit fields and a shape constraint preserve all existing records. No
+  previous migration changes, new tables or world-state schema are needed.
+- Lock the scoped interaction, confirm it is unchanged/received with no response
+  or previous claim, and use existing `received -> processing` validation. Claim
+  ID, database timestamp and prompt version commit together. Competing processes
+  cannot claim it. At claim, dispatch and persistence, lock the authoritative
+  world/NPC/entity/state/profile/scene rows, rebuild through existing repositories,
+  validate current local location and active scene eligibility, and compare all
+  prompt-visible sections plus scene/location evidence with the original context.
+  Stale context cannot authorize dispatch. Knowledge changes cannot authorize
+  content because all retrieved knowledge is withheld.
+- An atomic `claimed -> dispatched` fence records intent before M2.6 invocation,
+  not proof that HTTP reached the provider. M2.6 invokes an optional application
+  authorization callback before token counting (also a provider request) and
+  before every generation attempt, including existing bounded retries. These
+  short transactions release locks before external calls. There is necessarily
+  an interval after each authorization commit in which conditions may change;
+  no database lock spans a provider call. A result whose scene, location or
+  prompt-visible context is invalid at persistence is withheld and its interaction
+  becomes terminal/uncertain; it is never automatically regenerated. Existing
+  reservation and settlement run once, including zero generation cost when
+  authorization fails after reservation but before a generation attempt.
+- Only the matching live claim may persist; immutable response persistence and
+  the `responded` audit outcome commit together. Lost/expired claims remain fenced.
+- `responded` means generated/validated/persisted, not delivered. No automatic
+  completion or Discord response message ID occurs. Responded/completed requests
+  return existing text without generation. Failed/processing requests are not
+  auto-retried, and previous claims are never cleared to permit regeneration.
+- Claims expire after ten technical minutes. Expiry never permits stealing.
+  Explicit reconciliation leaves live claims alone; expired processing claims
+  transition legally to failed with audit outcome `failed` before dispatch or
+  `uncertain` after possible dispatch. A late worker cannot persist afterward.
+  Reconciliation is idempotent for terminal records and never overwrites speech.
+  There is no scheduler, polling, automatic renewal or automatic regeneration.
+  Unclaimed legacy processing records are left to their original workflow.
+- Process death/lost acknowledgment can leave a durable claim. On persistence
+  errors, inspect the stored interaction first: committed speech is returned,
+  never transitioned `responded -> failed`. Failure repositories independently
+  lock and guard claim/status/response. If PostgreSQL remains unavailable, retain
+  the claim for explicit reconciliation. Recovery never refunds LLM reservations.
+
+M2.6 remains the only generation/budget implementation: token preflight, atomic
+full-attempt reservations, fixed priced model/currency checks, deadlines,
+cancellation, bounded transient retries and usage settlement. One orchestrator
+invocation may include M2.6's bounded retries within the existing reservation; the
+pipeline adds no generation/repair retry. Invalid speech still consumed provider
+usage; interaction failure does not imply a financial refund.
+
+Validation requires JSON containing only bounded nonempty `speech` and reuses the
+domain response validator. It rejects extra tool/action keys, code fences, common
+executable/tool markers, control characters, internal UUIDs and common English
+claims of DM/system approval. Normalized verbatim matches against omitted
+claim/memory/history text (at least eight normalized characters) also reject
+speech without sending that withheld text to the model. These guards can reject
+innocuous repetitions and cannot detect all paraphrased disclosure, multilingual
+approvals or hallucinations. They are not perfect semantic safety or disclosure
+authorization. Speech is untrusted text, never executed; future outbound workflows
+must enforce their own authorization/knowledge boundaries.
+
+Diagnostics contain only safe event/trace/version/outcome metadata, never prompts,
+speech, withheld material, keys or raw errors. Diagnostic sink failures cannot
+change persistence. No task acceptance, memory/knowledge/relationship updates,
+world-time progression, game mechanics, physical movement, autonomous actions,
+Discord outbound messaging, webhooks, avatars or background work are introduced.
+
+Run `pnpm quality:gate`, `pnpm db:migrate`, `pnpm test:db`. Unit tests compose actual
+M2.5/M2.6 services with fakes. PostgreSQL tests exercise actual claims, lifecycle,
+rollback, concurrent connections, interrupted/late-worker fencing, immutable speech
+and domain-state non-mutation. Every provider call uses offline fakes: no paid API
+or outbound Discord calls. Cleanup removes only UUID-scoped fixtures created by
+the tests, never existing application data.
+
+#### M2.7 review remediation and remaining P2 findings
+
+PR #1's P1 provenance, response lifecycle and PostgreSQL CI findings are addressed
+by the conservative restrictions and transaction checks above. No migration is
+required; migrations `0000`–`0011` remain unchanged. GitHub Actions retains the
+unit/lint/format/typecheck/build quality gate and adds a bounded PostgreSQL 17
+service job that applies real Drizzle migrations and executes `pnpm test:db` using
+isolated CI-only credentials. Neither job bypasses hooks.
+
+The P2 hardening below addresses the remaining review findings. Provider billing
+and context relevance still have the practical limits described here.
+
+Authorization is checked at explicit boundaries, not continuously. Revocations
+that occur after a provider request begins cannot retract its input; invalid
+conditions still present at persistence prevent saving its output. There is no
+historical revocation ledger for detecting a change that is later reverted.
+Persona fields remain untrusted characterization, not verified biography.
+
+#### M2.7 P2 hardening
+
+Accounting keeps the existing single atomic account and invocation ledger. The
+original `reserved_micros` and truthful `charged_micros` already persist enough
+information to detect reservation overruns; no anomaly table or migration is
+needed. `getLlmBudgetSummary().usage` now includes all-time `reservationOverruns`
+and `reservationOverageMicros`, derived from settled/uncertain ledger rows.
+These are not additional charges. Generation observations expose
+`reservationMicros`, `reservationOverageMicros` and `estimateExceeded` (an actual
+attempt cost above its preflight estimate, even if the all-attempt reservation
+absorbs it). Fields contain numeric accounting metadata only. Valid provider
+usage is charged even when the response is invalid or exceeds the configured
+estimate; no monthly ceiling is automatically increased. After a settlement
+failure, output remains withheld and diagnostics retain the greater of known
+actual cost and the reservation. The durable reservation remains outstanding;
+failed settlement still requires operator reconciliation, not an automatic
+refund or second settlement. This remains truthful local accounting, not an
+absolute provider-enforced spending limit.
+
+Context retrieval now uses the existing Context Reader/repository boundary with
+SQL relevance/status/scope predicates, batched sources, and batched referenced
+entities/interactions. History is filtered by world, NPC, scene, technical cutoff
+and current-interaction exclusion before its ordered SQL limit. A zero history
+limit issues no history query. Candidate claims include the complete recursively
+connected conflict closure; cycles terminate through SQL `UNION`. Missing or
+ineligible partners still withhold the whole group. More than 500 candidate
+claims, conflict edges or relevant memories aborts the build rather than
+returning a partial conflict group. This deliberate fail-closed availability
+limit applies before output count/byte limits. No source label, relevance match
+or SQL existence predicate establishes perception; M2.7 still withholds all
+retrieved knowledge, memories and relationship details.
+
+Source window queries fetch at most `max(1, sourcesPerRecord)` rows per candidate
+parent and retain exact total/omitted counts. The one metadata row at a zero
+source limit is not emitted. Scoped SQL existence checks preserve memory
+relevance independently of the provenance output cap. Truncated provenance
+remains explicit and never becomes complete exposure evidence. References to
+unselected claims/memories are conservatively unavailable. Caches belong to one
+reader/build transaction; there is no cache across snapshots or requests.
+Retrieval statistics now describe SQL-filtered candidates, not exhaustive
+inventories of every NPC record. Output ordering and total byte limits remain
+in the existing builder.
+
+Measurements use `src/db/context-performance.db.test.ts`, which creates synthetic
+data inside one transaction and rolls it back. The baseline was measured at
+`8da788d` before changing retrieval; the same 200-claim/100-memory fixture has
+three sources per parent and only 10 relevant claims/five relevant memories.
+Read counts exclude fixture setup and transaction control.
+
+| Measurement                         |                 Baseline |              Hardened |
+| ----------------------------------- | -----------------------: | --------------------: |
+| SQL queries per build (three runs)  |          920 / 920 / 920 |          16 / 16 / 16 |
+| Candidate claim/memory rows loaded  |                200 / 100 |                10 / 5 |
+| Source rows loaded                  |                      900 |                    45 |
+| Local isolated elapsed milliseconds | 346.63 / 304.70 / 287.74 | 35.35 / 23.51 / 21.65 |
+
+The test also grows unrelated claims/memories to 2000/1000 and still requires 16
+queries and 10/five returned candidates. CI asserts query/row bounds, not elapsed
+time. Run the fixture with
+`node --env-file=.env.example --env-file-if-exists=.env ./node_modules/vitest/vitest.mjs run --config vitest.db.config.ts src/db/context-performance.db.test.ts`.
+For baseline reproduction, copy that fixture into a temporary checkout of
+`8da788d`; its three timing samples precede the expected query-count regression
+failure against the new 16-query threshold. No old implementation is duplicated
+in production or tests. Historically this fixture required `20 + 3*(K+M)` reads,
+plus additional entity and source-interaction lookups for populated references.
+The new source batches eliminate those per-record ownership/provenance queries.
+
+Database CPU is not constant: lexical matching still scans scoped text, source
+counts/window ordering inspect sources of selected parents, and recursive graph
+work grows with reachable conflicts. The 500-candidate guard bounds application
+retrieval, not all server work or individual text-column length. Full-text indexes,
+search infrastructure, cross-request caches and schema changes were deferred;
+blind row limits that split conflict components were rejected. Default source
+limits are four, with the existing maximum of 500; at maximum settings, source
+payload can still reach 250000 rows per category before the byte-budget filter.
+
+M2.7 now requests a transport-neutral `responseFormat` with the strict
+`npc_speech` object schema (`speech` string, required, no additional properties).
+The installed OpenAI SDK supports native Responses `text.format` with
+`type: json_schema` and `strict: true`, including the token-count request. See
+[official OpenAI structured-output documentation](https://developers.openai.com/api/docs/guides/structured-outputs).
+The OpenAI adapter advertises structured-output support; another provider must
+explicitly advertise it or generation returns `unsupported_output` before any
+provider call or reservation. Individual model/schema rejection remains a
+permanent normalized provider error: no prompt-only fallback, model switch,
+JSON repair or regeneration loop occurs. Refusals and incomplete output fail
+closed while preserving usage accounting. The portable provider schema enforces
+shape; existing application validation independently enforces character limits,
+speech-only content, withheld-text checks and domain constraints. Schema-compliant
+text remains untrusted dialogue and is never executed or used to mutate state.
+
+Tests use synthetic providers/fake SDK fetch exclusively. New coverage includes
+normal/over/under reservation, actual overruns with uncertain retries, failed and
+concurrent settlement, unsupported/refused/incomplete structured output, local
+validation despite native schemas, complete cyclic conflicts, inaccessible
+partners, candidate overflow, and large/zero-capped provenance. Existing claims,
+leases, authorization checks before provider calls, immutable results, recovery
+and accounting ownership remain in place. No migrations, provider/model pricing,
+Discord delivery, exposure model, autonomous tasks or domain-state writes are
+introduced.

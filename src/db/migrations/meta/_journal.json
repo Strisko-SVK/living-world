@@ -78,6 +78,13 @@
       "when": 1792434787205,
       "tag": "0010_llm_budget_accounting",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792436374558,
+      "tag": "0011_npc_response_claims",
+      "breakpoints": true
     }
   ]
 }

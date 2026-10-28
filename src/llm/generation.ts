@@ -31,6 +31,13 @@ const requestSchema = z.object({
     .max(32),
   maxOutputTokens: z.number().int().positive().optional(),
   temperature: z.number().min(0).max(2).optional(),
+  responseFormat: z
+    .object({
+      name: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/),
+      schema: z.record(z.string(), z.unknown()),
+    })
+    .strict()
+    .optional(),
   requestBudgetMicros: z.number().int().positive().safe().optional(),
 });
 export const tokenCost = (
@@ -80,6 +87,7 @@ export function createTextGenerator(
       currency: config.enabled ? config.currency : "unconfigured",
       costMicros: null,
       costKind: "none",
+      estimateExceeded: false,
     };
     const finish = (ok: boolean, text = ""): GenerationResult => {
       observation.latencyMs = Math.round(performance.now() - started);
@@ -106,6 +114,10 @@ export function createTextGenerator(
     }
     if (!parsed.success) return finish(false);
     const data = parsed.data;
+    if (data.responseFormat && provider.supportsStructuredOutput !== true) {
+      observation.outcome = "unsupported_output";
+      return finish(false);
+    }
     if (
       (data.model && data.model !== config.model) ||
       (data.maxOutputTokens && data.maxOutputTokens > config.maxOutputTokens)
@@ -152,7 +164,14 @@ export function createTextGenerator(
         ],
         maxOutputTokens: data.maxOutputTokens ?? config.maxOutputTokens,
         temperature: data.temperature,
+        ...(data.responseFormat ? { responseFormat: data.responseFormat } : {}),
       };
+      if (
+        request.beforeAttempt &&
+        !(await interruptible(request.beforeAttempt, signal))
+      )
+        throw new ProviderFailure("cancelled", false, undefined, true);
+      check();
       const inputTokens = await interruptible(
         () => provider.countInput(input, signal),
         signal,
@@ -197,7 +216,14 @@ export function createTextGenerator(
       )
         throw new ProviderFailure("budget");
       id = candidate;
+      observation.reservationMicros = reservation.toString();
       for (let attempt = 0; attempt < config.maxAttempts; attempt++) {
+        check();
+        if (
+          request.beforeAttempt &&
+          !(await interruptible(request.beforeAttempt, signal))
+        )
+          throw new ProviderFailure("cancelled", false, undefined, true);
         check();
         observation.retries = attempt;
         attempted++;
@@ -220,12 +246,14 @@ export function createTextGenerator(
               u.totalTokens !== u.inputTokens + u.outputTokens
             )
               throw new ProviderFailure("invalid_response");
-            charged += tokenCost(
+            const actual = tokenCost(
               u.inputTokens,
               u.outputTokens,
               config.inputRate,
               config.outputRate,
             );
+            charged += actual;
+            observation.estimateExceeded ||= actual > perAttempt;
             knownUsage = u;
           } else {
             charged += perAttempt;
@@ -290,6 +318,10 @@ export function createTextGenerator(
       request.signal?.removeEventListener("abort", cancel);
     }
     observation.usage = knownUsage;
+    if (id)
+      observation.reservationOverageMicros = (
+        charged > reservation ? charged - reservation : 0n
+      ).toString();
     if (id) {
       observation.costMicros = charged.toString();
       observation.costKind = uncertain
@@ -309,7 +341,9 @@ export function createTextGenerator(
         // Original full reservation remains durable; never emit unaccounted text.
         observation.outcome = "accounting";
         success = false;
-        observation.costMicros = reservation.toString();
+        observation.costMicros = (
+          charged > reservation ? charged : reservation
+        ).toString();
         observation.costKind = "conservative_reservation";
       }
     }

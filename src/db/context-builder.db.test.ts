@@ -1,8 +1,14 @@
+import { sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabaseClient } from "./client.js";
-import { createNpcContextBuilder } from "../context/context.repository.js";
 import {
+  createContextReader,
+  createNpcContextBuilder,
+  CONTEXT_CANDIDATE_CAP,
+} from "../context/context.repository.js";
+import {
+  createContextBuilder,
   ContextUnavailableError,
   estimateContextBytes,
 } from "../context/context-builder.js";
@@ -238,6 +244,152 @@ afterAll(async () => {
 });
 
 describe("Context Builder repository composition", () => {
+  it("keeps batched sources scoped even when the reader is reused with different arguments", async () => {
+    const reader = createContextReader(database.db);
+    await reader.knowledge(world, npc);
+    expect(
+      await reader.knowledgeSources(world, npc, ownClaim),
+    ).not.toHaveLength(0);
+    expect(await reader.knowledgeSources(foreignWorld, npc, ownClaim)).toEqual(
+      [],
+    );
+    expect(await reader.knowledgeSources(world, otherNpc, ownClaim)).toEqual(
+      [],
+    );
+    await reader.memories(world, npc);
+    expect(await reader.memorySources(world, npc, ownMemory)).not.toHaveLength(
+      0,
+    );
+    expect(await reader.memorySources(foreignWorld, npc, ownMemory)).toEqual(
+      [],
+    );
+    expect(await reader.memorySources(world, otherNpc, ownMemory)).toEqual([]);
+  });
+  it("retrieves complete cyclic conflict groups including lexically unrelated partners", async () => {
+    const rollback = new Error("rollback");
+    await expect(
+      database.db.transaction(async (tx) => {
+        const partner = (await createKnowledge(tx, world, npc, {
+          claimText: "Unrelated astronomy",
+          classification: "rumor",
+          confidence: 0.5,
+          secrecy: "private",
+        }))!;
+        await createKnowledgeConflict(
+          tx,
+          world,
+          npc,
+          partner.id,
+          contraryClaim,
+        );
+        await createKnowledgeConflict(tx, world, npc, partner.id, ownClaim);
+        const bundle = await createContextBuilder(createContextReader(tx))({
+          worldId: world,
+          npcId: npc,
+          interactionId: target,
+        });
+        expect(
+          new Set(bundle.knowledge[0].claims.map((claim) => claim.record.id)),
+        ).toEqual(new Set([ownClaim, contraryClaim, partner.id]));
+        expect(bundle.knowledge[0].conflicts).toHaveLength(3);
+        throw rollback;
+      }),
+    ).rejects.toBe(rollback);
+  });
+  it("omits an entire component when a persisted partner becomes inaccessible", async () => {
+    const rollback = new Error("rollback");
+    await expect(
+      database.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`update npc_knowledge set status='invalidated' where id=${contraryClaim}`,
+        );
+        const bundle = await createContextBuilder(createContextReader(tx))({
+          worldId: world,
+          npcId: npc,
+          interactionId: target,
+        });
+        expect(bundle.knowledge).toEqual([]);
+        expect(JSON.stringify(bundle)).not.toContain(
+          "The docking manifest is correct",
+        );
+        throw rollback;
+      }),
+    ).rejects.toBe(rollback);
+  });
+  it("fails closed when a conflict closure exceeds the database candidate cap", async () => {
+    const rollback = new Error("rollback");
+    await expect(
+      database.db.transaction(async (tx) => {
+        await tx.execute(sql`with added as (
+        insert into npc_knowledge(id,world_id,npc_id,claim_text,classification,confidence,secrecy)
+        select gen_random_uuid(),${world},${npc},'unrelated astronomy','rumor',0.5,'private' from generate_series(1,${CONTEXT_CANDIDATE_CAP}) returning id
+      ) insert into knowledge_conflicts(id,world_id,npc_id,claim_a_id,claim_b_id)
+        select gen_random_uuid(),${world},${npc},least(id,${ownClaim}::uuid),greatest(id,${ownClaim}::uuid) from added`);
+        await expect(
+          createContextBuilder(createContextReader(tx))({
+            worldId: world,
+            npcId: npc,
+            interactionId: target,
+          }),
+        ).rejects.toBeInstanceOf(ContextUnavailableError);
+        throw rollback;
+      }),
+    ).rejects.toBe(rollback);
+  });
+  it("bounds large source collections in SQL while preserving total and omitted counts", async () => {
+    const rollback = new Error("rollback");
+    await expect(
+      database.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`insert into knowledge_sources(id,knowledge_id,source_type) select gen_random_uuid(),${ownClaim},'heard' from generate_series(1,1000)`,
+        );
+        await tx.execute(
+          sql`insert into memory_sources(id,memory_id,source_type) select gen_random_uuid(),${ownMemory},'heard' from generate_series(1,1000)`,
+        );
+        const bundle = await createContextBuilder(createContextReader(tx))({
+          worldId: world,
+          npcId: npc,
+          interactionId: target,
+          limits: { sourcesPerRecord: 2 },
+        });
+        const provenance = bundle.knowledge
+          .flatMap((group) => group.claims)
+          .find((claim) => claim.record.id === ownClaim)!.provenance;
+        expect(provenance).toMatchObject({ total: 1002, omitted: 1000 });
+        expect(provenance.sources).toHaveLength(2);
+        expect(bundle.memories[0].provenance).toMatchObject({
+          total: 1001,
+          omitted: 999,
+        });
+        expect(bundle.memories[0].provenance.sources).toHaveLength(2);
+        expect(bundle.retrieval.provenanceTruncated).toBe(true);
+        throw rollback;
+      }),
+    ).rejects.toBe(rollback);
+  });
+  it("retains scoped memory relevance even with zero provenance output", async () => {
+    const rollback = new Error("rollback");
+    await expect(
+      database.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`update npc_memories set summary='Unrelated astronomy' where id=${ownMemory}`,
+        );
+        const reader = createContextReader(tx);
+        const bundle = await createContextBuilder(reader)({
+          worldId: world,
+          npcId: npc,
+          interactionId: target,
+          limits: { sourcesPerRecord: 0 },
+        });
+        expect(bundle.memories[0]).toMatchObject({
+          record: { id: ownMemory },
+          reasons: ["scene_interaction_provenance", "participant_provenance"],
+          provenance: { sources: [], total: 1, omitted: 1 },
+        });
+        throw rollback;
+      }),
+    ).rejects.toBe(rollback);
+  });
   it("assembles a scoped scene bundle from actual persisted records", async () => {
     const bundle = await build({
       worldId: world,
