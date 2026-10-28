@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { parseDiscordTrigger } from "./discord-trigger.js";
 
 const reference = z
   .string()
@@ -41,17 +42,27 @@ export interface IntakePersistence {
   identities(worldId: string, userId: string): Promise<IdentityMapping[]>;
   isNpc(worldId: string, entityId: string): Promise<boolean>;
   primaryNpcs(worldId: string, contextId: string): Promise<string[]>;
-  persist(input: {
-    worldId: string;
-    contextId: string;
-    speakerEntityId: string | null;
-    npcIds: string[];
-    message: IncomingMessage;
-    traceId: string;
-  }): Promise<void>;
+  persist(input: IntakeWrite): Promise<void | string>;
 }
+export type IntakeWrite = {
+  message: IncomingMessage;
+  traceId: string;
+} & (
+  | {
+      // This identity comes from the authenticated adapter callback, not input.
+      trigger: { botId: string };
+    }
+  | {
+      worldId: string;
+      contextId: string;
+      speakerEntityId: string | null;
+      npcIds: string[];
+    }
+);
 
-function speaker(mappings: IdentityMapping[]): string | null | false {
+export function resolveSpeaker(
+  mappings: IdentityMapping[],
+): string | null | false {
   const characters = mappings.filter(
     (mapping) => mapping.mappingType === "player_character",
   );
@@ -71,12 +82,27 @@ function speaker(mappings: IdentityMapping[]): string | null | false {
 export function createDiscordIntake(
   persistence: IntakePersistence,
   diagnose: Diagnostics = () => {},
+  mode: "mapped" | "explicit_alias" = "explicit_alias",
 ) {
-  return async (input: unknown): Promise<string> => {
+  return async (input: unknown, botId?: string | null): Promise<string> => {
     try {
       const parsed = incomingMessageSchema.safeParse(input);
       if (!parsed.success) return "unsupported";
       const message = parsed.data;
+      if (mode === "explicit_alias") {
+        if (
+          !parseDiscordTrigger(message.content, botId, message.mentionedUserIds)
+        )
+          return "invalid_trigger";
+        const outcome = await persistence.persist({
+          message,
+          traceId: randomUUID(),
+          trigger: { botId: botId! },
+        });
+        const result = typeof outcome === "string" ? outcome : "error";
+        diagnose({ event: "discord_intake", outcome: result });
+        return result;
+      }
       // Mention-only pings have no request body. Replies and roles are not targets.
       if (!message.content.replace(/<@!?\d+>/gu, "").trim())
         return "irrelevant";
@@ -91,7 +117,7 @@ export function createDiscordIntake(
         context.worldId !== worldId
       )
         return "unmapped";
-      const speakerEntityId = speaker(
+      const speakerEntityId = resolveSpeaker(
         await persistence.identities(worldId, message.authorId),
       );
       if (speakerEntityId === false) return "ambiguous_speaker";

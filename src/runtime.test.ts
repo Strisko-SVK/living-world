@@ -6,13 +6,17 @@ const mocks = vi.hoisted(() => ({
   start: vi.fn(),
   stop: vi.fn(),
   database: vi.fn(),
+  adapter: vi.fn(),
 }));
 vi.mock("./db/client.js", () => ({
   createDatabaseClient: mocks.database,
   checkDatabaseConnection: mocks.check,
 }));
 vi.mock("./adapters/discord/client.js", () => ({
-  createDiscordAdapter: () => ({ start: mocks.start, stop: mocks.stop }),
+  createDiscordAdapter: (...args: unknown[]) => {
+    mocks.adapter(...args);
+    return { start: mocks.start, stop: mocks.stop };
+  },
 }));
 import { startApplication } from "./runtime.js";
 
@@ -36,6 +40,32 @@ describe("application lifecycle", () => {
       startApplication({ DISCORD_ENABLED: "true" }, vi.fn()),
     ).rejects.toThrow("DISCORD_TOKEN");
     expect(mocks.database).not.toHaveBeenCalled();
+  });
+  it("wires strict intake instead of the legacy primary/operator fallback", async () => {
+    const runtime = await startApplication(
+      { DISCORD_ENABLED: "true", DISCORD_TOKEN: "synthetic" },
+      vi.fn(),
+    );
+    try {
+      const [config, intake] = mocks.adapter.mock.calls[0];
+      expect(config).not.toHaveProperty("intakeAllowlist");
+      expect(
+        await intake(
+          {
+            sourceMessageId: "id",
+            authorId: "author",
+            guildId: "guild",
+            channelId: "channel",
+            threadId: null,
+            mentionedUserIds: [],
+            content: "Hello",
+          },
+          "123",
+        ),
+      ).toBe("invalid_trigger");
+    } finally {
+      await runtime.stop();
+    }
   });
   it("starts after database health check and shuts down once with signal cleanup", async () => {
     const before = process.listenerCount("SIGTERM");

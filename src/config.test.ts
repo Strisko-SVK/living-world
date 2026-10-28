@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { getApplicationConfig } from "./config.js";
 
 describe("application configuration", () => {
+  it("rejects retired per-player configuration rather than silently accepting grants", () => {
+    expect(() =>
+      getApplicationConfig({ DISCORD_INTAKE_ALLOWLIST: "[]" }),
+    ).toThrow("DISCORD_INTAKE_ALLOWLIST is retired");
+    expect(getApplicationConfig({}).discord).not.toHaveProperty(
+      "intakeAllowlist",
+    );
+  });
   it("disables Discord by default", () => {
     expect(getApplicationConfig({}).discord.enabled).toBe(false);
   });
