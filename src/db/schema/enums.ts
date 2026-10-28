@@ -331,3 +331,9 @@ export const discordContextMappingStatus = pgEnum(
   "discord_context_mapping_status",
   discordContextMappingStatusValues,
 );
+
+export const npcIntakePolicyValues = ["disabled", "mapped_players"] as const;
+export const npcIntakePolicy = pgEnum(
+  "npc_intake_policy",
+  npcIntakePolicyValues,
+);

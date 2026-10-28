@@ -16,18 +16,6 @@ export const incomingMessageSchema = z.object({
   content: z.string().trim().min(1).max(20_000),
   mentionedUserIds: z.array(reference).max(100),
 });
-export const intakeAllowlistSchema = z
-  .array(
-    z
-      .object({
-        worldId: z.string().uuid(),
-        contextId: z.string().uuid(),
-        authorId: reference,
-      })
-      .strict(),
-  )
-  .max(1000);
-export type IntakeGrant = z.infer<typeof intakeAllowlistSchema>[number];
 export type IncomingMessage = z.infer<typeof incomingMessageSchema>;
 export type IntakeDiagnostic = {
   event: string;

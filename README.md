@@ -799,26 +799,62 @@ mentions/brackets in the request body are data, never secondary targets. Request
 retain the existing 20000-character trimmed-content bound. Stored `requestText`
 remains the complete original trimmed message, including its trigger.
 
-Intake authorization is separate from response authorization. There is no trusted
-persisted permission model in the current schema; arbitrary context metadata,
-channel visibility, primary spaces, character/operator identities and mentions do
-not grant permission. Configure an explicit operator-owned JSON allowlist:
+Intake authorization is separate from response authorization. Migration
+`0012_context_intake_policy` adds the typed `npc_intake_policy` context column:
+`disabled` (the default for every existing and new context) or `mapped_players`.
+Visibility, mentions, arbitrary context metadata and identity mappings alone do
+not grant permission. There is no per-player/per-scene allowlist anymore.
+Remove `DISCORD_INTAKE_ALLOWLIST` from local/deployment configuration: runtime
+startup rejects the retired variable rather than silently accepting obsolete grants.
 
-```dotenv
-DISCORD_ENABLED=true
-DISCORD_INTAKE_ALLOWLIST='[{"worldId":"00000000-0000-4000-8000-000000000001","contextId":"00000000-0000-4000-8000-000000000002","authorId":"123456789012345678"}]'
+An explicitly enabled context permits only an authenticated Discord author with
+exactly one active `player_character` mapping in the resolved world, pointing to
+an active entity of type `player_character` in that world. Missing, inactive,
+wrong-type or ambiguous mappings fail closed; a primary selection cannot override
+multiple active player mappings. Identity provisioning remains a trusted operator
+repository/database operation. There is no Discord self-registration or player
+policy-management endpoint; do not expose those internal database capabilities to
+players. Existing character registrations are reused across approved contexts.
+
+Policy management uses a **local operator CLI**, isolated from the Discord runtime:
+
+```sh
+pnpm admin:context-policy --world WORLD_UUID --context CONTEXT_UUID --policy mapped_players
+pnpm admin:context-policy --world WORLD_UUID --context CONTEXT_UUID --policy disabled
 ```
 
-These are illustrative IDs only. Use an existing world/context and the actual
-Discord author's ID. The default is `[]` (deny every intake request). Each strict
-grant contains exactly `worldId`, `contextId` and `authorId`; there are no wildcards,
-roles or response permissions. UUIDs and opaque author references are validated;
-configuration is limited to 1000 grants and 250000 characters. Invalid JSON,
-unknown grant fields or malformed references fail startup with a generic error
-before connecting resources. Do not log the allowlist or private environment.
-The persistence adapter copies a validated startup policy. To revoke permission,
-stop and drain every old intake instance, then restart with replacement
-configuration. There is no hot-reload/revocation service or database ACL table.
+Replace both placeholders with exact UUIDs. All six arguments are mandatory and
+in the shown order; wildcards, unknown flags and operator-ID assertions are
+rejected before opening a connection. The command reads `DATABASE_URL` from the
+operator's private environment/`.env`, verifies the world/context pair, and uses
+parameterized operations. It does not connect to Discord or any LLM provider.
+Importing the CLI module does not execute it. Neither application startup nor
+Discord intake imports or exposes the command.
+
+The authority is trusted host/deployment access and database credentials. Limit
+shell access, source execution and database credentials to trusted project
+operators; this milestone does not authenticate Admin/DM identities or constrain
+such database operators to individual worlds. A Discord role or caller-supplied
+operator ID confers no authority. The database is a trusted backend, not a
+player-facing API; the CLI is not a sandbox against someone who already has
+write-capable database credentials. Never proxy this command to untrusted users.
+
+Each successful command atomically records world/context IDs, previous/target
+policy, timestamp and the database role in `context_intake_policy_audit`, including
+no-op requests. It prints the audit ID and those policy/ID fields, never credentials
+or request content. The database role identifies the database login, not an
+individual human if operators share credentials. Errors exit nonzero with a safe
+message; if execution/commit confirmation is interrupted, inspect the audit and
+current policy before retrying. Audit failure rolls back the policy update.
+The composite audit foreign key preserves world/context integrity.
+
+Intake holds `FOR SHARE` on the resolved context through interaction commit. The
+CLI takes `FOR UPDATE` on that same row through policy/audit commit. Revocation
+therefore waits for earlier authorized intake to commit or roll back; intake that
+follows a committed disable observes `disabled` and cannot persist a new event.
+No instance restart is required. This guarantee lasts until an operator explicitly
+re-enables the context. Both operations use two-second lock and five-second
+statement timeouts; lock failure rolls back rather than bypassing checks.
 
 Provision mappings and aliases explicitly through the existing repositories:
 
@@ -835,8 +871,8 @@ there is no preferred winner, fuzzy matching, canonical fallback or global alias
 uniqueness constraint. Identical aliases across different worlds remain valid.
 
 `createDiscordIntake` defaults to `explicit_alias`; `startApplication` explicitly
-selects that mode and passes the configured grants to existing Discord
-persistence. The foundation's `mapped` mode is an explicit trusted compatibility
+selects that mode and uses the existing Discord persistence adapter. The
+foundation's `mapped` mode is an explicit trusted compatibility
 API for existing primary/operator routing, not a runtime fallback or a public
 authorization endpoint. The runtime never falls back to it. Do not run legacy
 receivers alongside strict receivers for the same bot if relying on M2.8 policy.
@@ -850,12 +886,13 @@ The existing persistence transaction now handles authoritative explicit routing:
    when one world has an exact thread mapping.
 2. Reuse exact-thread-before-channel context resolution. Lock and require the
    resolved active context; an inactive exact context never falls back to a
-   different scene. Evaluate the precise world/context/author allowlist tuple.
+   different scene. Require the persisted `mapped_players` policy under the same
+   context lock.
 3. Serialize the scoped source event and existing author-identity writers. Lock
-   identity/entity rows and reuse the existing speaker rule: a unique active
-   player character, or exactly one explicit primary among multiple characters.
-   Ambiguity is rejected. An explicitly authorized author may remain an unknown
-   speaker (`null`); operator identity does not fabricate NPC speech identity.
+   identity/entity rows and require exactly one active player-character mapping
+   with a valid active player-character entity in this world. There is no primary
+   fallback or unknown-speaker admission in strict intake; NPC operator mappings
+   do not authorize player intake or fabricate NPC speech identity.
 4. Serialize alias registration/resolution and lock matching alias/entity rows
    plus the target NPC profile. `addEntityAlias` and `mapDiscordContext` cooperate
    with the same advisory-lock patterns, protecting new alias/mapping insertions
@@ -889,7 +926,8 @@ inserts aliases/mappings must honor the same locking protocol when intake runs;
 application repository writes coordinate automatically. Same-location strict
 intake is serialized, and the cross-NPC event lookup uses existing indexes; this
 is a small bounded transaction design, not a high-throughput routing platform.
-No migrations or schema changes are required; `0000`–`0011` remain unchanged.
+Migration `0012` adds only the context policy enum/column and its audit table;
+`0000`–`0011` and their checksums remain unchanged.
 
 M2.8 does not call M2.7. An accepted trigger is permission to record intake, not
 permission to generate a response. `unknown` communication remains blocked by
@@ -899,13 +937,15 @@ perception, knowledge, memories, relationships, tasks or world time. No Discord
 outbound/webhooks, passive perception, autonomous actions, archive synchronization,
 background scene monitoring, paid/live test calls or deployment are introduced.
 
-Verification uses parser/config/adapter/runtime unit tests and
-`src/db/discord-trigger.db.test.ts` against real PostgreSQL. Tests cover scoped
-permissions and replacement-policy revocation, alias collisions/normalization,
-wrong-world isolation, thread precedence, primary/unknown speakers, concurrent
-redelivery, alias reassignment, immutable terminal interactions, concurrent
-scene/NPC/world/mapping revocation, cooperating alias/mapping insertion and the
-unknown-mode M2.7 generation boundary. All transports/providers are offline fakes;
+Verification uses parser/config/adapter/runtime and local-CLI unit tests plus
+`src/db/discord-trigger.db.test.ts` and `src/db/context-intake-policy.db.test.ts`
+against real PostgreSQL. Tests cover disabled defaults for preexisting/new
+contexts, invalid and read-only administrative operations, audit atomicity,
+strict mapped-player eligibility, alias collisions/normalization, world isolation,
+thread precedence, concurrent redelivery, alias reassignment, immutable terminal
+interactions, both revocation/intake orders, identity deactivation, cooperating
+alias/mapping insertion and the unknown-mode M2.7 generation boundary. All
+transports/providers are offline fakes;
 PostgreSQL cleanup removes only UUID-scoped fixtures created by the suite. Run
 `pnpm quality:gate`, `pnpm db:migrate`, `pnpm test:db`, Drizzle integrity/drift
 checks and `git diff --check` before independent review.

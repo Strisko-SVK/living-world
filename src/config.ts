@@ -1,11 +1,9 @@
 import { z } from "zod";
-import { intakeAllowlistSchema } from "./intake/discord-intake.js";
 import { getLlmConfig } from "./llm/config.js";
 
 const requiredIntents = ["Guilds", "GuildMessages", "MessageContent"] as const;
 const environmentSchema = z.object({
   DISCORD_ENABLED: z.enum(["true", "false"]).default("false"),
-  DISCORD_INTAKE_ALLOWLIST: z.string().max(250_000).default("[]"),
   DISCORD_TOKEN: z.string().regex(/^\S+$/).optional(),
   DISCORD_INTENTS: z.string().default(requiredIntents.join(",")),
 });
@@ -18,14 +16,10 @@ export function getApplicationConfig(
   const result = environmentSchema.safeParse(environment);
   // Never include Zod input values, particularly the token, in diagnostics.
   if (!result.success) throw new Error("Invalid application configuration.");
-  let intakeAllowlist;
-  try {
-    intakeAllowlist = intakeAllowlistSchema.parse(
-      JSON.parse(result.data.DISCORD_INTAKE_ALLOWLIST),
+  if (environment.DISCORD_INTAKE_ALLOWLIST !== undefined)
+    throw new Error(
+      "DISCORD_INTAKE_ALLOWLIST is retired; configure context policy locally.",
     );
-  } catch {
-    throw new Error("Invalid Discord intake allowlist configuration.");
-  }
   const enabled = result.data.DISCORD_ENABLED === "true";
   const intents = result.data.DISCORD_INTENTS.split(",").map((value) =>
     value.trim(),
@@ -44,7 +38,6 @@ export function getApplicationConfig(
     llm: getLlmConfig(environment),
     discord: {
       enabled,
-      intakeAllowlist,
       token: result.data.DISCORD_TOKEN,
       intents: [...requiredIntents],
     },

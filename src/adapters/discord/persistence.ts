@@ -16,10 +16,7 @@ import { getNpc } from "../../domains/npc/npc.repository.js";
 import { createInteraction } from "../../domains/interaction/interaction.repository.js";
 import {
   incomingMessageSchema,
-  intakeAllowlistSchema,
-  resolveSpeaker,
   type IntakePersistence,
-  type IntakeGrant,
 } from "../../intake/discord-intake.js";
 import { parseDiscordTrigger } from "../../intake/discord-trigger.js";
 import { discordIdentities } from "../../db/schema/discord-identities.js";
@@ -32,11 +29,7 @@ type Database = Omit<DatabaseClient["db"], "$client">;
 
 export function createDiscordPersistence(
   database: Database,
-  allowlist: readonly IntakeGrant[] = [],
 ): IntakePersistence {
-  // Immutable startup policy snapshot. Revocation requires restarting all intake
-  // instances with the new operator configuration, not changing Discord metadata.
-  const policy = intakeAllowlistSchema.parse(allowlist);
   return {
     async worldIds(message) {
       const rows = await database
@@ -145,7 +138,7 @@ export function createDiscordPersistence(
               .where(inArray(worlds.id, worldIds))
               .orderBy(worlds.id)
               .for("share");
-          const scoped = createDiscordPersistence(transaction, policy);
+          const scoped = createDiscordPersistence(transaction);
           const candidates = await scoped.worldIds(message);
           if (candidates.length !== 1)
             return candidates.length ? "ambiguous_world" : "unmapped";
@@ -163,17 +156,9 @@ export function createDiscordPersistence(
             )
             .for("share");
           if (!scene || scene.status !== "active") return "unmapped";
-          // Visibility, identity, mentions and arbitrary context metadata confer
-          // no permission. Evaluate the explicit tuple inside this transaction.
-          if (
-            !policy.some(
-              (grant) =>
-                grant.worldId === worldId &&
-                grant.contextId === scene.id &&
-                grant.authorId === message.authorId,
-            )
-          )
-            return "unauthorized";
+          // FOR SHARE on this context is also the policy revocation boundary.
+          // Metadata, visibility and Discord identity alone grant no permission.
+          if (scene.npcIntakePolicy !== "mapped_players") return "unauthorized";
           await lockRouting(transaction, [
             "discord-event",
             worldId,
@@ -199,22 +184,37 @@ export function createDiscordPersistence(
           const identityIds = [
             ...new Set(identities.map((row) => row.entityId)),
           ];
-          if (identityIds.length)
-            await transaction
-              .select()
-              .from(entities)
-              .where(
-                and(
-                  eq(entities.worldId, worldId),
-                  inArray(entities.id, identityIds),
-                ),
-              )
-              .orderBy(entities.id)
-              .for("share");
-          const speakerEntityId = resolveSpeaker(
-            await scoped.identities(worldId, message.authorId),
+          const playerEntities = identityIds.length
+            ? await transaction
+                .select()
+                .from(entities)
+                .where(
+                  and(
+                    eq(entities.worldId, worldId),
+                    inArray(entities.id, identityIds),
+                  ),
+                )
+                .orderBy(entities.id)
+                .for("share")
+            : [];
+          const players = identities.filter(
+            (row) =>
+              row.status === "active" && row.mappingType === "player_character",
           );
-          if (speakerEntityId === false) return "ambiguous_speaker";
+          // Primary selection cannot resolve an authorization ambiguity.
+          if (players.length > 1) return "ambiguous_speaker";
+          if (players.length !== 1) return "unauthorized";
+          const player = playerEntities.find(
+            (row) => row.id === players[0].entityId,
+          );
+          if (
+            !player ||
+            player.worldId !== worldId ||
+            player.status !== "active" ||
+            player.entityType !== "player_character"
+          )
+            return "unauthorized";
+          const speakerEntityId = player.id;
           await lockEntityAlias(transaction, worldId, trigger.alias);
           const matches = await findEntitiesByAlias(
             transaction,

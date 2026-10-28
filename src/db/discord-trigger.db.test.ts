@@ -9,6 +9,9 @@ import {
   vi,
 } from "vitest";
 import { sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import { getDatabaseConfig } from "./config.js";
 import { createDatabaseClient } from "./client.js";
 import { createWorld } from "../domains/world/world.repository.js";
 import {
@@ -28,13 +31,14 @@ import {
   mapDiscordContext,
   mapDiscordUserToEntity,
   setPrimaryDiscordEntity,
+  deactivateDiscordUserMapping,
 } from "../domains/discord-mapping/discord-mapping.repository.js";
 import { createDiscordPersistence } from "../adapters/discord/persistence.js";
 import {
   createDiscordIntake,
   type IncomingMessage,
-  type IntakeGrant,
 } from "../intake/discord-intake.js";
+import { runContextPolicyCommand } from "../admin/context-intake-policy.js";
 import { createNpcResponseOrchestrator } from "../response/orchestrator.js";
 import { createResponseStore } from "../response/response.repository.js";
 import { createNpcContextBuilder } from "../context/context.repository.js";
@@ -64,14 +68,21 @@ const location = {
   mappingType: "scene" as const,
 };
 const author = "000sender";
-const grants = (): IntakeGrant[] => [
-  { worldId: world, contextId: scene, authorId: author },
-];
-const run = (incoming = message, allowlist = grants()) =>
-  createDiscordIntake(createDiscordPersistence(database.db, allowlist))(
-    incoming,
-    "123",
-  );
+const policy = (
+  contextId = scene,
+  target = "mapped_players",
+  worldId = world,
+) =>
+  runContextPolicyCommand([
+    "--world",
+    worldId,
+    "--context",
+    contextId,
+    "--policy",
+    target,
+  ]);
+const run = (incoming = message) =>
+  createDiscordIntake(createDiscordPersistence(database.db))(incoming, "123");
 const rows = async () =>
   (
     await database.pool.query(
@@ -155,6 +166,12 @@ beforeEach(async () => {
   await addEntityAlias(database.db, foreignWorld, foreignNpc, {
     alias: "Foreign only",
   });
+  await mapDiscordUserToEntity(database.db, world, {
+    discordUserId: author,
+    entityId: pc,
+    mappingType: "player_character",
+  });
+  await policy();
   message = {
     sourceMessageId: randomUUID(),
     authorId: author,
@@ -172,6 +189,7 @@ afterEach(async () => {
       await client.query("BEGIN");
       for (const query of [
         "delete from interactions where world_id=$1",
+        "delete from context_intake_policy_audit where world_id=$1",
         "delete from discord_identities where world_id=$1",
         "delete from discord_context_mappings where world_id=$1",
         "delete from interaction_contexts where world_id=$1",
@@ -199,11 +217,6 @@ afterAll(async () => database.close());
 describe("M2.8 explicit authorized Discord intake", () => {
   it("persists exactly one scoped unknown-mode interaction without asserting presence or invoking M2.7", async () => {
     const before = await getNpcWithState(database.db, world, npc);
-    await mapDiscordUserToEntity(database.db, world, {
-      discordUserId: author,
-      entityId: pc,
-      mappingType: "player_character",
-    });
     expect(await run()).toBe("accepted");
     const [row] = await rows();
     expect(row).toMatchObject({
@@ -279,28 +292,34 @@ describe("M2.8 explicit authorized Discord intake", () => {
     ).toBe("invalid_target");
     expect(await rows()).toHaveLength(0);
   });
-  it.each(["missing", "world", "context", "author"])(
-    "denies %s permission even with a character mapping and visible channel",
-    async (mode) => {
-      await mapDiscordUserToEntity(database.db, world, {
-        discordUserId: author,
-        entityId: pc,
-        mappingType: "player_character",
-      });
-      const allowlist =
-        mode === "missing"
-          ? []
-          : [
-              {
-                worldId: mode === "world" ? foreignWorld : world,
-                contextId: mode === "context" ? threadScene : scene,
-                authorId: mode === "author" ? "other-author" : author,
-              },
-            ];
-      expect(await run(message, allowlist)).toBe("unauthorized");
-      expect(await rows()).toHaveLength(0);
-    },
-  );
+  it("defaults new contexts to disabled and denies mapped players until explicitly enabled", async () => {
+    const result = await database.pool.query(
+      "select npc_intake_policy from interaction_contexts where id=$1",
+      [threadScene],
+    );
+    expect(result.rows[0].npc_intake_policy).toBe("disabled");
+    await policy(scene, "disabled");
+    expect(await run()).toBe("unauthorized");
+    await policy();
+    expect(await run()).toBe("accepted");
+  });
+  it("rejects wrong-world and nonexistent context policy updates without changing policy or audit", async () => {
+    const before = await database.pool.query(
+      "select * from context_intake_policy_audit where world_id=$1",
+      [world],
+    );
+    await expect(policy(scene, "disabled", foreignWorld)).rejects.toThrow(
+      "Context not found",
+    );
+    await expect(policy(randomUUID())).rejects.toThrow("Context not found");
+    expect(
+      await database.pool.query(
+        "select * from context_intake_policy_audit where world_id=$1",
+        [world],
+      ),
+    ).toMatchObject({ rows: before.rows });
+    expect(await run()).toBe("accepted");
+  });
   it("does not treat context metadata or user-controlled permission fields as authorization", async () => {
     await database.pool.query(
       "update interaction_contexts set metadata=$1::jsonb where id=$2",
@@ -313,12 +332,13 @@ describe("M2.8 explicit authorized Discord intake", () => {
         scene,
       ],
     );
+    await policy(scene, "disabled");
     const input = {
       ...message,
       worldId: world,
       contextId: scene,
       allowIntake: true,
-      grants: grants(),
+      npcIntakePolicy: "mapped_players",
       botId: "123",
     };
     expect(
@@ -329,10 +349,11 @@ describe("M2.8 explicit authorized Discord intake", () => {
     ).toBe("unauthorized");
     expect(await rows()).toHaveLength(0);
   });
-  it("denies replay after authorization is revoked in replacement operator configuration", async () => {
+  it("denies replay after persisted policy revocation without restarting intake", async () => {
     expect(await run()).toBe("accepted");
     const [before] = await rows();
-    expect(await run(message, [])).toBe("unauthorized");
+    await policy(scene, "disabled");
+    expect(await run()).toBe("unauthorized");
     expect(await rows()).toEqual([before]);
     expect(
       await createDiscordIntake(createDiscordPersistence(database.db))(
@@ -356,29 +377,67 @@ describe("M2.8 explicit authorized Discord intake", () => {
     ).toBe("accepted");
     expect((await rows()).map((row) => row.npc_id)).toEqual([npc]);
   });
-  it("selects an explicit primary speaker and rejects ambiguous identities", async () => {
-    for (const entityId of [pc, secondPc])
-      await mapDiscordUserToEntity(database.db, world, {
-        discordUserId: author,
-        entityId,
-        mappingType: "player_character",
-      });
-    expect(await run()).toBe("ambiguous_speaker");
-    expect(await rows()).toHaveLength(0);
-    await setPrimaryDiscordEntity(database.db, world, author, secondPc);
-    expect(await run()).toBe("accepted");
-    expect((await rows())[0].speaker_entity_id).toBe(secondPc);
-  });
-  it("allows an explicitly authorized unknown speaker without inventing NPC operator identity", async () => {
+  it("rejects multiple active player mappings even when one is primary", async () => {
     await mapDiscordUserToEntity(database.db, world, {
       discordUserId: author,
-      entityId: otherNpc,
-      mappingType: "npc_operator",
+      entityId: secondPc,
+      mappingType: "player_character",
     });
-    expect(await run()).toBe("accepted");
-    expect((await rows())[0].speaker_entity_id).toBeNull();
+    expect(await run()).toBe("ambiguous_speaker");
+    await setPrimaryDiscordEntity(database.db, world, author, secondPc);
+    expect(await run()).toBe("ambiguous_speaker");
+    expect(await rows()).toHaveLength(0);
   });
-  it("resolves the exact thread before parent context and its permission grant", async () => {
+  it.each([
+    "unknown",
+    "inactive_mapping",
+    "inactive_entity",
+    "wrong_world",
+    "wrong_type",
+    "operator_only",
+  ])("rejects %s player identity", async (kind) => {
+    if (kind === "inactive_entity")
+      await database.pool.query(
+        "update entities set status='inactive' where id=$1",
+        [pc],
+      );
+    else if (kind === "wrong_type")
+      await database.pool.query(
+        "update entities set entity_type='npc' where id=$1",
+        [pc],
+      );
+    else {
+      const {
+        rows: [identity],
+      } = await database.pool.query(
+        "select id from discord_identities where world_id=$1 and discord_user_id=$2",
+        [world, author],
+      );
+      await deactivateDiscordUserMapping(database.db, world, identity.id);
+      if (kind === "wrong_world") {
+        const foreignPc = await createEntity(database.db, foreignWorld, {
+          entityType: "player_character",
+          canonicalName: "Foreign player",
+        });
+        await mapDiscordUserToEntity(database.db, foreignWorld, {
+          discordUserId: author,
+          entityId: foreignPc.id,
+          mappingType: "player_character",
+        });
+      }
+      if (kind === "operator_only")
+        await mapDiscordUserToEntity(database.db, world, {
+          discordUserId: author,
+          entityId: otherNpc,
+          mappingType: "npc_operator",
+        });
+    }
+    const incoming =
+      kind === "unknown" ? { ...message, authorId: "unknown-author" } : message;
+    expect(await run(incoming)).toBe("unauthorized");
+    expect(await rows()).toHaveLength(0);
+  });
+  it("resolves the exact thread before parent context and its policy", async () => {
     await mapDiscordContext(database.db, world, {
       ...location,
       threadId: "thread",
@@ -386,11 +445,8 @@ describe("M2.8 explicit authorized Discord intake", () => {
     });
     const incoming = { ...message, threadId: "thread" };
     expect(await run(incoming)).toBe("unauthorized");
-    expect(
-      await run(incoming, [
-        { worldId: world, contextId: threadScene, authorId: author },
-      ]),
-    ).toBe("accepted");
+    await policy(threadScene);
+    expect(await run(incoming)).toBe("accepted");
     expect((await rows())[0].context_id).toBe(threadScene);
   });
   it("falls back for an unmapped thread but never for an inactive exact context", async () => {
@@ -496,11 +552,8 @@ describe("M2.8 explicit authorized Discord intake", () => {
       "update discord_context_mappings set context_id=$1 where world_id=$2",
       [threadScene, world],
     );
-    expect(
-      await run(message, [
-        { worldId: world, contextId: threadScene, authorId: author },
-      ]),
-    ).toBe("event_conflict");
+    await policy(threadScene);
+    expect(await run()).toBe("event_conflict");
     expect(await rows()).toEqual([before]);
   });
   it("rejects legacy multi-target event ambiguity without adding or altering interactions", async () => {
@@ -517,7 +570,7 @@ describe("M2.8 explicit authorized Discord intake", () => {
     expect(await run()).toBe("event_conflict");
     expect(await rows()).toEqual(before);
   });
-  it.each(["scene", "npc", "mapping", "world"])(
+  it.each(["scene", "npc", "mapping", "world", "policy", "identity", "player"])(
     "sees a concurrent committed %s revocation before persistence",
     async (kind) => {
       const client = await database.pool.connect();
@@ -525,6 +578,15 @@ describe("M2.8 explicit authorized Discord intake", () => {
       try {
         await client.query("BEGIN");
         const updates = {
+          policy: [
+            "update interaction_contexts set npc_intake_policy='disabled' where id=$1",
+            scene,
+          ],
+          identity: [
+            "update discord_identities set status='inactive', is_primary=false where world_id=$1",
+            world,
+          ],
+          player: ["update entities set status='inactive' where id=$1", pc],
           scene: [
             "update interaction_contexts set status='inactive' where id=$1",
             scene,
@@ -557,7 +619,11 @@ describe("M2.8 explicit authorized Discord intake", () => {
         );
         await client.query("COMMIT");
         expect(await pending).toBe(
-          kind === "npc" ? "invalid_target" : "unmapped",
+          kind === "npc"
+            ? "invalid_target"
+            : ["policy", "identity", "player"].includes(kind)
+              ? "unauthorized"
+              : "unmapped",
         );
         expect(await rows()).toHaveLength(0);
       } finally {
@@ -567,6 +633,141 @@ describe("M2.8 explicit authorized Discord intake", () => {
       }
     },
   );
+  it("waits for authorized intake to commit before completing CLI revocation", async () => {
+    const blocker = await database.pool.connect();
+    let pending: ReturnType<typeof run> | undefined;
+    let revoking: ReturnType<typeof policy> | undefined;
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query(
+        "select pg_advisory_xact_lock(hashtextextended($1,0))",
+        [JSON.stringify(["alias", world, "garak"])],
+      );
+      const {
+        rows: [writer],
+      } = await blocker.query("select pg_backend_pid() as pid");
+      pending = run();
+      let intakePid!: number;
+      await vi.waitFor(
+        async () => {
+          const { rows } = await database.pool.query(
+            "select pid from pg_stat_activity where $1::int=any(pg_blocking_pids(pid))",
+            [writer.pid],
+          );
+          expect(rows).toHaveLength(1);
+          intakePid = rows[0].pid;
+        },
+        { timeout: 1500, interval: 10 },
+      );
+      revoking = policy(scene, "disabled");
+      await vi.waitFor(
+        async () => {
+          const { rows } = await database.pool.query(
+            "select 1 from pg_stat_activity where $1::int=any(pg_blocking_pids(pid))",
+            [intakePid],
+          );
+          expect(rows.length).toBeGreaterThan(0);
+        },
+        { timeout: 1500, interval: 10 },
+      );
+      await blocker.query("COMMIT");
+      expect(await pending).toBe("accepted");
+      const audit = await revoking;
+      expect(audit).toMatchObject({
+        previousPolicy: "mapped_players",
+        policy: "disabled",
+        worldId: world,
+        contextId: scene,
+      });
+      const {
+        rows: [stored],
+      } = await database.pool.query(
+        "select * from context_intake_policy_audit where id=$1",
+        [audit.auditId],
+      );
+      expect(stored).toMatchObject({
+        previous_policy: "mapped_players",
+        target_policy: "disabled",
+      });
+      expect(stored.database_role).toBeTruthy();
+      const before = await rows();
+      expect(await run()).toBe("unauthorized");
+      expect(await run({ ...message, sourceMessageId: randomUUID() })).toBe(
+        "unauthorized",
+      );
+      expect(await rows()).toEqual(before);
+    } finally {
+      await blocker.query("ROLLBACK");
+      blocker.release();
+      await Promise.allSettled([pending, revoking]);
+    }
+  });
+  it("rolls back a policy change when its audit record cannot be persisted", async () => {
+    // Fixture-scoped rejection: existing audit rows remain valid and other
+    // contexts are unaffected. Always remove the temporary test constraint.
+    const constraint = `audit_reject_${randomUUID().replaceAll("-", "")}`;
+    const before = await database.pool.query(
+      "select * from context_intake_policy_audit where world_id=$1",
+      [world],
+    );
+    await database.pool.query(
+      `alter table context_intake_policy_audit add constraint "${constraint}" check (context_id <> '${scene}'::uuid) not valid`,
+    );
+    try {
+      await expect(policy(scene, "disabled")).rejects.toThrow();
+      expect(
+        (
+          await database.pool.query(
+            "select npc_intake_policy from interaction_contexts where id=$1",
+            [scene],
+          )
+        ).rows,
+      ).toEqual([{ npc_intake_policy: "mapped_players" }]);
+      expect(
+        (
+          await database.pool.query(
+            "select * from context_intake_policy_audit where world_id=$1",
+            [world],
+          )
+        ).rows,
+      ).toEqual(before.rows);
+    } finally {
+      await database.pool.query(
+        `alter table context_intake_policy_audit drop constraint "${constraint}"`,
+      );
+    }
+  });
+  it("fails closed with read-only operator database access and leaves policy and audit unchanged", async () => {
+    const before = await database.pool.query(
+      "select * from context_intake_policy_audit where world_id=$1",
+      [world],
+    );
+    await expect(
+      runContextPolicyCommand(
+        ["--world", world, "--context", scene, "--policy", "disabled"],
+        () => {
+          const pool = new Pool({
+            connectionString: getDatabaseConfig().databaseUrl,
+            options: "-c default_transaction_read_only=on",
+          });
+          return {
+            pool,
+            db: drizzle({ client: pool }),
+            close: async () => pool.end(),
+          };
+        },
+      ),
+    ).rejects.toThrow();
+    expect(
+      (
+        await database.pool.query(
+          "select * from context_intake_policy_audit where world_id=$1",
+          [world],
+        )
+      ).rows,
+    ).toEqual(before.rows);
+    expect(await run()).toBe("accepted");
+  });
   it.each(["alias", "mapping"])(
     "coordinates concurrent %s insertion with the authoritative resolver",
     async (kind) => {

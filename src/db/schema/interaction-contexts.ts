@@ -10,7 +10,11 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { entities } from "./entities.js";
-import { interactionContextStatus, interactionContextType } from "./enums.js";
+import {
+  interactionContextStatus,
+  interactionContextType,
+  npcIntakePolicy,
+} from "./enums.js";
 import { worlds } from "./worlds.js";
 
 export const interactionContexts = pgTable(
@@ -30,6 +34,9 @@ export const interactionContexts = pgTable(
       { onDelete: "restrict" },
     ),
     status: interactionContextStatus("status").notNull().default("active"),
+    npcIntakePolicy: npcIntakePolicy("npc_intake_policy")
+      .notNull()
+      .default("disabled"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

@@ -48,7 +48,7 @@ describe("application lifecycle", () => {
     );
     try {
       const [config, intake] = mocks.adapter.mock.calls[0];
-      expect(config.intakeAllowlist).toEqual([]);
+      expect(config).not.toHaveProperty("intakeAllowlist");
       expect(
         await intake(
           {

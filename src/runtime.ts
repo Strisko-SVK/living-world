@@ -22,7 +22,7 @@ export async function startApplication(
   const adapter = createDiscordAdapter(
     config.discord,
     createDiscordIntake(
-      createDiscordPersistence(database.db, config.discord.intakeAllowlist),
+      createDiscordPersistence(database.db),
       diagnose,
       "explicit_alias",
     ),

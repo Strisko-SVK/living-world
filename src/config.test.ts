@@ -2,42 +2,14 @@ import { describe, expect, it } from "vitest";
 import { getApplicationConfig } from "./config.js";
 
 describe("application configuration", () => {
-  it("defaults intake permission to deny and validates an explicit scoped allowlist", () => {
-    expect(getApplicationConfig({}).discord.intakeAllowlist).toEqual([]);
-    const grants = [
-      {
-        worldId: "00000000-0000-4000-8000-000000000001",
-        contextId: "00000000-0000-4000-8000-000000000002",
-        authorId: "000123",
-      },
-    ];
-    expect(
-      getApplicationConfig({ DISCORD_INTAKE_ALLOWLIST: JSON.stringify(grants) })
-        .discord.intakeAllowlist,
-    ).toEqual(grants);
+  it("rejects retired per-player configuration rather than silently accepting grants", () => {
+    expect(() =>
+      getApplicationConfig({ DISCORD_INTAKE_ALLOWLIST: "[]" }),
+    ).toThrow("DISCORD_INTAKE_ALLOWLIST is retired");
+    expect(getApplicationConfig({}).discord).not.toHaveProperty(
+      "intakeAllowlist",
+    );
   });
-  it.each([
-    "not JSON",
-    "null",
-    "{}",
-    "[{}]",
-    '[{"worldId":"bad","contextId":"bad","authorId":"secret"}]',
-    JSON.stringify([
-      {
-        worldId: "00000000-0000-4000-8000-000000000001",
-        contextId: "00000000-0000-4000-8000-000000000002",
-        authorId: "a",
-        allowResponse: true,
-      },
-    ]),
-  ])(
-    "rejects malformed or broadened grants without logging configuration: %s",
-    (DISCORD_INTAKE_ALLOWLIST) => {
-      expect(() => getApplicationConfig({ DISCORD_INTAKE_ALLOWLIST })).toThrow(
-        "Invalid Discord intake allowlist configuration.",
-      );
-    },
-  );
   it("disables Discord by default", () => {
     expect(getApplicationConfig({}).discord.enabled).toBe(false);
   });
