@@ -19,6 +19,8 @@ export interface GenerationRequest {
   temperature?: number;
   requestBudgetMicros?: number;
   signal?: AbortSignal;
+  // Application authorization before token counting and each provider attempt.
+  beforeAttempt?: () => Promise<boolean>;
 }
 export interface Usage {
   inputTokens: number;

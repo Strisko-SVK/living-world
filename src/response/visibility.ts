@@ -18,8 +18,6 @@ const pick = (value: unknown, keys: string[]) =>
       .filter((key) => Object.hasOwn(object(value), key))
       .map((key) => [key, object(value)[key]]),
   );
-const before = (value: Date, anchor: Date) =>
-  value instanceof Date && value.getTime() <= anchor.getTime();
 export interface PermittedContext {
   sections: Record<string, unknown>;
   // Validation-only. Never send excluded text back to the provider or diagnostics.
@@ -71,62 +69,12 @@ export function filterResponseContext(
         requester.worldId !== worldId))
   )
     throw new VisibilityBlocked();
-  const beliefs: unknown[] = [];
   const excludedText: string[] = [];
-  let omittedKnowledge = 0;
-  for (const group of bundle.knowledge) {
-    const ids = new Set(group.claims.map((c) => c.record.id));
-    const permitted =
-      group.claims.length > 0 &&
-      group.conflicts.every(
-        (c) =>
-          c.worldId === worldId &&
-          c.npcId === npcId &&
-          ids.has(c.claimAId) &&
-          ids.has(c.claimBId),
-      ) &&
-      group.claims.every(
-        ({ record: r, provenance: p }) =>
-          r.worldId === worldId &&
-          r.npcId === npcId &&
-          r.secrecy === "public" &&
-          (r.status === "current" || r.status === "disputed") &&
-          before(r.createdAt, interaction.createdAt) &&
-          before(r.updatedAt, interaction.createdAt) &&
-          p.total > 0 &&
-          p.total === p.sources.length &&
-          p.omitted === 0 &&
-          p.unavailable === 0 &&
-          p.sources.every(
-            (s) =>
-              s.knowledgeId === r.id &&
-              ["witnessed", "heard", "read", "official"].includes(
-                s.sourceType,
-              ) &&
-              (s.sourceEntityId === npcId ||
-                (requester !== null && s.sourceEntityId === requester.id)) &&
-              !s.sourceKnowledgeId &&
-              !s.sourceMemoryId &&
-              !s.externalRef &&
-              before(s.createdAt, interaction.createdAt),
-          ),
-      );
-    if (!permitted) {
-      omittedKnowledge++;
-      excludedText.push(...group.claims.map((c) => c.record.claimText));
-      continue;
-    }
-    beliefs.push({
-      subjective: true,
-      contradictory: group.conflicts.length > 0,
-      claims: group.claims.map(({ record: r }) => ({
-        text: r.claimText,
-        classification: r.classification,
-        confidence: r.confidence,
-        status: r.status,
-      })),
-    });
-  }
+  // Sources record attribution, not NPC exposure. No persisted source type,
+  // entity identity, timestamp, reference or note proves perception. Withhold
+  // whole conflict groups until reliable exposure evidence can be represented.
+  for (const group of bundle.knowledge)
+    excludedText.push(...group.claims.map((c) => c.record.claimText));
   // Ownership alone proves neither historical perception nor permission to
   // disclose memories/relationship notes. No visibility model exists for them.
   for (const memory of bundle.memories)
@@ -161,7 +109,7 @@ export function filterResponseContext(
         physical: pick(state.physicalState, ["summary"]),
         emotional: pick(state.emotionalState, ["summary"]),
       },
-      permittedKnowledge: beliefs,
+      permittedKnowledge: [],
       permittedMemories: [],
       relevantRelationships: [],
       sceneHistory: [],
@@ -183,6 +131,7 @@ export function filterResponseContext(
           "explicit_local_mode_with_stored_location_evidence",
       },
       missing: [
+        "knowledge_exposure_unproven",
         "history_perception_unproven",
         "memory_disclosure_unclassified",
         "relationship_disclosure_unclassified",
@@ -192,7 +141,7 @@ export function filterResponseContext(
     excludedText,
     omissions: {
       history: bundle.history.length,
-      knowledgeGroups: omittedKnowledge,
+      knowledgeGroups: bundle.knowledge.length,
       memories: bundle.memories.length,
       relationships: bundle.relationships.length,
     },

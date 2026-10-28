@@ -1,3 +1,11 @@
+import { isDeepStrictEqual } from "node:util";
+import { createContextBuilder } from "../context/context-builder.js";
+import { createContextReader } from "../context/context.repository.js";
+import type {
+  Interaction,
+  NpcContextBundle,
+} from "../context/context.types.js";
+import { filterResponseContext, VisibilityBlocked } from "./visibility.js";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { DatabaseClient } from "../db/client.js";
@@ -31,8 +39,58 @@ export function createResponseStore(database: Database): ResponseStore {
         .where(scopeWhere(scope))
         .for("update")
     )[0];
+  // Lock only for the local eligibility check and lifecycle write. These locks
+  // are released before generation (including token counting/budget reservation).
+  const eligible = async (
+    tx: Database,
+    row: Interaction,
+    expected?: NpcContextBundle,
+  ) => {
+    await tx.execute(
+      sql`select id from worlds where id=${row.worldId} for share`,
+    );
+    await tx.execute(sql`select id from entities where world_id=${row.worldId}
+      and (id=${row.npcId} or id=${row.speakerEntityId}) order by id for share`);
+    await tx.execute(
+      sql`select entity_id from npcs where entity_id=${row.npcId} for share`,
+    );
+    await tx.execute(
+      sql`select npc_id from npc_state where npc_id=${row.npcId} for share`,
+    );
+    await tx.execute(
+      sql`select npc_id from npc_game_profiles where npc_id=${row.npcId} for share`,
+    );
+    await tx.execute(sql`select id from interaction_contexts where world_id=${row.worldId}
+      and id=${row.contextId} for share`);
+    try {
+      const fresh = await createContextBuilder(createContextReader(tx))({
+        worldId: row.worldId,
+        npcId: row.npcId,
+        interactionId: row.id,
+        limits: { history: 0 },
+      });
+      const permitted = filterResponseContext(fresh, row);
+      // All retrieved knowledge is withheld, so its access changes cannot
+      // authorize prompt content. Compare every remaining prompt-visible field.
+      return (
+        !expected ||
+        (isDeepStrictEqual(fresh.current.context, expected.current.context) &&
+          fresh.npc.state?.currentLocationId ===
+            expected.npc.state?.currentLocationId &&
+          fresh.npc.state?.locationCertainty ===
+            expected.npc.state?.locationCertainty &&
+          isDeepStrictEqual(
+            permitted.sections,
+            filterResponseContext(expected, row).sections,
+          ))
+      );
+    } catch (error) {
+      if (error instanceof VisibilityBlocked) return false;
+      throw error;
+    }
+  };
   return {
-    claim: (scope, expected) =>
+    claim: (scope, expected, context) =>
       database.transaction(async (tx) => {
         const row = await locked(tx, scope);
         if (
@@ -51,6 +109,7 @@ export function createResponseStore(database: Database): ResponseStore {
           row.createdAt.getTime() !== expected.createdAt.getTime()
         )
           return null;
+        if (!(await eligible(tx, row, context))) return null;
         const updated = await markInteractionProcessing(
           tx,
           scope.worldId,
@@ -71,27 +130,54 @@ export function createResponseStore(database: Database): ResponseStore {
         if (!claimed) throw new Error("Response claim changed.");
         return claimed;
       }),
-    dispatch: async (scope, claimId) => {
-      const rows = await database
-        .update(interactions)
-        .set({
-          responseDispatchedAt: sql`clock_timestamp()`,
-          responseGenerationOutcome: "dispatched",
-        })
-        .where(
-          and(
-            scopeWhere(scope),
-            eq(interactions.status, "processing"),
-            eq(interactions.responseClaimId, claimId),
-            eq(interactions.responseGenerationOutcome, "claimed"),
-            isNull(interactions.responseText),
-            unexpired,
-          ),
+    dispatch: (scope, claimId, context) =>
+      database.transaction(async (tx) => {
+        const row = await locked(tx, scope);
+        if (
+          !row ||
+          row.responseClaimId !== claimId ||
+          row.responseGenerationOutcome !== "claimed" ||
+          !(await eligible(tx, row, context))
         )
-        .returning({ id: interactions.id });
-      return rows.length === 1;
-    },
-    persist: (scope, claimId, text) =>
+          return false;
+        const rows = await tx
+          .update(interactions)
+          .set({
+            responseDispatchedAt: sql`clock_timestamp()`,
+            responseGenerationOutcome: "dispatched",
+          })
+          .where(
+            and(
+              scopeWhere(scope),
+              eq(interactions.status, "processing"),
+              eq(interactions.responseClaimId, claimId),
+              eq(interactions.responseGenerationOutcome, "claimed"),
+              isNull(interactions.responseText),
+              unexpired,
+            ),
+          )
+          .returning({ id: interactions.id });
+        return rows.length === 1;
+      }),
+    validate: (scope, claimId, context) =>
+      database.transaction(async (tx) => {
+        const row = await locked(tx, scope);
+        if (
+          !row ||
+          row.status !== "processing" ||
+          row.responseText !== null ||
+          row.responseClaimId !== claimId ||
+          row.responseGenerationOutcome !== "dispatched"
+        )
+          return false;
+        if (!(await eligible(tx, row, context))) return false;
+        const [live] = await tx
+          .select({ id: interactions.id })
+          .from(interactions)
+          .where(and(scopeWhere(scope), unexpired));
+        return !!live;
+      }),
+    persist: (scope, claimId, text, context) =>
       database.transaction(async (tx) => {
         const row = await locked(tx, scope);
         if (
@@ -106,7 +192,12 @@ export function createResponseStore(database: Database): ResponseStore {
           .select({ id: interactions.id })
           .from(interactions)
           .where(and(scopeWhere(scope), unexpired));
-        if (!live) return null;
+        if (!live || !(await eligible(tx, row, context))) return null;
+        const [stillLive] = await tx
+          .select({ id: interactions.id })
+          .from(interactions)
+          .where(and(scopeWhere(scope), unexpired));
+        if (!stillLive) return null;
         const saved = await recordInteractionResponse(
           tx,
           scope.worldId,

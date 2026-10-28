@@ -109,7 +109,7 @@ export function createNpcResponseOrchestrator(
       }
       if (options.signal?.aborted)
         return finish({ ok: false, error: "cancelled" });
-      const claim = await deps.store.claim(scope, current);
+      const claim = await deps.store.claim(scope, current, context);
       if (!claim?.responseClaimId)
         return finish({ ok: false, error: "ineligible" });
       claimId = claim.responseClaimId;
@@ -117,7 +117,7 @@ export function createNpcResponseOrchestrator(
         await deps.store.fail(scope, claimId, false);
         return finish({ ok: false, error: "cancelled" });
       }
-      if (!(await deps.store.dispatch(scope, claimId))) {
+      if (!(await deps.store.dispatch(scope, claimId, context))) {
         await deps.store.fail(scope, claimId, false);
         return finish({ ok: false, error: "claim_lost" });
       }
@@ -125,6 +125,7 @@ export function createNpcResponseOrchestrator(
       const generated = await deps.generate({
         traceId,
         ...prompt,
+        beforeAttempt: () => deps.store.validate(scope, claimId!, context),
         signal: options.signal,
         maxOutputTokens: parsed.data.maxOutputTokens,
         requestBudgetMicros: parsed.data.requestBudgetMicros,
@@ -150,7 +151,7 @@ export function createNpcResponseOrchestrator(
         await deps.store.fail(scope, claimId, false);
         return finish({ ok: false, error: "invalid_response" });
       }
-      const saved = await deps.store.persist(scope, claimId, speech);
+      const saved = await deps.store.persist(scope, claimId, speech, context);
       if (!saved) {
         await deps.store.fail(scope, claimId, true);
         return finish({ ok: false, error: "claim_lost" });

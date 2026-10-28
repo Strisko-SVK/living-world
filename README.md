@@ -553,16 +553,14 @@ Conservative access boundary:
   Mapped speaker canonical names are withheld: mapping is not proof of the NPC's
   recognition of that character. The current request may contain a self-introduction,
   but that remains an untrusted claim, not confirmed identity.
-- Only owned same-world `public` current/disputed beliefs with complete, uncapped,
-  available provenance enter. Require direct witnessed/heard/read/official sources
-  naming this NPC or the known requester, no archive/external references, chained
-  claims or memory references, and no claim/update/source rows stored after the
-  interaction. This is recorded subjective evidence, not proof of truth or scene
-  perception. Provenance notes/object values/conflict resolution notes are omitted.
-- Conflict groups are indivisible. If any member is private/restricted/secret or
-  lacks admissible provenance, omit the group. Included contradictions preserve
-  classification/confidence/disputed status and are explicitly subjective; a
-  claim labeled `fact` is not elevated to World Truth.
+- All retrieved knowledge is withheld, including public current/disputed claims.
+  Existing sources record attribution and labels, not reliable NPC exposure.
+  `heard`, `witnessed`, `read`, `official`, requester/NPC identity, source notes,
+  Discord routing and storage dates cannot prove perception. Persistence has no
+  admissible exposure evidence for these claims; no source type is exempt.
+  Whole conflict groups are withheld, preserving world/NPC isolation and avoiding
+  partial contradictions. This restriction remains until a future capability can
+  represent reliable exposure and disclosure evidence; no exposure data is created.
 - All memories and relationship details are omitted: existing records have no
   disclosure classification proving permission to share with the requester.
   Prompt sections remain empty with explicit missing-information labels.
@@ -572,8 +570,8 @@ Conservative access boundary:
 
 These restrictions intentionally sacrifice richness. No permission, exposure or
 presence record is invented, and no filter-bypass option exists. The policy uses
-one consistent snapshot, not a dynamic ACL/revocation model or proof of historical
-game chronology. Persona JSON is not semantically verified biography.
+an initial consistent snapshot plus authoritative checks at transaction boundaries,
+not a dynamic ACL system or proof of historical game chronology. Persona JSON is not semantically verified biography.
 
 Lifecycle and recovery:
 
@@ -583,10 +581,25 @@ Lifecycle and recovery:
 - Lock the scoped interaction, confirm it is unchanged/received with no response
   or previous claim, and use existing `received -> processing` validation. Claim
   ID, database timestamp and prompt version commit together. Competing processes
-  cannot claim it. An atomic `claimed -> dispatched` fence records intent before
-  M2.6 invocation, not proof that HTTP reached the provider. No lock is held across
-  context retrieval or generation. Only the matching live claim may persist;
-  immutable response persistence and the `responded` audit outcome commit together.
+  cannot claim it. At claim, dispatch and persistence, lock the authoritative
+  world/NPC/entity/state/profile/scene rows, rebuild through existing repositories,
+  validate current local location and active scene eligibility, and compare all
+  prompt-visible sections plus scene/location evidence with the original context.
+  Stale context cannot authorize dispatch. Knowledge changes cannot authorize
+  content because all retrieved knowledge is withheld.
+- An atomic `claimed -> dispatched` fence records intent before M2.6 invocation,
+  not proof that HTTP reached the provider. M2.6 invokes an optional application
+  authorization callback before token counting (also a provider request) and
+  before every generation attempt, including existing bounded retries. These
+  short transactions release locks before external calls. There is necessarily
+  an interval after each authorization commit in which conditions may change;
+  no database lock spans a provider call. A result whose scene, location or
+  prompt-visible context is invalid at persistence is withheld and its interaction
+  becomes terminal/uncertain; it is never automatically regenerated. Existing
+  reservation and settlement run once, including zero generation cost when
+  authorization fails after reservation but before a generation attempt.
+- Only the matching live claim may persist; immutable response persistence and
+  the `responded` audit outcome commit together. Lost/expired claims remain fenced.
 - `responded` means generated/validated/persisted, not delivered. No automatic
   completion or Discord response message ID occurs. Responded/completed requests
   return existing text without generation. Failed/processing requests are not
@@ -634,3 +647,30 @@ rollback, concurrent connections, interrupted/late-worker fencing, immutable spe
 and domain-state non-mutation. Every provider call uses offline fakes: no paid API
 or outbound Discord calls. Cleanup removes only UUID-scoped fixtures created by
 the tests, never existing application data.
+
+#### M2.7 review remediation and remaining P2 findings
+
+PR #1's P1 provenance, response lifecycle and PostgreSQL CI findings are addressed
+by the conservative restrictions and transaction checks above. No migration is
+required; migrations `0000`–`0011` remain unchanged. GitHub Actions retains the
+unit/lint/format/typecheck/build quality gate and adds a bounded PostgreSQL 17
+service job that applies real Drizzle migrations and executes `pnpm test:db` using
+isolated CI-only credentials. Neither job bypasses hooks.
+
+The independent review's P2 findings remain open:
+
+- Reported provider usage can exceed the preflight reservation. Billing stays
+  truthful, but no explicit over-reservation anomaly is surfaced; the budget is
+  not an absolute hard spending limit.
+- Context Builder retrieves complete candidate sets and per-record provenance
+  before limits. Response revalidation also uses that existing builder under
+  short local locks; capped retrieval and query-count benchmarks remain future
+  work, preserving conflict groups.
+- Speech JSON is prompt-enforced and locally validated, without provider-level
+  structured-output enforcement. Invalid speech may still incur billed usage.
+
+Authorization is checked at explicit boundaries, not continuously. Revocations
+that occur after a provider request begins cannot retract its input; invalid
+conditions still present at persistence prevent saving its output. There is no
+historical revocation ledger for detecting a change that is later reverted.
+Persona fields remain untrusted characterization, not verified biography.

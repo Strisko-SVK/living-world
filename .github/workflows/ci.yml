@@ -10,8 +10,7 @@ jobs:
   quality:
     name: Quality Gate
     runs-on: ubuntu-latest
-    env:
-      HUSKY: 0
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -33,3 +32,47 @@ jobs:
 
       - name: Run quality gate
         run: pnpm quality:gate
+
+  postgres:
+    name: PostgreSQL 17 Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: living_world_ci
+          POSTGRES_USER: living_world_ci
+          POSTGRES_PASSWORD: isolated_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U living_world_ci -d living_world_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://living_world_ci:isolated_ci_password@localhost:5432/living_world_ci
+      DISCORD_ENABLED: "false"
+      LLM_PROVIDER: disabled
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.17.1
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Prepare isolated database configuration
+        run: cp .env.example .env
+      - name: Apply real migrations
+        run: pnpm db:migrate
+      - name: Run PostgreSQL integration tests
+        run: pnpm test:db

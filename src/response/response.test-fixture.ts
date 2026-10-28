@@ -65,6 +65,7 @@ export async function responseFixture() {
         };
         return current;
       }),
+      validate: vi.fn(async () => true),
       dispatch: vi.fn(async () => {
         current = {
           ...current,

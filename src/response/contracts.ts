@@ -55,12 +55,23 @@ export interface ResponseStore {
   claim(
     scope: ResponseScope,
     expected: Interaction,
+    context?: NpcContextBundle,
   ): Promise<Interaction | null>;
-  dispatch(scope: ResponseScope, claimId: string): Promise<boolean>;
+  dispatch(
+    scope: ResponseScope,
+    claimId: string,
+    context?: NpcContextBundle,
+  ): Promise<boolean>;
+  validate(
+    scope: ResponseScope,
+    claimId: string,
+    context: NpcContextBundle,
+  ): Promise<boolean>;
   persist(
     scope: ResponseScope,
     claimId: string,
     text: string,
+    context?: NpcContextBundle,
   ): Promise<Interaction | null>;
   fail(
     scope: ResponseScope,

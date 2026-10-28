@@ -153,6 +153,12 @@ export function createTextGenerator(
         maxOutputTokens: data.maxOutputTokens ?? config.maxOutputTokens,
         temperature: data.temperature,
       };
+      if (
+        request.beforeAttempt &&
+        !(await interruptible(request.beforeAttempt, signal))
+      )
+        throw new ProviderFailure("cancelled", false, undefined, true);
+      check();
       const inputTokens = await interruptible(
         () => provider.countInput(input, signal),
         signal,
@@ -198,6 +204,12 @@ export function createTextGenerator(
         throw new ProviderFailure("budget");
       id = candidate;
       for (let attempt = 0; attempt < config.maxAttempts; attempt++) {
+        check();
+        if (
+          request.beforeAttempt &&
+          !(await interruptible(request.beforeAttempt, signal))
+        )
+          throw new ProviderFailure("cancelled", false, undefined, true);
         check();
         observation.retries = attempt;
         attempted++;

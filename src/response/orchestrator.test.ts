@@ -252,7 +252,7 @@ describe("NPC response orchestration", () => {
     ])
       expect(prompt).not.toContain(text);
   });
-  it("preserves evidenced public subjective contradictions as an indivisible group", async () => {
+  it("withholds falsely evidenced public contradictions as an indivisible group", async () => {
     const f = await responseFixture();
     vi.mocked(f.reader.knowledge).mockResolvedValue([
       knowledge({ secrecy: "public" }),
@@ -295,10 +295,10 @@ describe("NPC response orchestration", () => {
     await createNpcResponseOrchestrator(f.deps)(...args);
     const prompt = vi.mocked(f.deps.generate).mock.calls[0][0].messages[0]
       .content;
-    expect(prompt).toContain('"subjective":true');
-    expect(prompt).toContain('"contradictory":true');
-    expect(prompt).toContain("The docking manifest is correct");
-    expect(prompt).toContain("The docking manifest is incorrect");
+    expect(prompt).toContain('"permittedKnowledge":[]');
+    expect(prompt).not.toContain('"contradictory":true');
+    expect(prompt).not.toContain("The docking manifest is correct");
+    expect(prompt).not.toContain("The docking manifest is incorrect");
     expect(prompt).not.toContain("Excluded provenance detail");
   });
   it("omits public claims lacking reliable provenance", async () => {

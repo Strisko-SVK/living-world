@@ -19,13 +19,17 @@ import {
 import { createNpcContextBuilder } from "../context/context.repository.js";
 import { createResponseStore } from "../response/response.repository.js";
 import { createNpcResponseOrchestrator } from "../response/orchestrator.js";
+import { ProviderFailure } from "../llm/contracts.js";
 import { createTextGenerator } from "../llm/generation.js";
 import {
   enabledConfig,
   fakeBudget,
   fakeProvider,
 } from "../llm/llm.test-fixture.js";
-import type { ResponseScope } from "../response/contracts.js";
+import type {
+  ResponseDependencies,
+  ResponseScope,
+} from "../response/contracts.js";
 
 const database = createDatabaseClient();
 const store = createResponseStore(database.db);
@@ -138,7 +142,7 @@ const scope = (id: string): ResponseScope => ({
 });
 const read = (s: ResponseScope) =>
   getInteraction(database.db, s.worldId, s.npcId, s.interactionId);
-function pipeline() {
+function pipeline(overrides: Partial<ResponseDependencies> = {}) {
   const provider = fakeProvider(),
     budget = fakeBudget();
   vi.mocked(provider.generate).mockResolvedValue({
@@ -157,10 +161,331 @@ function pipeline() {
       build: createNpcContextBuilder(database.db),
       store,
       generate,
+      ...overrides,
     }),
   };
 }
 describe("NPC response PostgreSQL lifecycle and concurrency", () => {
+  it.each(["closed", "location", "uncertain", "inactive", "persona"])(
+    "rejects stale context before claiming: %s",
+    async (change) => {
+      const row = await interaction();
+      const build = createNpcContextBuilder(database.db);
+      const p = pipeline({
+        build: async (request) => {
+          const bundle = await build(request);
+          if (change === "closed")
+            await database.pool.query(
+              "update interaction_contexts set status='inactive' where id=$1",
+              [row.contextId],
+            );
+          if (change === "location")
+            await database.pool.query(
+              "update npc_state set current_location_id=null where npc_id=$1",
+              [npc],
+            );
+          if (change === "uncertain")
+            await database.pool.query(
+              "update npc_state set location_certainty='unknown' where npc_id=$1",
+              [npc],
+            );
+          if (change === "inactive")
+            await database.pool.query(
+              "update npcs set lifecycle_state='dormant' where entity_id=$1",
+              [npc],
+            );
+          if (change === "persona")
+            bundle.npc.npc.canonicalName = "Stale persona";
+          return bundle;
+        },
+      });
+      try {
+        expect(await p.run(world, npc, row.id)).toMatchObject({
+          error: "ineligible",
+        });
+        expect(p.provider.countInput).not.toHaveBeenCalled();
+        expect(p.provider.generate).not.toHaveBeenCalled();
+        expect(p.budget.reserve).not.toHaveBeenCalled();
+        expect((await read(scope(row.id)))?.status).toBe("received");
+      } finally {
+        await database.pool.query(
+          "update npc_state set current_location_id=$1,location_certainty='certain' where npc_id=$2",
+          [locationId, npc],
+        );
+        await database.pool.query(
+          "update npcs set lifecycle_state='active' where entity_id=$1",
+          [npc],
+        );
+      }
+    },
+  );
+  it("blocks a scene closed after claim and before dispatch", async () => {
+    const row = await interaction();
+    const p = pipeline({
+      store: {
+        ...store,
+        claim: async (...args) => {
+          const claimed = await store.claim(...args);
+          await database.pool.query(
+            "update interaction_contexts set status='inactive' where id=$1",
+            [row.contextId],
+          );
+          return claimed;
+        },
+      },
+    });
+    expect(await p.run(world, npc, row.id)).toMatchObject({
+      error: "claim_lost",
+    });
+    expect(p.provider.countInput).not.toHaveBeenCalled();
+    expect(p.budget.reserve).not.toHaveBeenCalled();
+    expect(await read(scope(row.id))).toMatchObject({
+      status: "failed",
+      responseGenerationOutcome: "failed",
+      responseDispatchedAt: null,
+    });
+  });
+  it("blocks token preflight when conditions change after the dispatch marker", async () => {
+    const row = await interaction();
+    const p = pipeline({
+      store: {
+        ...store,
+        dispatch: async (...args) => {
+          const dispatched = await store.dispatch(...args);
+          await database.pool.query(
+            "update interaction_contexts set status='inactive' where id=$1",
+            [row.contextId],
+          );
+          return dispatched;
+        },
+      },
+    });
+    expect(await p.run(world, npc, row.id)).toMatchObject({
+      error: "generation_failed",
+      providerError: "cancelled",
+    });
+    expect(p.provider.countInput).not.toHaveBeenCalled();
+    expect(p.provider.generate).not.toHaveBeenCalled();
+    expect(p.budget.reserve).not.toHaveBeenCalled();
+  });
+  it("blocks generation after a location change during token preflight and settles once", async () => {
+    const row = await interaction(),
+      p = pipeline();
+    vi.mocked(p.provider.countInput).mockImplementation(async () => {
+      await database.pool.query(
+        "update npc_state set current_location_id=null where npc_id=$1",
+        [npc],
+      );
+      return 10;
+    });
+    try {
+      expect(await p.run(world, npc, row.id)).toMatchObject({
+        error: "generation_failed",
+        providerError: "cancelled",
+      });
+      expect(p.provider.generate).not.toHaveBeenCalled();
+      expect(p.budget.reserve).toHaveBeenCalledTimes(1);
+      expect(p.budget.settle).toHaveBeenCalledTimes(1);
+      expect(p.budget.settle).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ charged: 0n, uncertain: false }),
+      );
+      expect((await read(scope(row.id)))?.responseText).toBeNull();
+    } finally {
+      await database.pool.query(
+        "update npc_state set current_location_id=$1 where npc_id=$2",
+        [locationId, npc],
+      );
+    }
+  });
+  it.each(["scene", "location", "persona", "relocated"])(
+    "withholds an in-flight result after changed %s without holding locks or regenerating",
+    async (change) => {
+      const row = await interaction(),
+        p = pipeline();
+      let release!: () => void, entered!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      vi.mocked(p.provider.generate).mockImplementation(async () => {
+        entered();
+        await gate;
+        return {
+          text: JSON.stringify({ speech: "I cannot confirm this report." }),
+          completed: true,
+          usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+        };
+      });
+      const pending = p.run(world, npc, row.id);
+      try {
+        await Promise.race([
+          started,
+          pending.then(() => {
+            throw Error("No dispatch");
+          }),
+        ]);
+        const client = await database.pool.connect();
+        try {
+          await client.query("BEGIN");
+          await client.query("SET LOCAL lock_timeout='1s'");
+          if (change === "scene")
+            await client.query(
+              "update interaction_contexts set status='inactive' where id=$1",
+              [row.contextId],
+            );
+          if (change === "location")
+            await client.query(
+              "update npc_state set current_location_id=null where npc_id=$1",
+              [npc],
+            );
+          if (change === "relocated") {
+            const moved = await createEntity(database.db, world, {
+              entityType: "location",
+              canonicalName: "Moved together",
+            });
+            await client.query(
+              "update npc_state set current_location_id=$1 where npc_id=$2",
+              [moved.id, npc],
+            );
+            await client.query(
+              "update interaction_contexts set linked_location_entity_id=$1 where id=$2",
+              [moved.id, row.contextId],
+            );
+          }
+          if (change === "persona")
+            await client.query(
+              "update npc_state set emotional_state='{}'::jsonb where npc_id=$1",
+              [npc],
+            );
+          await client.query("COMMIT");
+        } catch (error) {
+          await client.query("ROLLBACK");
+          throw error;
+        } finally {
+          client.release();
+        }
+      } finally {
+        release();
+      }
+      try {
+        expect(await pending).toMatchObject({ error: "claim_lost" });
+        expect(await read(scope(row.id))).toMatchObject({
+          status: "failed",
+          responseText: null,
+          responseGenerationOutcome: "uncertain",
+        });
+        expect(await p.run(world, npc, row.id)).toMatchObject({
+          error: "ineligible",
+        });
+        expect(p.provider.generate).toHaveBeenCalledTimes(1);
+        expect(p.budget.reserve).toHaveBeenCalledTimes(1);
+        expect(p.budget.settle).toHaveBeenCalledTimes(1);
+      } finally {
+        await database.pool.query(
+          "update npc_state set current_location_id=$1,emotional_state=$2::jsonb where npc_id=$3",
+          [
+            locationId,
+            JSON.stringify(peloNpcFixture.initialState?.emotionalState ?? {}),
+            npc,
+          ],
+        );
+      }
+    },
+  );
+  it("waits for an authoritative scene writer and sees its committed revocation", async () => {
+    const row = await interaction(),
+      s = scope(row.id);
+    const bundle = await createNpcContextBuilder(database.db)({
+      ...s,
+      limits: { history: 0 },
+    });
+    const client = await database.pool.connect();
+    let claiming: ReturnType<typeof store.claim> | undefined;
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "update interaction_contexts set status='inactive' where id=$1",
+        [row.contextId],
+      );
+      const {
+        rows: [writer],
+      } = await client.query("select pg_backend_pid() as pid");
+      claiming = store.claim(s, row, bundle);
+      // Verify the claimant is actually waiting for this writer's row lock.
+      await vi.waitFor(
+        async () => {
+          const { rows } = await database.pool.query(
+            "select 1 from pg_stat_activity where $1::int=any(pg_blocking_pids(pid))",
+            [writer.pid],
+          );
+          expect(rows.length).toBeGreaterThan(0);
+        },
+        { timeout: 2000, interval: 10 },
+      );
+      await client.query("COMMIT");
+      expect(await claiming).toBeNull();
+      expect((await read(s))?.responseClaimId).toBeNull();
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+      await claiming;
+    }
+  });
+  it("does not retry a provider attempt after scene revocation and settles the one reservation", async () => {
+    const row = await interaction(),
+      p = pipeline();
+    vi.mocked(p.provider.generate).mockImplementationOnce(async () => {
+      await database.pool.query(
+        "update interaction_contexts set status='inactive' where id=$1",
+        [row.contextId],
+      );
+      throw new ProviderFailure("rate_limit", true, 0, true);
+    });
+    expect(await p.run(world, npc, row.id)).toMatchObject({
+      error: "generation_failed",
+      providerError: "cancelled",
+    });
+    expect(p.provider.generate).toHaveBeenCalledTimes(1);
+    expect(p.budget.reserve).toHaveBeenCalledTimes(1);
+    expect(p.budget.settle).toHaveBeenCalledTimes(1);
+    expect((await read(scope(row.id)))?.responseText).toBeNull();
+  });
+  it("never sends attributed public knowledge even when access changes during preflight", async () => {
+    const row = await interaction(),
+      p = pipeline();
+    vi.mocked(p.provider.countInput).mockImplementation(async (request) => {
+      expect(JSON.stringify(request)).not.toContain(
+        "The manifest may contain ten crates",
+      );
+      await database.pool.query(
+        "update npc_knowledge set secrecy='restricted' where world_id=$1 and npc_id=$2",
+        [world, npc],
+      );
+      return 10;
+    });
+    try {
+      expect((await p.run(world, npc, row.id)).ok).toBe(true);
+      const request = vi.mocked(p.provider.generate).mock.calls[0][0];
+      expect(JSON.stringify(request)).not.toContain(
+        "The manifest may contain ten crates",
+      );
+      expect(
+        JSON.parse(
+          request.messages.find((message) => message.role === "user")!.content,
+        ).untrustedContext.permittedKnowledge,
+      ).toEqual([]);
+      expect(p.provider.generate).toHaveBeenCalledTimes(1);
+      expect(p.budget.reserve).toHaveBeenCalledTimes(1);
+    } finally {
+      await database.pool.query(
+        "update npc_knowledge set secrecy='public' where world_id=$1 and npc_id=$2",
+        [world, npc],
+      );
+    }
+  });
   it("fences an in-flight worker after explicit stale reconciliation without another provider call", async () => {
     const row = await interaction(),
       s = scope(row.id),
@@ -372,7 +697,7 @@ describe("NPC response PostgreSQL lifecycle and concurrency", () => {
     expect(await snapshot()).toEqual(before);
     expect(await getNpcWithState(database.db, world, npc)).toEqual(npcBefore);
     const request = vi.mocked(p.provider.countInput).mock.calls[0][0];
-    expect(JSON.stringify(request)).toContain("subjective");
+    expect(JSON.stringify(request)).toContain("knowledge_exposure_unproven");
     expect(JSON.stringify(request)).toContain("unknown");
   });
   it("respects external terminal transitions instead of overwriting them", async () => {

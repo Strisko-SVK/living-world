@@ -31,6 +31,38 @@ async function fixture() {
   return { f, bundle };
 }
 describe("conservative response access boundary", () => {
+  it.each(["heard", "witnessed", "read", "official"] as const)(
+    "does not accept %s labels or NPC/requester identity as exposure evidence",
+    async (sourceType) => {
+      const { f, bundle } = await fixture();
+      const claim = bundle.knowledge[0].claims[0];
+      for (const entity of [ids.speaker, ids.npc, ids.otherNpc, null]) {
+        claim.provenance.sources[0].sourceType = sourceType;
+        claim.provenance.sources[0].sourceEntityId = entity;
+        claim.provenance.sources[0].provenanceNote =
+          "NPC definitely heard this in Discord";
+        const permitted = filterResponseContext(bundle, f.current);
+        expect(permitted.sections.permittedKnowledge).toEqual([]);
+        expect(permitted.excludedText).toContain(claim.record.claimText);
+        expect(JSON.stringify(permitted.sections)).not.toContain(
+          claim.record.claimText,
+        );
+      }
+    },
+  );
+  it("accepts explicit current local location evidence without admitting historical knowledge", async () => {
+    const { f, bundle } = await fixture();
+    expect(
+      filterResponseContext(bundle, f.current).sections
+        .currentSceneAndInteraction,
+    ).toMatchObject({
+      requestText: f.current.requestText,
+    });
+    bundle.npc.state!.locationCertainty = "unknown";
+    expect(() => filterResponseContext(bundle, f.current)).toThrow(
+      VisibilityBlocked,
+    );
+  });
   it.each(["private", "secret", "restricted"] as const)(
     "excludes %s beliefs",
     async (secrecy) => {
