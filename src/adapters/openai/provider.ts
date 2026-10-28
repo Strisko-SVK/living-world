@@ -81,8 +81,21 @@ export function createOpenAiProvider(
     tools: [],
     tool_choice: "none" as const,
     truncation: "disabled" as const,
+    ...(request.responseFormat
+      ? {
+          text: {
+            format: {
+              type: "json_schema" as const,
+              name: request.responseFormat.name,
+              schema: request.responseFormat.schema,
+              strict: true,
+            },
+          },
+        }
+      : {}),
   });
   return {
+    supportsStructuredOutput: true,
     async countInput(request, signal) {
       try {
         const response = await client.responses.inputTokens.count(
@@ -120,7 +133,12 @@ export function createOpenAiProvider(
           completed:
             response.status === "completed" &&
             response.output.every(
-              (item) => item.type === "message" || item.type === "reasoning",
+              (item) =>
+                item.type === "reasoning" ||
+                (item.type === "message" &&
+                  item.content.every(
+                    (content) => content.type === "output_text",
+                  )),
             ),
         };
       } catch (error) {

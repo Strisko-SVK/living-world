@@ -657,20 +657,112 @@ unit/lint/format/typecheck/build quality gate and adds a bounded PostgreSQL 17
 service job that applies real Drizzle migrations and executes `pnpm test:db` using
 isolated CI-only credentials. Neither job bypasses hooks.
 
-The independent review's P2 findings remain open:
-
-- Reported provider usage can exceed the preflight reservation. Billing stays
-  truthful, but no explicit over-reservation anomaly is surfaced; the budget is
-  not an absolute hard spending limit.
-- Context Builder retrieves complete candidate sets and per-record provenance
-  before limits. Response revalidation also uses that existing builder under
-  short local locks; capped retrieval and query-count benchmarks remain future
-  work, preserving conflict groups.
-- Speech JSON is prompt-enforced and locally validated, without provider-level
-  structured-output enforcement. Invalid speech may still incur billed usage.
+The P2 hardening below addresses the remaining review findings. Provider billing
+and context relevance still have the practical limits described here.
 
 Authorization is checked at explicit boundaries, not continuously. Revocations
 that occur after a provider request begins cannot retract its input; invalid
 conditions still present at persistence prevent saving its output. There is no
 historical revocation ledger for detecting a change that is later reverted.
 Persona fields remain untrusted characterization, not verified biography.
+
+#### M2.7 P2 hardening
+
+Accounting keeps the existing single atomic account and invocation ledger. The
+original `reserved_micros` and truthful `charged_micros` already persist enough
+information to detect reservation overruns; no anomaly table or migration is
+needed. `getLlmBudgetSummary().usage` now includes all-time `reservationOverruns`
+and `reservationOverageMicros`, derived from settled/uncertain ledger rows.
+These are not additional charges. Generation observations expose
+`reservationMicros`, `reservationOverageMicros` and `estimateExceeded` (an actual
+attempt cost above its preflight estimate, even if the all-attempt reservation
+absorbs it). Fields contain numeric accounting metadata only. Valid provider
+usage is charged even when the response is invalid or exceeds the configured
+estimate; no monthly ceiling is automatically increased. After a settlement
+failure, output remains withheld and diagnostics retain the greater of known
+actual cost and the reservation. The durable reservation remains outstanding;
+failed settlement still requires operator reconciliation, not an automatic
+refund or second settlement. This remains truthful local accounting, not an
+absolute provider-enforced spending limit.
+
+Context retrieval now uses the existing Context Reader/repository boundary with
+SQL relevance/status/scope predicates, batched sources, and batched referenced
+entities/interactions. History is filtered by world, NPC, scene, technical cutoff
+and current-interaction exclusion before its ordered SQL limit. A zero history
+limit issues no history query. Candidate claims include the complete recursively
+connected conflict closure; cycles terminate through SQL `UNION`. Missing or
+ineligible partners still withhold the whole group. More than 500 candidate
+claims, conflict edges or relevant memories aborts the build rather than
+returning a partial conflict group. This deliberate fail-closed availability
+limit applies before output count/byte limits. No source label, relevance match
+or SQL existence predicate establishes perception; M2.7 still withholds all
+retrieved knowledge, memories and relationship details.
+
+Source window queries fetch at most `max(1, sourcesPerRecord)` rows per candidate
+parent and retain exact total/omitted counts. The one metadata row at a zero
+source limit is not emitted. Scoped SQL existence checks preserve memory
+relevance independently of the provenance output cap. Truncated provenance
+remains explicit and never becomes complete exposure evidence. References to
+unselected claims/memories are conservatively unavailable. Caches belong to one
+reader/build transaction; there is no cache across snapshots or requests.
+Retrieval statistics now describe SQL-filtered candidates, not exhaustive
+inventories of every NPC record. Output ordering and total byte limits remain
+in the existing builder.
+
+Measurements use `src/db/context-performance.db.test.ts`, which creates synthetic
+data inside one transaction and rolls it back. The baseline was measured at
+`8da788d` before changing retrieval; the same 200-claim/100-memory fixture has
+three sources per parent and only 10 relevant claims/five relevant memories.
+Read counts exclude fixture setup and transaction control.
+
+| Measurement                         |                 Baseline |              Hardened |
+| ----------------------------------- | -----------------------: | --------------------: |
+| SQL queries per build (three runs)  |          920 / 920 / 920 |          16 / 16 / 16 |
+| Candidate claim/memory rows loaded  |                200 / 100 |                10 / 5 |
+| Source rows loaded                  |                      900 |                    45 |
+| Local isolated elapsed milliseconds | 346.63 / 304.70 / 287.74 | 35.35 / 23.51 / 21.65 |
+
+The test also grows unrelated claims/memories to 2000/1000 and still requires 16
+queries and 10/five returned candidates. CI asserts query/row bounds, not elapsed
+time. Run the fixture with
+`node --env-file=.env.example --env-file-if-exists=.env ./node_modules/vitest/vitest.mjs run --config vitest.db.config.ts src/db/context-performance.db.test.ts`.
+For baseline reproduction, copy that fixture into a temporary checkout of
+`8da788d`; its three timing samples precede the expected query-count regression
+failure against the new 16-query threshold. No old implementation is duplicated
+in production or tests. Historically this fixture required `20 + 3*(K+M)` reads,
+plus additional entity and source-interaction lookups for populated references.
+The new source batches eliminate those per-record ownership/provenance queries.
+
+Database CPU is not constant: lexical matching still scans scoped text, source
+counts/window ordering inspect sources of selected parents, and recursive graph
+work grows with reachable conflicts. The 500-candidate guard bounds application
+retrieval, not all server work or individual text-column length. Full-text indexes,
+search infrastructure, cross-request caches and schema changes were deferred;
+blind row limits that split conflict components were rejected. Default source
+limits are four, with the existing maximum of 500; at maximum settings, source
+payload can still reach 250000 rows per category before the byte-budget filter.
+
+M2.7 now requests a transport-neutral `responseFormat` with the strict
+`npc_speech` object schema (`speech` string, required, no additional properties).
+The installed OpenAI SDK supports native Responses `text.format` with
+`type: json_schema` and `strict: true`, including the token-count request. See
+[official OpenAI structured-output documentation](https://developers.openai.com/api/docs/guides/structured-outputs).
+The OpenAI adapter advertises structured-output support; another provider must
+explicitly advertise it or generation returns `unsupported_output` before any
+provider call or reservation. Individual model/schema rejection remains a
+permanent normalized provider error: no prompt-only fallback, model switch,
+JSON repair or regeneration loop occurs. Refusals and incomplete output fail
+closed while preserving usage accounting. The portable provider schema enforces
+shape; existing application validation independently enforces character limits,
+speech-only content, withheld-text checks and domain constraints. Schema-compliant
+text remains untrusted dialogue and is never executed or used to mutate state.
+
+Tests use synthetic providers/fake SDK fetch exclusively. New coverage includes
+normal/over/under reservation, actual overruns with uncertain retries, failed and
+concurrent settlement, unsupported/refused/incomplete structured output, local
+validation despite native schemas, complete cyclic conflicts, inaccessible
+partners, candidate overflow, and large/zero-capped provenance. Existing claims,
+leases, authorization checks before provider calls, immutable results, recovery
+and accounting ownership remain in place. No migrations, provider/model pricing,
+Discord delivery, exposure model, autonomous tasks or domain-state writes are
+introduced.

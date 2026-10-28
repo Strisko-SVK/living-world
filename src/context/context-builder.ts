@@ -152,13 +152,12 @@ export function createContextBuilder(reader: ContextReader) {
     if (!gameProfile) missing.push("game_profile_missing");
     const rawHistory =
       context?.status === "active"
-        ? await reader.history(worldId, npcId, context.id)
+        ? await reader.history(worldId, npcId, context.id, {
+            before: interaction.createdAt,
+            exclude: interactionId,
+            limit: limits.history,
+          })
         : [];
-    const rawKnowledge = await reader.knowledge(worldId, npcId);
-    const rawMemories = await reader.memories(worldId, npcId);
-    const rawRelationships = await reader.relationships(worldId, npcId);
-    const rawConflicts = await reader.conflicts(worldId, npcId);
-    const rawCapabilities = await reader.capabilities(worldId, npcId);
     const history = rawHistory
       .filter(
         (row) =>
@@ -168,6 +167,58 @@ export function createContextBuilder(reader: ContextReader) {
           row.createdAt.getTime() <= interaction.createdAt.getTime(),
       )
       .sort(recent);
+    const participants = new Map<string, NonNullable<typeof requester>>();
+    if (requester) participants.set(requester.id, requester);
+    for (const row of history.slice(0, limits.history))
+      if (row.speakerEntityId && row.speakerEntityId !== npcId) {
+        const participant = await entity(row.speakerEntityId);
+        if (participant) participants.set(participant.id, participant);
+      }
+    const currentTerms = words(interaction.requestText);
+    const sceneTerms = words(
+      history
+        .slice(0, limits.history)
+        .map((row) => row.requestText)
+        .join(" "),
+    );
+    const relatedEntities = new Set([
+      npcId,
+      ...participants.keys(),
+      ...(context?.linkedLocationEntityId
+        ? [context.linkedLocationEntityId]
+        : []),
+    ]);
+    const sceneInteractions = new Set([
+      interactionId,
+      ...history.map((row) => row.id),
+    ]);
+    const retrievalSelection = {
+      terms: [...new Set([...currentTerms, ...sceneTerms])],
+      entityIds: [...relatedEntities],
+      participantIds: [...participants.keys()],
+      interactionIds: [...sceneInteractions],
+    };
+    const rawKnowledge = await reader.knowledge(worldId, npcId, {
+      ...retrievalSelection,
+      limit: limits.knowledge,
+    });
+    const rawMemories = await reader.memories(worldId, npcId, {
+      ...retrievalSelection,
+      limit: limits.memories,
+    });
+    const rawRelationships = await reader.relationships(worldId, npcId, [
+      ...participants.keys(),
+    ]);
+    const rawConflicts = await reader.conflicts(
+      worldId,
+      npcId,
+      rawKnowledge.map((row) => row.id),
+    );
+    const rawCapabilities = await reader.capabilities(
+      worldId,
+      npcId,
+      limits.capabilities,
+    );
     const eligibleKnowledge = rawKnowledge.filter(
       (row) =>
         own(row) && (row.status === "current" || row.status === "disputed"),
@@ -193,13 +244,6 @@ export function createContextBuilder(reader: ContextReader) {
     const capabilities = rawCapabilities
       .filter((row) => row.npcId === npcId)
       .sort((a, b) => compare(a.capabilityKey, b.capabilityKey));
-    const participants = new Map<string, NonNullable<typeof requester>>();
-    if (requester) participants.set(requester.id, requester);
-    for (const row of history.slice(0, limits.history))
-      if (row.speakerEntityId && row.speakerEntityId !== npcId) {
-        const participant = await entity(row.speakerEntityId);
-        if (participant) participants.set(participant.id, participant);
-      }
     const relationships = rawRelationships
       .filter(
         (row) =>
@@ -214,24 +258,6 @@ export function createContextBuilder(reader: ContextReader) {
           compare(a.targetEntityId, b.targetEntityId) ||
           compare(a.id, b.id),
       );
-    const currentTerms = words(interaction.requestText);
-    const sceneTerms = words(
-      history
-        .slice(0, limits.history)
-        .map((row) => row.requestText)
-        .join(" "),
-    );
-    const relatedEntities = new Set([
-      npcId,
-      ...participants.keys(),
-      ...(context?.linkedLocationEntityId
-        ? [context.linkedLocationEntityId]
-        : []),
-    ]);
-    const sceneInteractions = new Set([
-      interactionId,
-      ...history.map((row) => row.id),
-    ]);
     const knowledgeIds = new Set(knowledge.map((row) => row.id)),
       memoryIds = new Set(memories.map((row) => row.id));
     const validEntity = async (id: string | null) =>
@@ -275,24 +301,33 @@ export function createContextBuilder(reader: ContextReader) {
           continue;
         valid.push(row);
       }
+      const total =
+        reader.sourceTotals?.get(`${kind}:${parentId}`) ?? owned.length;
       return {
         sources: valid,
-        total: owned.length,
-        omitted: 0,
+        total,
+        omitted: Math.max(0, total - owned.length),
         unavailable: owned.length - valid.length,
       };
     }
     const limitProvenance = <T>(value: Provenance<T>): Provenance<T> => ({
       ...value,
       sources: value.sources.slice(0, limits.sourcesPerRecord),
-      omitted: Math.max(0, value.sources.length - limits.sourcesPerRecord),
+      omitted:
+        value.omitted +
+        Math.max(0, value.sources.length - limits.sourcesPerRecord),
     });
     const knowledgeProvenance = new Map<string, Provenance<KnowledgeSource>>();
     for (const row of knowledge)
       knowledgeProvenance.set(
         row.id,
         await provenance(
-          await reader.knowledgeSources(worldId, npcId, row.id),
+          await reader.knowledgeSources(
+            worldId,
+            npcId,
+            row.id,
+            limits.sourcesPerRecord,
+          ),
           row.id,
           "knowledge",
         ),
@@ -302,7 +337,12 @@ export function createContextBuilder(reader: ContextReader) {
       memoryProvenance.set(
         row.id,
         await provenance(
-          await reader.memorySources(worldId, npcId, row.id),
+          await reader.memorySources(
+            worldId,
+            npcId,
+            row.id,
+            limits.sourcesPerRecord,
+          ),
           row.id,
           "memory",
         ),
@@ -405,6 +445,7 @@ export function createContextBuilder(reader: ContextReader) {
         const reasons: string[] = [];
         let score = 0;
         if (
+          reader.memoryRelevance?.get(record.id)?.scene ||
           provenance.sources.some(
             (source) =>
               source.sourceInteractionId &&
@@ -415,6 +456,7 @@ export function createContextBuilder(reader: ContextReader) {
           reasons.push("scene_interaction_provenance");
         }
         if (
+          reader.memoryRelevance?.get(record.id)?.participant ||
           provenance.sources.some(
             (source) =>
               source.sourceEntityId && participants.has(source.sourceEntityId),

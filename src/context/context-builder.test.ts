@@ -185,7 +185,11 @@ describe("NPC context builder", () => {
       }),
     ]);
     const bundle = await createContextBuilder(reader)(request);
-    expect(reader.history).toHaveBeenCalledWith(ids.world, ids.npc, ids.scene);
+    expect(reader.history).toHaveBeenCalledWith(ids.world, ids.npc, ids.scene, {
+      before: currentDate,
+      exclude: ids.interaction,
+      limit: 10,
+    });
     expect(bundle.history.map((item) => item.record.id)).toEqual(["earlier"]);
     expect(bundle.retrieval.categories.history.excluded).toBe(5);
   });

@@ -8,7 +8,8 @@ export type FailureCode =
   | "cancelled"
   | "budget"
   | "accounting"
-  | "invalid_response";
+  | "invalid_response"
+  | "unsupported_output";
 export interface GenerationRequest {
   traceId: string;
   model?: string;
@@ -18,6 +19,7 @@ export interface GenerationRequest {
   maxOutputTokens?: number;
   temperature?: number;
   requestBudgetMicros?: number;
+  responseFormat?: { name: string; schema: Record<string, unknown> };
   signal?: AbortSignal;
   // Application authorization before token counting and each provider attempt.
   beforeAttempt?: () => Promise<boolean>;
@@ -32,6 +34,7 @@ export interface ProviderRequest {
   messages: Array<{ role: "system" | "developer" | "user"; content: string }>;
   maxOutputTokens: number;
   temperature?: number;
+  responseFormat?: { name: string; schema: Record<string, unknown> };
 }
 export interface ProviderReply {
   text: string;
@@ -51,6 +54,7 @@ export class ProviderFailure extends Error {
   }
 }
 export interface TextProvider {
+  readonly supportsStructuredOutput?: boolean;
   countInput(request: ProviderRequest, signal: AbortSignal): Promise<number>;
   generate(
     request: ProviderRequest,
@@ -92,6 +96,9 @@ export interface Observation {
   currency: string;
   costMicros: string | null;
   costKind: "estimated_from_usage" | "conservative_reservation" | "none";
+  reservationMicros?: string;
+  reservationOverageMicros?: string;
+  estimateExceeded?: boolean;
 }
 export type GenerationResult =
   | { ok: true; text: string; observation: Observation }

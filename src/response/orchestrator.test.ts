@@ -19,6 +19,40 @@ import {
 
 const args = [ids.world, ids.npc, ids.interaction] as const;
 describe("NPC response orchestration", () => {
+  it("requests a provider schema while preserving application-level speech validation", async () => {
+    const f = await responseFixture();
+    vi.mocked(f.deps.generate).mockResolvedValue(
+      responseSuccess('{"speech":"ok","actions":["mutate"]}'),
+    );
+    expect(await createNpcResponseOrchestrator(f.deps)(...args)).toMatchObject({
+      error: "invalid_response",
+    });
+    expect(vi.mocked(f.deps.generate).mock.calls[0][0].responseFormat).toEqual({
+      name: "npc_speech",
+      schema: {
+        type: "object",
+        properties: { speech: { type: "string" } },
+        required: ["speech"],
+        additionalProperties: false,
+      },
+    });
+    expect(f.deps.store.persist).not.toHaveBeenCalled();
+  });
+  it("fails closed when a provider cannot enforce structured speech", async () => {
+    const f = await responseFixture(),
+      provider = fakeProvider(),
+      budget = fakeBudget();
+    Object.assign(provider, { supportsStructuredOutput: false });
+    f.deps.generate = createTextGenerator(enabledConfig(), provider, budget);
+    expect(await createNpcResponseOrchestrator(f.deps)(...args)).toMatchObject({
+      error: "generation_failed",
+      providerError: "unsupported_output",
+    });
+    expect(f.deps.store.persist).not.toHaveBeenCalled();
+    expect(provider.countInput).not.toHaveBeenCalled();
+    expect(budget.reserve).not.toHaveBeenCalled();
+    expect(f.current.status).toBe("failed");
+  });
   it("withholds mapped canonical speaker names and prevents history-based relevance inference", async () => {
     const f = await responseFixture();
     await createNpcResponseOrchestrator(f.deps)(...args, {
@@ -341,6 +375,7 @@ describe("NPC response orchestration", () => {
   );
   it.each([
     "",
+    '{"speech":',
     '{"speech":" "}',
     '{"speech":"ok","actions":["act"]}',
     '{"tool_call":"execute"}',

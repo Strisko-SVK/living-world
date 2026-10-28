@@ -10,6 +10,196 @@ import {
 
 afterEach(() => vi.useRealTimers());
 describe("controlled text generation", () => {
+  it.each([
+    { input: 10, output: 5, cost: "20", overage: "0", exceeded: false },
+    { input: 10, output: 205, cost: "420", overage: "0", exceeded: true },
+    { input: 10, output: 300, cost: "610", overage: "190", exceeded: true },
+  ])(
+    "exposes truthful cost and reservation anomalies for $cost micro-units",
+    async ({ input, output, cost, overage, exceeded }) => {
+      const provider = fakeProvider(),
+        budget = fakeBudget(),
+        diagnose = vi.fn();
+      vi.mocked(provider.generate).mockResolvedValue({
+        text: "Synthetic",
+        completed: true,
+        usage: {
+          inputTokens: input,
+          outputTokens: output,
+          totalTokens: input + output,
+        },
+      });
+      const result = await createTextGenerator(
+        enabledConfig(),
+        provider,
+        budget,
+        diagnose,
+      )(request);
+      expect(result.observation).toMatchObject({
+        costMicros: cost,
+        reservationMicros: "420",
+        reservationOverageMicros: overage,
+        estimateExceeded: exceeded,
+      });
+      expect(diagnose).toHaveBeenCalledWith(
+        expect.objectContaining({ reservationOverageMicros: overage }),
+      );
+      expect(budget.reserve).toHaveBeenCalledTimes(1);
+      expect(budget.settle).toHaveBeenCalledTimes(1);
+      expect(budget.settle).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ charged: BigInt(cost), uncertain: false }),
+      );
+    },
+  );
+  it("does not hide known overage when settlement fails", async () => {
+    const provider = fakeProvider(),
+      budget = fakeBudget();
+    vi.mocked(provider.generate).mockResolvedValue({
+      text: "Synthetic",
+      completed: true,
+      usage: { inputTokens: 10, outputTokens: 300, totalTokens: 310 },
+    });
+    vi.mocked(budget.settle).mockRejectedValue(Error("offline"));
+    expect(
+      await createTextGenerator(enabledConfig(), provider, budget)(request),
+    ).toMatchObject({
+      ok: false,
+      error: "accounting",
+      observation: {
+        costMicros: "610",
+        reservationMicros: "420",
+        reservationOverageMicros: "190",
+      },
+    });
+    expect(budget.settle).toHaveBeenCalledTimes(1);
+  });
+  it("combines uncertain retry costs with actual overage without charging an attempt twice", async () => {
+    vi.useFakeTimers();
+    const provider = fakeProvider(),
+      budget = fakeBudget();
+    vi.mocked(provider.generate)
+      .mockRejectedValueOnce(new ProviderFailure("unavailable", true))
+      .mockResolvedValueOnce({
+        text: "Synthetic",
+        completed: true,
+        usage: { inputTokens: 10, outputTokens: 300, totalTokens: 310 },
+      });
+    const pending = createTextGenerator(
+      enabledConfig(),
+      provider,
+      budget,
+    )(request);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(await pending).toMatchObject({
+      error: "invalid_response",
+      observation: {
+        costMicros: "820",
+        reservationOverageMicros: "400",
+        costKind: "conservative_reservation",
+      },
+    });
+    expect(provider.generate).toHaveBeenCalledTimes(2);
+    expect(budget.reserve).toHaveBeenCalledTimes(1);
+    expect(budget.settle).toHaveBeenCalledTimes(1);
+    expect(budget.settle).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ charged: 820n, uncertain: true }),
+    );
+  });
+  it.each([undefined, false])(
+    "rejects structured output for capability %s before any provider call or reservation",
+    async (capability) => {
+      const provider = fakeProvider(),
+        budget = fakeBudget();
+      Object.assign(provider, { supportsStructuredOutput: capability });
+      expect(
+        await createTextGenerator(
+          enabledConfig(),
+          provider,
+          budget,
+        )({
+          ...request,
+          responseFormat: { name: "test", schema: { type: "object" } },
+        }),
+      ).toMatchObject({ error: "unsupported_output" });
+      expect(provider.countInput).not.toHaveBeenCalled();
+      expect(provider.generate).not.toHaveBeenCalled();
+      expect(budget.reserve).not.toHaveBeenCalled();
+    },
+  );
+  it("passes a required provider-neutral schema to both provider operations", async () => {
+    const provider = fakeProvider(),
+      budget = fakeBudget();
+    const responseFormat = {
+      name: "test",
+      schema: {
+        type: "object",
+        properties: { speech: { type: "string" } },
+        required: ["speech"],
+        additionalProperties: false,
+      },
+    };
+    await createTextGenerator(
+      enabledConfig(),
+      provider,
+      budget,
+    )({ ...request, responseFormat });
+    expect(provider.countInput).toHaveBeenCalledWith(
+      expect.objectContaining({ responseFormat }),
+      expect.any(AbortSignal),
+    );
+    expect(provider.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ responseFormat }),
+      expect.any(AbortSignal),
+    );
+  });
+  it("does not retry or fall back after provider schema rejection", async () => {
+    const provider = fakeProvider(),
+      budget = fakeBudget();
+    vi.mocked(provider.generate).mockRejectedValue(
+      new ProviderFailure("invalid_request", false, undefined, true),
+    );
+    expect(
+      await createTextGenerator(
+        enabledConfig(),
+        provider,
+        budget,
+      )({
+        ...request,
+        responseFormat: { name: "test", schema: { type: "object" } },
+      }),
+    ).toMatchObject({ error: "invalid_request" });
+    expect(provider.generate).toHaveBeenCalledTimes(1);
+    expect(budget.settle).toHaveBeenCalledTimes(1);
+    expect(budget.settle).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ charged: 0n, uncertain: false }),
+    );
+  });
+  it("withholds incomplete schema output while retaining its actual charge", async () => {
+    const provider = fakeProvider(),
+      budget = fakeBudget();
+    vi.mocked(provider.generate).mockResolvedValue({
+      text: '{"speech":',
+      completed: false,
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    });
+    expect(
+      await createTextGenerator(
+        enabledConfig(),
+        provider,
+        budget,
+      )({
+        ...request,
+        responseFormat: { name: "test", schema: { type: "object" } },
+      }),
+    ).toMatchObject({
+      error: "invalid_response",
+      observation: { costMicros: "20" },
+    });
+    expect(provider.generate).toHaveBeenCalledTimes(1);
+  });
   it("times out preflight without reserving funds or generating text", async () => {
     vi.useFakeTimers();
     const provider = fakeProvider(),
@@ -382,7 +572,11 @@ describe("controlled text generation", () => {
       budget = fakeBudget();
     await createTextGenerator(enabledConfig(), provider, budget)(request);
     expect(request).toEqual(copy);
-    expect(Object.keys(provider).sort()).toEqual(["countInput", "generate"]);
+    expect(Object.keys(provider).sort()).toEqual([
+      "countInput",
+      "generate",
+      "supportsStructuredOutput",
+    ]);
     expect(Object.keys(budget).sort()).toEqual(["reserve", "settle"]);
   });
   it("handles incomplete output and invalid usage without retrying", async () => {
