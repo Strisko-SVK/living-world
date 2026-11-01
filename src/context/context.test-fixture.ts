@@ -53,6 +53,7 @@ export function interaction(overrides: Partial<Interaction> = {}): Interaction {
     createdAt: currentDate,
     respondedAt: null,
     completedAt: null,
+    localPresenceId: null,
     responseClaimId: null,
     responseClaimedAt: null,
     responseDispatchedAt: null,

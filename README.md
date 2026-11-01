@@ -949,3 +949,69 @@ transports/providers are offline fakes;
 PostgreSQL cleanup removes only UUID-scoped fixtures created by the suite. Run
 `pnpm quality:gate`, `pnpm db:migrate`, `pnpm test:db`, Drizzle integrity/drift
 checks and `git diff --check` before independent review.
+
+### M2.9 Local communication eligibility
+
+Migration `0013_local_presence` adds explicit, operator-confirmed NPC presence in
+one exact scene. The trusted internal functions in
+`src/communication/local.repository.ts` are the operator boundary, equivalent to
+M2.8's local database authority. Only trusted host operators with database
+credentials may invoke `grantLocalPresence` and `revokeLocalPresence`; do not
+expose them to Discord, HTTP handlers, or untrusted callers. The database role
+recorded on issue/revocation identifies the login, not an individual human.
+No claimed operator identity or freeform metadata grants authority.
+
+```ts
+const scope = { worldId, npcId, contextId };
+const grant = await grantLocalPresence(database.db, scope);
+// Receive a new event through the existing authorized intake, then explicitly:
+if (grant.status === "granted") {
+  await prepareLocalInteraction(database.db, {
+    ...scope,
+    interactionId,
+    evidenceId: grant.evidence.id,
+  });
+  // Revoke explicitly when presence is no longer confirmed:
+  await revokeLocalPresence(database.db, scope, grant.evidence.id);
+}
+```
+
+Granting requires an active world, NPC entity/profile and scene, a linked scene
+location, and certain matching NPC location. The unique active grant pins the
+scene, location and NPC state version. Repeated grant attempts while a grant is
+active conflict; revoke it explicitly before issuing another. Revocation is
+idempotent, records database role and technical time, and never reactivates a
+grant. These times bound backend authorization, not fictional chronology.
+
+Preparation requires the exact world/NPC/scene/interaction/grant IDs. Only an
+unclaimed, received `unknown` interaction can transition to `local`. The grant
+must predate event receipt, checked at PostgreSQL timestamp precision. A later
+grant cannot activate an old event. Concurrent preparation yields one `prepared`
+result and `already_prepared` replays; differing evidence or terminal/claimed
+interactions conflict. Blocked results carry deterministic reasons. Request,
+source identity, trace, response and retry state are preserved. Database triggers
+protect grant identity, one-way revocation, and prepared interaction binding.
+
+M2.7 requires that binding and revalidates active scene/NPC/world, exact grant,
+location, state version, revocation and Discord context intake policy at claim,
+dispatch, every provider attempt and final persistence. Reissued grants never
+replace a prepared interaction's evidence. A changed state version fails closed,
+even for unrelated state updates: revoke/reissue and use a fresh event. Existing
+historical `local` rows without grants cannot initiate generation. Already stored
+responses remain immutable and readable.
+
+Lock order is world/context before interaction, then NPC/entity/state/profile
+checks and evidence. Operator grants take world/context and NPC/state locks but
+never interaction locks; revocation locks only its evidence row. Intake retains
+its existing world/context-before-interaction order. Response fences hold shared
+evidence locks through their short transaction, so a committed revocation wins
+against later fences. No lock spans provider work; revocation during generation
+prevents persistence. Lock/statement waits are bounded and failures roll back.
+Operators writing raw SQL must preserve these protocols; database credentials
+remain a trusted backend capability, not a player authorization system.
+
+The pure evaluator is transport-neutral; `remote` remains unsupported. No intake
+or startup code invokes preparation or generation automatically. Presence does
+not establish historical perception or permit disclosure of stored knowledge,
+memories, relationships or prior scene history. No game chronology, relocation,
+outbound Discord delivery, scheduler or paid test calls are introduced.
