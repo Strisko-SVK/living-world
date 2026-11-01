@@ -44,6 +44,7 @@ const config = {
 };
 function setup(intake = vi.fn().mockResolvedValue(undefined)) {
   const client = Object.assign(new EventEmitter(), {
+    user: { id: "123" },
     login: vi.fn().mockResolvedValue("test-token"),
     destroy: vi.fn().mockResolvedValue(undefined),
   });
@@ -123,7 +124,10 @@ describe("Discord client lifecycle", () => {
     const message = event();
     client.emit(Events.MessageCreate, message);
     await adapter.stop();
-    expect(intake).toHaveBeenCalledWith(normalizeDiscordMessage(message));
+    expect(intake).toHaveBeenCalledWith(
+      normalizeDiscordMessage(message),
+      "123",
+    );
     expect(client.login).toHaveBeenCalledWith("test-token");
     expect(diagnostics).toHaveBeenCalledWith({ event: "discord_ready" });
     expect(client.destroy).toHaveBeenCalledOnce();
@@ -135,6 +139,14 @@ describe("Discord client lifecycle", () => {
     expect(client.listenerCount(Events.MessageCreate)).toBe(0);
     await adapter.stop();
     expect(client.destroy).toHaveBeenCalledOnce();
+  });
+  it("ignores events until an authenticated client identity exists", async () => {
+    const f = setup();
+    Object.assign(f.client, { user: null });
+    await f.adapter.start();
+    f.client.emit(Events.MessageCreate, event());
+    await f.adapter.stop();
+    expect(f.intake).not.toHaveBeenCalled();
   });
   it("ignores unsupported transport messages before intake", async () => {
     const { adapter, client, intake } = setup();

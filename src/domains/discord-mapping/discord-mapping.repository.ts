@@ -27,7 +27,7 @@ export class DiscordMappingConflictError extends Error {
 }
 
 // Transaction locks also serialize first assignments, when no identity row exists.
-async function lockRouting(database: Database, key: string[]) {
+export async function lockRouting(database: Database, key: string[]) {
   await database.execute(
     sql`select pg_advisory_xact_lock(hashtextextended(${JSON.stringify(key)}, 0))`,
   );
@@ -239,21 +239,34 @@ export async function mapDiscordContext(
   input: MapDiscordContextInput,
 ) {
   const value = mapDiscordContextInputSchema.parse(input);
-  const context = await getContextInWorld(database, worldId, value.contextId);
-  if (!context)
-    throw new Error(
-      "Interaction context was not found in the Discord mapping's world.",
-    );
-  const [mapping] = await database
-    .insert(discordContextMappings)
-    .values({ id: randomUUID(), worldId, ...value })
-    .returning()
+  return database
+    .transaction(async (transaction) => {
+      // Serializes first mappings too, including cross-world/thread ambiguity.
+      await lockRouting(transaction, [
+        "location",
+        value.guildId,
+        value.channelId,
+      ]);
+      const context = await getContextInWorld(
+        transaction,
+        worldId,
+        value.contextId,
+      );
+      if (!context)
+        throw new Error(
+          "Interaction context was not found in the Discord mapping's world.",
+        );
+      const [mapping] = await transaction
+        .insert(discordContextMappings)
+        .values({ id: randomUUID(), worldId, ...value })
+        .returning();
+      if (!mapping)
+        throw new Error(
+          "Discord context mapping creation did not return a record.",
+        );
+      return mapping;
+    })
     .catch(mappingError);
-  if (!mapping)
-    throw new Error(
-      "Discord context mapping creation did not return a record.",
-    );
-  return mapping;
 }
 
 export async function getContextByDiscordLocation(

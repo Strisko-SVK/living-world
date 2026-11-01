@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import type { DatabaseClient } from "../../db/client.js";
@@ -73,35 +73,44 @@ export async function addEntityAlias(
   input: AddEntityAliasInput,
 ) {
   const value = addEntityAliasInputSchema.parse(input);
-  const entity = await getEntity(database, worldId, entityId);
+  return database.transaction(async (transaction) => {
+    await lockEntityAlias(transaction, worldId, value.alias);
+    const entity = await getEntity(transaction, worldId, entityId);
+    if (!entity)
+      throw new Error("Entity was not found in the specified world.");
+    const [entityAlias] = await transaction
+      .insert(entityAliases)
+      .values({
+        id: randomUUID(),
+        entityId: entity.id,
+        alias: value.alias,
+        normalizedAlias: normalizeAlias(value.alias),
+      })
+      .returning();
+    if (!entityAlias)
+      throw new Error("Entity alias creation did not return a record.");
+    return entityAlias;
+  });
+}
 
-  if (!entity) {
-    throw new Error("Entity was not found in the specified world.");
-  }
-
-  const [entityAlias] = await database
-    .insert(entityAliases)
-    .values({
-      id: randomUUID(),
-      entityId: entity.id,
-      alias: value.alias,
-      normalizedAlias: normalizeAlias(value.alias),
-    })
-    .returning();
-
-  if (!entityAlias) {
-    throw new Error("Entity alias creation did not return a record.");
-  }
-
-  return entityAlias;
+// Registration and intake share this key even when no alias row exists yet.
+export async function lockEntityAlias(
+  database: Database,
+  worldId: string,
+  alias: string,
+) {
+  await database.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${JSON.stringify(["alias", worldId, normalizeAlias(alias)])},0))`,
+  );
 }
 
 export async function findEntitiesByAlias(
   database: Database,
   worldId: string,
   alias: string,
+  lock = false,
 ) {
-  const rows = await database
+  const query = database
     .select({ entity: entities })
     .from(entityAliases)
     .innerJoin(entities, eq(entityAliases.entityId, entities.id))
@@ -112,5 +121,6 @@ export async function findEntitiesByAlias(
       ),
     );
 
+  const rows = await (lock ? query.for("share") : query);
   return rows.map((row) => row.entity);
 }

@@ -16,6 +16,10 @@ export function getApplicationConfig(
   const result = environmentSchema.safeParse(environment);
   // Never include Zod input values, particularly the token, in diagnostics.
   if (!result.success) throw new Error("Invalid application configuration.");
+  if (environment.DISCORD_INTAKE_ALLOWLIST !== undefined)
+    throw new Error(
+      "DISCORD_INTAKE_ALLOWLIST is retired; configure context policy locally.",
+    );
   const enabled = result.data.DISCORD_ENABLED === "true";
   const intents = result.data.DISCORD_INTENTS.split(",").map((value) =>
     value.trim(),

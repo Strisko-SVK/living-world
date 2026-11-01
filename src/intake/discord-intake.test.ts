@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  createDiscordIntake,
+  createDiscordIntake as createIntake,
   type IncomingMessage,
   type IntakePersistence,
 } from "./discord-intake.js";
+
+// Preserve foundation routing regressions through its explicit compatibility mode.
+const createDiscordIntake = (
+  ...[persistence, diagnose]: Parameters<typeof createIntake>
+) => createIntake(persistence, diagnose, "mapped");
 
 const message: IncomingMessage = {
   sourceMessageId: "000123",

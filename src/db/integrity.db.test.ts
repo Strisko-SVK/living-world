@@ -6,11 +6,16 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDatabaseClient } from "./client.js";
 import { createDiscordPersistence } from "../adapters/discord/persistence.js";
 import {
-  createDiscordIntake,
+  createDiscordIntake as createIntake,
   type IncomingMessage,
 } from "../intake/discord-intake.js";
 import { getNpcWithState } from "../domains/npc/npc.repository.js";
 import { completeInteraction } from "../domains/interaction/interaction.repository.js";
+
+// Preserve foundation routing regressions through its explicit compatibility mode.
+const createDiscordIntake = (
+  ...[persistence, diagnose]: Parameters<typeof createIntake>
+) => createIntake(persistence, diagnose, "mapped");
 
 const incoming: IncomingMessage = {
   sourceMessageId: "discord-event",
