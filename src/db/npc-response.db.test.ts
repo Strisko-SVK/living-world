@@ -156,6 +156,55 @@ async function interaction() {
   if (prepared.status !== "prepared") throw Error("Fixture preparation failed");
   return prepared.interaction;
 }
+let discordSerial = 0n;
+const discordId = (millis: number) =>
+  String(((BigInt(millis) - 1420070400000n) << 22n) + ++discordSerial);
+async function freshDiscordId(issuedAt: Date) {
+  let millis = 0;
+  await vi.waitFor(
+    async () => {
+      const {
+        rows: [clock],
+      } = await database.pool.query(
+        "select floor(extract(epoch from clock_timestamp())*1000)::text as millis",
+      );
+      millis = Number(clock.millis);
+      expect(millis).toBeGreaterThan(issuedAt.getTime());
+    },
+    { timeout: 1000, interval: 1 },
+  );
+  return discordId(millis);
+}
+async function breakLifecycle(
+  kind: "world" | "scene" | "npc" | "entity",
+  contextId: string,
+) {
+  const [table, column, key, id, inactive] = {
+    world: ["worlds", "status", "id", world, "archived"],
+    scene: ["interaction_contexts", "status", "id", contextId, "inactive"],
+    npc: ["npcs", "lifecycle_state", "entity_id", npc, "dormant"],
+    entity: ["entities", "status", "id", npc, "inactive"],
+  }[kind];
+  const client = await database.pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("set local lock_timeout='1s'");
+    await client.query(`update ${table} set ${column}=$1 where ${key}=$2`, [
+      inactive,
+      id,
+    ]);
+    await client.query(
+      `update ${table} set ${column}='active' where ${key}=$1`,
+      [id],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 const scope = (id: string): ResponseScope => ({
   worldId: world,
   npcId: npc,
@@ -575,6 +624,262 @@ describe("NPC response PostgreSQL lifecycle and concurrency", () => {
     });
     expect(p.provider.countInput).not.toHaveBeenCalled();
   });
+  it.each(["world", "scene", "npc", "entity"] as const)(
+    "waits for %s lifecycle revocation and cannot claim after reactivation",
+    async (kind) => {
+      const row = await interaction();
+      const [table, column, key, id, inactive] = {
+        world: ["worlds", "status", "id", world, "archived"],
+        scene: [
+          "interaction_contexts",
+          "status",
+          "id",
+          row.contextId,
+          "inactive",
+        ],
+        npc: ["npcs", "lifecycle_state", "entity_id", npc, "dormant"],
+        entity: ["entities", "status", "id", npc, "inactive"],
+      }[kind];
+      const client = await database.pool.connect();
+      let claiming: ReturnType<typeof store.claim> | undefined;
+      try {
+        await client.query("BEGIN");
+        await client.query(`update ${table} set ${column}=$1 where ${key}=$2`, [
+          inactive,
+          id,
+        ]);
+        await client.query(
+          `update ${table} set ${column}='active' where ${key}=$1`,
+          [id],
+        );
+        const {
+          rows: [writer],
+        } = await client.query("select pg_backend_pid() as pid");
+        claiming = store.claim(scope(row.id), row);
+        await vi.waitFor(
+          async () => {
+            const { rows } = await database.pool.query(
+              "select 1 from pg_stat_activity where $1::int=any(pg_blocking_pids(pid))",
+              [writer.pid],
+            );
+            expect(rows.length).toBeGreaterThan(0);
+          },
+          { timeout: 1500, interval: 10 },
+        );
+        await client.query("COMMIT");
+        expect(await claiming).toBeNull();
+        expect((await read(scope(row.id)))?.responseClaimId).toBeNull();
+      } finally {
+        await client.query("ROLLBACK");
+        client.release();
+        await claiming;
+      }
+    },
+  );
+  it.each(["world", "scene", "npc", "entity"] as const)(
+    "permanently revokes %s grants across reactivation and fresh preparation",
+    async (kind) => {
+      const row = await interaction();
+      const s = { worldId: world, npcId: npc, contextId: row.contextId };
+      await breakLifecycle(kind, row.contextId);
+      const p = pipeline();
+      expect(await p.run(world, npc, row.id)).toMatchObject({
+        error: "ineligible",
+      });
+      expect(p.provider.countInput).not.toHaveBeenCalled();
+      expect(p.budget.reserve).not.toHaveBeenCalled();
+      const incoming = (await createInteraction(database.db, world, npc, {
+        contextId: row.contextId,
+        communicationMode: "unknown",
+        interactionType: "social",
+        requestText: "After lifecycle break",
+      }))!;
+      expect(
+        await prepareLocalInteraction(database.db, {
+          ...s,
+          interactionId: incoming.id,
+          evidenceId: row.localPresenceId!,
+        }),
+      ).toMatchObject({ status: "blocked", reason: "revoked" });
+      const next = await grantLocalPresence(database.db, s);
+      if (next.status !== "granted") throw Error("Fresh confirmation failed");
+      expect(next.evidence.id).not.toBe(row.localPresenceId);
+      // A fresh confirmation cannot silently replace either old event's proof.
+      expect(
+        await prepareLocalInteraction(database.db, {
+          ...s,
+          interactionId: row.id,
+          evidenceId: next.evidence.id,
+        }),
+      ).toMatchObject({ status: "conflict" });
+      expect(
+        await prepareLocalInteraction(database.db, {
+          ...s,
+          interactionId: incoming.id,
+          evidenceId: next.evidence.id,
+        }),
+      ).toMatchObject({ reason: "stale" });
+      const fresh = (await createInteraction(database.db, world, npc, {
+        contextId: row.contextId,
+        communicationMode: "unknown",
+        interactionType: "social",
+        requestText: "Freshly confirmed request",
+      }))!;
+      expect(
+        await prepareLocalInteraction(database.db, {
+          ...s,
+          interactionId: fresh.id,
+          evidenceId: next.evidence.id,
+        }),
+      ).toMatchObject({ status: "prepared" });
+      expect((await p.run(world, npc, fresh.id)).ok).toBe(true);
+      expect(p.provider.generate).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each(["world", "scene", "npc", "entity"] as const)(
+    "fences %s deactivation/reactivation during fake generation",
+    async (kind) => {
+      const row = await interaction(),
+        p = pipeline();
+      vi.mocked(p.provider.generate).mockImplementationOnce(async () => {
+        await breakLifecycle(kind, row.contextId);
+        return {
+          text: JSON.stringify({
+            speech: "This stale answer must be withheld.",
+          }),
+          completed: true,
+          usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+        };
+      });
+      expect(await p.run(world, npc, row.id)).toMatchObject({
+        error: "claim_lost",
+      });
+      expect(await read(scope(row.id))).toMatchObject({
+        responseText: null,
+        responseGenerationOutcome: "uncertain",
+      });
+      expect(p.provider.generate).toHaveBeenCalledTimes(1);
+      expect(p.budget.reserve).toHaveBeenCalledTimes(1);
+      expect(p.budget.settle).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each(["delayed", "fresh", "malformed", "future"] as const)(
+    "checks original Discord event time for %s persistence",
+    async (kind) => {
+      const row = await interaction();
+      const s = { worldId: world, npcId: npc, contextId: row.contextId };
+      const {
+        rows: [grant],
+      } = await database.pool.query(
+        "select issued_at from local_presence where id=$1",
+        [row.localPresenceId],
+      );
+      await database.pool.query(
+        "update interaction_contexts set npc_intake_policy='mapped_players' where id=$1",
+        [row.contextId],
+      );
+      const messageId =
+        kind === "delayed"
+          ? discordId(grant.issued_at.getTime() - 1000)
+          : kind === "malformed"
+            ? "forged-id"
+            : kind === "future"
+              ? discordId(Date.now() + 60_000)
+              : await freshDiscordId(grant.issued_at);
+      const incoming = (await createInteraction(database.db, world, npc, {
+        contextId: row.contextId,
+        communicationMode: "unknown",
+        interactionType: "social",
+        requestText: "Source creation precedes receipt",
+        sourceProvider: "discord",
+        sourceMessageId: messageId,
+      }))!;
+      expect(incoming.createdAt.getTime()).toBeGreaterThanOrEqual(
+        grant.issued_at.getTime(),
+      );
+      const prepared = await prepareLocalInteraction(database.db, {
+        ...s,
+        interactionId: incoming.id,
+        evidenceId: row.localPresenceId!,
+      });
+      const p = pipeline();
+      if (kind === "fresh") {
+        expect(prepared.status).toBe("prepared");
+        expect((await p.run(world, npc, incoming.id)).ok).toBe(true);
+        expect(p.provider.generate).toHaveBeenCalledTimes(1);
+      } else {
+        expect(prepared).toMatchObject({ status: "blocked", reason: "stale" });
+        expect(await read(scope(incoming.id))).toEqual(incoming);
+        expect((await p.run(world, npc, incoming.id)).ok).toBe(false);
+        expect(p.provider.countInput).not.toHaveBeenCalled();
+        expect(p.budget.reserve).not.toHaveBeenCalled();
+      }
+    },
+  );
+  it.each([0, 1])(
+    "enforces grant precision for Discord creation at +%i milliseconds",
+    async (offset) => {
+      const row = await interaction();
+      const s = { worldId: world, npcId: npc, contextId: row.contextId };
+      await revokeLocalPresence(database.db, s, row.localPresenceId!);
+      // Exact operator-fixture time: .123456, so a source at .123 is too early.
+      const {
+        rows: [grant],
+      } = await database.pool.query(
+        `insert into local_presence(id,world_id,npc_id,context_id,location_id,state_version,issued_at)
+      select $1,world_id,npc_id,context_id,location_id,state_version,
+      date_trunc('second',clock_timestamp())-interval '1 second'+interval '123456 microseconds'
+      from local_presence where id=$2 returning id,issued_at`,
+        [randomUUID(), row.localPresenceId],
+      );
+      await database.pool.query(
+        "update interaction_contexts set npc_intake_policy='mapped_players' where id=$1",
+        [row.contextId],
+      );
+      const incoming = (await createInteraction(database.db, world, npc, {
+        contextId: row.contextId,
+        communicationMode: "unknown",
+        interactionType: "social",
+        requestText: "Sub-millisecond source boundary",
+        sourceProvider: "discord",
+        sourceMessageId: discordId(grant.issued_at.getTime() + offset),
+      }))!;
+      const prepared = await prepareLocalInteraction(database.db, {
+        ...s,
+        interactionId: incoming.id,
+        evidenceId: grant.id,
+      });
+      expect(prepared.status).toBe(offset === 0 ? "blocked" : "prepared");
+      if (offset === 0) expect(prepared).toMatchObject({ reason: "stale" });
+    },
+  );
+  it("rechecks source time for previously bound Discord events before generation", async () => {
+    const row = await interaction();
+    await database.pool.query(
+      "update interaction_contexts set npc_intake_policy='mapped_players' where id=$1",
+      [row.contextId],
+    );
+    const incoming = (await createInteraction(database.db, world, npc, {
+      contextId: row.contextId,
+      communicationMode: "unknown",
+      interactionType: "social",
+      requestText: "Legacy delayed event",
+      sourceProvider: "discord",
+      sourceMessageId: discordId(row.createdAt.getTime() - 60_000),
+    }))!;
+    // Model a binding written by the reviewed pre-remediation implementation.
+    await database.pool.query(
+      "update interactions set communication_mode='local',local_presence_id=$1 where id=$2",
+      [row.localPresenceId, incoming.id],
+    );
+    const p = pipeline();
+    expect(await p.run(world, npc, incoming.id)).toMatchObject({
+      error: "ineligible",
+    });
+    expect(p.provider.countInput).not.toHaveBeenCalled();
+    expect(p.budget.reserve).not.toHaveBeenCalled();
+    expect((await read(scope(incoming.id)))?.responseText).toBeNull();
+  });
   it("blocks a disabled Discord context at response claim", async () => {
     const row = await interaction();
     // A prepared event cannot have its source identity rewritten.
@@ -600,7 +905,7 @@ describe("NPC response PostgreSQL lifecycle and concurrency", () => {
       interactionType: "social",
       requestText: "Explicit Discord request",
       sourceProvider: "discord",
-      sourceMessageId: randomUUID(),
+      sourceMessageId: await freshDiscordId(grant.evidence.issuedAt),
     }))!;
     const prepared = await prepareLocalInteraction(database.db, {
       worldId: world,

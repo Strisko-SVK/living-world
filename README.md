@@ -1015,3 +1015,30 @@ or startup code invokes preparation or generation automatically. Presence does
 not establish historical perception or permit disclosure of stored knowledge,
 memories, relationships or prior scene history. No game chronology, relocation,
 outbound Discord delivery, scheduler or paid test calls are introduced.
+
+M2.9 security follow-up (`0014_presence_lifecycle`): database triggers revoke all
+unrevoked presence grants when their world, scene, NPC entity or NPC profile
+leaves `active`, in the same transaction as deactivation. Reactivation, including
+within that transaction, never restores a grant. Grant identity and prior
+revocations remain unchanged. The triggers acquire only evidence locks after the
+lifecycle row; they never lock interactions or other lifecycle rows. Existing
+shared lifecycle/evidence locks serialize preparation and every response fence
+against deactivation. Operators must explicitly confirm presence again after
+reactivation and receive a new event. Migration 0014 revokes preexisting active
+grants because their prior activation history cannot be proven; stored speech is
+not changed.
+
+For Discord-origin events, preparation and every response fence also derive the
+original creation time from the immutable `sourceMessageId`, copied from the
+authenticated SDK `Message.id`. The [Discord snowflake format](https://github.com/discord/discord-api-docs/blob/main/developers/reference.mdx#snowflakes)
+encodes milliseconds since the Discord epoch. Content, JSON metadata,
+caller-supplied timestamp fields and SDK display timestamps cannot override this
+value. Internal repository inputs remain trusted backend operations; decoding an
+arbitrary ID does not itself authenticate an event. Original source creation must
+be at or after grant issuance and no later than database receipt, checked using
+PostgreSQL timestamp precision. Delayed pre-grant messages, invalid/missing IDs,
+and IDs in the future relative to receipt fail closed as `stale`. A message in the
+same millisecond as a grant may conservatively be rejected; send a fresh message.
+This requires synchronized host/Discord clocks and represents technical
+wall-clock authorization, never narrative or game chronology. Non-Discord events
+retain the existing database receipt-window contract.
