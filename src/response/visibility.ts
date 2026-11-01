@@ -39,6 +39,8 @@ export function filterResponseContext(
     state = bundle.npc.state;
   if (
     bundle.world.id !== worldId ||
+    !interaction.localPresenceId ||
+    interaction.localPresenceId !== expected.localPresenceId ||
     npc.worldId !== worldId ||
     npc.entityId !== npcId ||
     npc.status !== "active" ||
@@ -56,6 +58,7 @@ export function filterResponseContext(
     context.worldId !== worldId ||
     context.id !== contextId ||
     context.status !== "active" ||
+    context.contextType !== "scene" ||
     interaction.communicationMode !== "local" ||
     !context.linkedLocationEntityId ||
     !state ||

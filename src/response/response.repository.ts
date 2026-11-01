@@ -1,3 +1,7 @@
+import {
+  lockLocalContext,
+  validateLocalInteraction,
+} from "../communication/local.repository.js";
 import { isDeepStrictEqual } from "node:util";
 import { createContextBuilder } from "../context/context-builder.js";
 import { createContextReader } from "../context/context.repository.js";
@@ -31,14 +35,21 @@ const scopeWhere = (s: ResponseScope) =>
   );
 const unexpired = sql`${interactions.responseClaimedAt} + ${CLAIM_LEASE_MS} * interval '1 millisecond' > clock_timestamp()`;
 export function createResponseStore(database: Database): ResponseStore {
-  const locked = async (tx: Database, scope: ResponseScope) =>
-    (
+  const locked = async (tx: Database, scope: ResponseScope) => {
+    const [snapshot] = await tx
+      .select()
+      .from(interactions)
+      .where(scopeWhere(scope));
+    if (!snapshot) return undefined;
+    await lockLocalContext(tx, snapshot);
+    return (
       await tx
         .select()
         .from(interactions)
         .where(scopeWhere(scope))
         .for("update")
     )[0];
+  };
   // Lock only for the local eligibility check and lifecycle write. These locks
   // are released before generation (including token counting/budget reservation).
   const eligible = async (
@@ -62,6 +73,8 @@ export function createResponseStore(database: Database): ResponseStore {
     );
     await tx.execute(sql`select id from interaction_contexts where world_id=${row.worldId}
       and id=${row.contextId} for share`);
+    if ((await validateLocalInteraction(tx, row)).status !== "eligible_local")
+      return false;
     try {
       const fresh = await createContextBuilder(createContextReader(tx))({
         worldId: row.worldId,
@@ -106,6 +119,7 @@ export function createResponseStore(database: Database): ResponseStore {
           row.requestText !== expected.requestText ||
           row.communicationMode !== expected.communicationMode ||
           row.traceId !== expected.traceId ||
+          row.localPresenceId !== expected.localPresenceId ||
           row.createdAt.getTime() !== expected.createdAt.getTime()
         )
           return null;

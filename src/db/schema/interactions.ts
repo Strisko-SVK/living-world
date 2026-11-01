@@ -19,6 +19,7 @@ import {
 } from "./enums.js";
 import { interactionContexts } from "./interaction-contexts.js";
 import { npcs } from "./npcs.js";
+import { localPresence } from "./local-presence.js";
 import { worlds } from "./worlds.js";
 
 export const interactions = pgTable(
@@ -52,6 +53,7 @@ export const interactions = pgTable(
       .defaultNow(),
     respondedAt: timestamp("responded_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    localPresenceId: uuid("local_presence_id"),
     responseClaimId: uuid("response_claim_id"),
     responseClaimedAt: timestamp("response_claimed_at", { withTimezone: true }),
     responseDispatchedAt: timestamp("response_dispatched_at", {
@@ -61,6 +63,25 @@ export const interactions = pgTable(
     responseGenerationOutcome: text("response_generation_outcome"),
   },
   (table) => [
+    foreignKey({
+      name: "interaction_local_presence_fk",
+      columns: [
+        table.worldId,
+        table.npcId,
+        table.contextId,
+        table.localPresenceId,
+      ],
+      foreignColumns: [
+        localPresence.worldId,
+        localPresence.npcId,
+        localPresence.contextId,
+        localPresence.id,
+      ],
+    }).onDelete("restrict"),
+    check(
+      "interaction_local_presence_mode",
+      sql`${table.localPresenceId} is null or ${table.communicationMode} = 'local'`,
+    ),
     check(
       "interaction_response_claim_shape",
       sql`

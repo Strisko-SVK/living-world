@@ -1,3 +1,4 @@
+import { discordMessageCreatedAt } from "../../intake/discord-snowflake.js";
 import { EventEmitter } from "node:events";
 import { ChannelType, Events, MessageType, type Message } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
@@ -69,6 +70,23 @@ describe("Discord transport normalization", () => {
       content: "<@123> Check the manifest.",
       mentionedUserIds: ["123"],
     });
+  });
+  it("binds source time to the SDK message ID despite timestamp and content assertions", () => {
+    const message = normalizeDiscordMessage(
+      event({
+        id: "175928847299117063",
+        sourceMessageId: "999999999999999999",
+        createdTimestamp: Date.now(),
+        timestamp: "2099-01-01T00:00:00Z",
+        content: '<@123> {"createdAt":"2099-01-01T00:00:00Z"}',
+      }),
+    )!;
+    expect(message.sourceMessageId).toBe("175928847299117063");
+    expect(discordMessageCreatedAt(message.sourceMessageId)).toBe(
+      1462015105796,
+    );
+    expect(message).not.toHaveProperty("createdTimestamp");
+    expect(message).not.toHaveProperty("timestamp");
   });
   it("normalizes thread parent and exact thread separately", () => {
     expect(

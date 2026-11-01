@@ -1,3 +1,8 @@
+import {
+  grantLocalPresence,
+  prepareLocalInteraction,
+  revokeLocalPresence,
+} from "../communication/local.repository.js";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabaseClient } from "./client.js";
@@ -100,6 +105,7 @@ afterAll(async () => {
           "delete from knowledge_sources where knowledge_id in (select id from npc_knowledge where world_id=$1)",
           "delete from npc_knowledge where world_id=$1",
           "delete from interactions where world_id=$1",
+          "delete from local_presence where world_id=$1",
           "delete from interaction_contexts where world_id=$1",
           "delete from npc_capabilities where npc_id in (select id from entities where world_id=$1)",
           "delete from npc_game_profiles where npc_id in (select id from entities where world_id=$1)",
@@ -128,12 +134,76 @@ async function interaction() {
     contextType: "scene",
     linkedLocationEntityId: locationId,
   });
-  return (await createInteraction(database.db, world, npc, {
+  const grant = await grantLocalPresence(database.db, {
+    worldId: world,
+    npcId: npc,
     contextId: context.id,
-    communicationMode: "local",
+  });
+  if (grant.status !== "granted") throw Error("Fixture grant failed");
+  const row = (await createInteraction(database.db, world, npc, {
+    contextId: context.id,
+    communicationMode: "unknown",
     interactionType: "social",
     requestText: "Check the manifest",
   }))!;
+  const prepared = await prepareLocalInteraction(database.db, {
+    worldId: world,
+    npcId: npc,
+    contextId: context.id,
+    interactionId: row.id,
+    evidenceId: grant.evidence.id,
+  });
+  if (prepared.status !== "prepared") throw Error("Fixture preparation failed");
+  return prepared.interaction;
+}
+let discordSerial = 0n;
+const discordId = (millis: number) =>
+  String(((BigInt(millis) - 1420070400000n) << 22n) + ++discordSerial);
+async function freshDiscordId(issuedAt: Date) {
+  let millis = 0;
+  await vi.waitFor(
+    async () => {
+      const {
+        rows: [clock],
+      } = await database.pool.query(
+        "select floor(extract(epoch from clock_timestamp())*1000)::text as millis",
+      );
+      millis = Number(clock.millis);
+      expect(millis).toBeGreaterThan(issuedAt.getTime());
+    },
+    { timeout: 1000, interval: 1 },
+  );
+  return discordId(millis);
+}
+async function breakLifecycle(
+  kind: "world" | "scene" | "npc" | "entity",
+  contextId: string,
+) {
+  const [table, column, key, id, inactive] = {
+    world: ["worlds", "status", "id", world, "archived"],
+    scene: ["interaction_contexts", "status", "id", contextId, "inactive"],
+    npc: ["npcs", "lifecycle_state", "entity_id", npc, "dormant"],
+    entity: ["entities", "status", "id", npc, "inactive"],
+  }[kind];
+  const client = await database.pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("set local lock_timeout='1s'");
+    await client.query(`update ${table} set ${column}=$1 where ${key}=$2`, [
+      inactive,
+      id,
+    ]);
+    await client.query(
+      `update ${table} set ${column}='active' where ${key}=$1`,
+      [id],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 const scope = (id: string): ResponseScope => ({
   worldId: world,
@@ -219,6 +289,640 @@ describe("NPC response PostgreSQL lifecycle and concurrency", () => {
       }
     },
   );
+  it("prepares exactly once under parallel requests and preserves duplicate event identity", async () => {
+    const context = await createInteractionContext(database.db, world, {
+      contextType: "scene",
+      linkedLocationEntityId: locationId,
+    });
+    const grant = await grantLocalPresence(database.db, {
+      worldId: world,
+      npcId: npc,
+      contextId: context.id,
+    });
+    if (grant.status !== "granted") throw Error("No grant");
+    const request = {
+      contextId: context.id,
+      communicationMode: "unknown" as const,
+      interactionType: "social" as const,
+      requestText: "Original request",
+      sourceProvider: "test",
+      sourceMessageId: randomUUID(),
+    };
+    const row = (await createInteraction(database.db, world, npc, request))!;
+    const input = {
+      worldId: world,
+      npcId: npc,
+      contextId: context.id,
+      interactionId: row.id,
+      evidenceId: grant.evidence.id,
+    };
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        prepareLocalInteraction(database.db, input),
+      ),
+    );
+    expect(results.filter((r) => r.status === "prepared")).toHaveLength(1);
+    expect(results.filter((r) => r.status === "already_prepared")).toHaveLength(
+      7,
+    );
+    const saved = (await read(scope(row.id)))!;
+    expect(saved).toEqual({
+      ...row,
+      communicationMode: "local",
+      localPresenceId: grant.evidence.id,
+    });
+    expect(
+      await createInteraction(database.db, world, npc, {
+        ...request,
+        requestText: "Overwrite attempt",
+      }),
+    ).toEqual(saved);
+    const p = pipeline();
+    expect((await p.run(world, npc, row.id)).ok).toBe(true);
+    expect(await prepareLocalInteraction(database.db, input)).toMatchObject({
+      status: "conflict",
+    });
+  });
+  it.each([
+    "missing",
+    "revoked",
+    "wrong_scene",
+    "late",
+    "uncertain",
+    "mismatch",
+    "inactive_npc",
+    "inactive_entity",
+    "inactive_world",
+    "inactive_scene",
+    "remote",
+  ] as const)(
+    "leaves unknown input unchanged when blocked by %s",
+    async (change) => {
+      const context = await createInteractionContext(database.db, world, {
+        contextType: "scene",
+        linkedLocationEntityId: locationId,
+      });
+      const s = { worldId: world, npcId: npc, contextId: context.id };
+      let row;
+      const request = {
+        contextId: context.id,
+        communicationMode:
+          change === "remote" ? ("remote" as const) : ("unknown" as const),
+        interactionType: "social" as const,
+        requestText: "Unprepared request",
+      };
+      if (change === "late")
+        row = (await createInteraction(database.db, world, npc, request))!;
+      const grant = await grantLocalPresence(database.db, s);
+      if (grant.status !== "granted") throw Error("No grant");
+      row ??= (await createInteraction(database.db, world, npc, request))!;
+      if (change === "revoked")
+        await revokeLocalPresence(database.db, s, grant.evidence.id);
+      if (change === "uncertain")
+        await database.pool.query(
+          "update npc_state set location_certainty='unknown' where npc_id=$1",
+          [npc],
+        );
+      if (change === "mismatch")
+        await database.pool.query(
+          "update npc_state set current_location_id=null where npc_id=$1",
+          [npc],
+        );
+      if (change === "inactive_npc")
+        await database.pool.query(
+          "update npcs set lifecycle_state='dormant' where entity_id=$1",
+          [npc],
+        );
+      if (change === "inactive_entity")
+        await database.pool.query(
+          "update entities set status='inactive' where id=$1",
+          [npc],
+        );
+      if (change === "inactive_world")
+        await database.pool.query(
+          "update worlds set status='archived' where id=$1",
+          [world],
+        );
+      if (change === "inactive_scene")
+        await database.pool.query(
+          "update interaction_contexts set status='inactive' where id=$1",
+          [context.id],
+        );
+      try {
+        const result = await prepareLocalInteraction(database.db, {
+          ...s,
+          interactionId: row.id,
+          evidenceId:
+            change === "missing"
+              ? randomUUID()
+              : change === "wrong_scene"
+                ? (await interaction()).localPresenceId!
+                : grant.evidence.id,
+        });
+        expect(result.status).toBe("blocked");
+        expect(await read(scope(row.id))).toEqual(row);
+      } finally {
+        await database.pool.query(
+          "update npc_state set current_location_id=$1,location_certainty='certain' where npc_id=$2",
+          [locationId, npc],
+        );
+        await database.pool.query(
+          "update npcs set lifecycle_state='active' where entity_id=$1",
+          [npc],
+        );
+        await database.pool.query(
+          "update entities set status='active' where id=$1",
+          [npc],
+        );
+        await database.pool.query(
+          "update worlds set status='active' where id=$1",
+          [world],
+        );
+      }
+    },
+  );
+  it("rejects a pre-grant event within the same millisecond", async () => {
+    const row = await interaction();
+    const incoming = (await createInteraction(database.db, world, npc, {
+      contextId: row.contextId,
+      communicationMode: "unknown",
+      interactionType: "social",
+      requestText: "Earlier receipt",
+    }))!;
+    await database.pool.query(
+      "update interactions set created_at=(select issued_at-interval '1 microsecond' from local_presence where id=$1) where id=$2",
+      [row.localPresenceId, incoming.id],
+    );
+    expect(
+      await prepareLocalInteraction(database.db, {
+        worldId: world,
+        npcId: npc,
+        contextId: row.contextId,
+        interactionId: incoming.id,
+        evidenceId: row.localPresenceId!,
+      }),
+    ).toMatchObject({ status: "blocked", reason: "stale" });
+  });
+  it("waits for committed evidence revocation at claim", async () => {
+    const row = await interaction();
+    const client = await database.pool.connect();
+    let claiming: ReturnType<typeof store.claim> | undefined;
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "update local_presence set revoked_at=clock_timestamp(),revoked_by=current_user where id=$1",
+        [row.localPresenceId],
+      );
+      const {
+        rows: [writer],
+      } = await client.query("select pg_backend_pid() as pid");
+      claiming = store.claim(scope(row.id), row);
+      await vi.waitFor(
+        async () => {
+          const { rows } = await database.pool.query(
+            "select 1 from pg_stat_activity where $1::int=any(pg_blocking_pids(pid))",
+            [writer.pid],
+          );
+          expect(rows.length).toBeGreaterThan(0);
+        },
+        { timeout: 1500, interval: 10 },
+      );
+      await client.query("COMMIT");
+      expect(await claiming).toBeNull();
+      expect((await read(scope(row.id)))?.responseClaimId).toBeNull();
+    } finally {
+      await client.query("ROLLBACK");
+      client.release();
+      await claiming;
+    }
+  });
+  it("serializes duplicate preparation and preserves the event", async () => {
+    const row = await interaction();
+    const input = {
+      worldId: world,
+      npcId: npc,
+      contextId: row.contextId,
+      interactionId: row.id,
+      evidenceId: row.localPresenceId!,
+    };
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        prepareLocalInteraction(database.db, input),
+      ),
+    );
+    expect(results.every((r) => r.status === "already_prepared")).toBe(true);
+    expect(await read(scope(row.id))).toEqual(row);
+    expect(
+      await prepareLocalInteraction(database.db, {
+        ...input,
+        worldId: foreignWorld,
+      }),
+    ).toMatchObject({ reason: "missing" });
+    expect(
+      await prepareLocalInteraction(database.db, { ...input, npcId: otherNpc }),
+    ).toMatchObject({ reason: "missing" });
+    expect(
+      await prepareLocalInteraction(database.db, {
+        ...input,
+        contextId: scene,
+      }),
+    ).toMatchObject({ reason: "missing" });
+  });
+  it("pins a revoked grant permanently across reissue", async () => {
+    const row = await interaction();
+    const input = { worldId: world, npcId: npc, contextId: row.contextId };
+    expect(
+      await revokeLocalPresence(database.db, input, row.localPresenceId!),
+    ).toMatchObject({ status: "revoked" });
+    expect(
+      await revokeLocalPresence(database.db, input, row.localPresenceId!),
+    ).toMatchObject({ status: "already_revoked" });
+    const next = await grantLocalPresence(database.db, input);
+    if (next.status !== "granted") throw Error("No grant");
+    expect(
+      await prepareLocalInteraction(database.db, {
+        ...input,
+        interactionId: row.id,
+        evidenceId: next.evidence.id,
+      }),
+    ).toMatchObject({ status: "conflict" });
+    const p = pipeline();
+    expect(await p.run(world, npc, row.id)).toMatchObject({
+      error: "ineligible",
+    });
+    expect(p.provider.generate).not.toHaveBeenCalled();
+    await expect(
+      database.pool.query(
+        "update interactions set local_presence_id=$1 where id=$2",
+        [next.evidence.id, row.id],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+    await expect(
+      database.pool.query(
+        "update local_presence set revoked_at=null,revoked_by=null where id=$1",
+        [row.localPresenceId],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+  });
+  it.each(["claim", "dispatch", "preflight", "retry", "generation"] as const)(
+    "fences presence revocation at %s",
+    async (phase) => {
+      const row = await interaction();
+      const revoke = () =>
+        revokeLocalPresence(
+          database.db,
+          { worldId: world, npcId: npc, contextId: row.contextId },
+          row.localPresenceId!,
+        );
+      const p = pipeline({
+        store: {
+          ...store,
+          claim: async (...args) => {
+            if (phase === "claim") await revoke();
+            return store.claim(...args);
+          },
+          dispatch: async (...args) => {
+            if (phase === "dispatch") await revoke();
+            return store.dispatch(...args);
+          },
+        },
+      });
+      if (phase === "preflight")
+        vi.mocked(p.provider.countInput).mockImplementation(async () => {
+          await revoke();
+          return 10;
+        });
+      if (phase === "retry" || phase === "generation")
+        vi.mocked(p.provider.generate).mockImplementation(async () => {
+          await revoke();
+          if (phase === "retry")
+            throw new ProviderFailure("rate_limit", true, 0, true);
+          return {
+            text: JSON.stringify({ speech: "This response is forbidden." }),
+            completed: true,
+            usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+          };
+        });
+      expect((await p.run(world, npc, row.id)).ok).toBe(false);
+      expect((await read(scope(row.id)))?.responseText).toBeNull();
+      expect(p.provider.generate).toHaveBeenCalledTimes(
+        phase === "generation" || phase === "retry" ? 1 : 0,
+      );
+      if (phase === "claim" || phase === "dispatch")
+        expect(p.budget.reserve).not.toHaveBeenCalled();
+    },
+  );
+  it("blocks stale state versions even when location matches", async () => {
+    const row = await interaction();
+    await database.pool.query(
+      "update npc_state set version=version+1 where npc_id=$1",
+      [npc],
+    );
+    const p = pipeline();
+    expect(await p.run(world, npc, row.id)).toMatchObject({
+      error: "ineligible",
+    });
+    expect(p.provider.countInput).not.toHaveBeenCalled();
+  });
+  it.each(["world", "scene", "npc", "entity"] as const)(
+    "waits for %s lifecycle revocation and cannot claim after reactivation",
+    async (kind) => {
+      const row = await interaction();
+      const [table, column, key, id, inactive] = {
+        world: ["worlds", "status", "id", world, "archived"],
+        scene: [
+          "interaction_contexts",
+          "status",
+          "id",
+          row.contextId,
+          "inactive",
+        ],
+        npc: ["npcs", "lifecycle_state", "entity_id", npc, "dormant"],
+        entity: ["entities", "status", "id", npc, "inactive"],
+      }[kind];
+      const client = await database.pool.connect();
+      let claiming: ReturnType<typeof store.claim> | undefined;
+      try {
+        await client.query("BEGIN");
+        await client.query(`update ${table} set ${column}=$1 where ${key}=$2`, [
+          inactive,
+          id,
+        ]);
+        await client.query(
+          `update ${table} set ${column}='active' where ${key}=$1`,
+          [id],
+        );
+        const {
+          rows: [writer],
+        } = await client.query("select pg_backend_pid() as pid");
+        claiming = store.claim(scope(row.id), row);
+        await vi.waitFor(
+          async () => {
+            const { rows } = await database.pool.query(
+              "select 1 from pg_stat_activity where $1::int=any(pg_blocking_pids(pid))",
+              [writer.pid],
+            );
+            expect(rows.length).toBeGreaterThan(0);
+          },
+          { timeout: 1500, interval: 10 },
+        );
+        await client.query("COMMIT");
+        expect(await claiming).toBeNull();
+        expect((await read(scope(row.id)))?.responseClaimId).toBeNull();
+      } finally {
+        await client.query("ROLLBACK");
+        client.release();
+        await claiming;
+      }
+    },
+  );
+  it.each(["world", "scene", "npc", "entity"] as const)(
+    "permanently revokes %s grants across reactivation and fresh preparation",
+    async (kind) => {
+      const row = await interaction();
+      const s = { worldId: world, npcId: npc, contextId: row.contextId };
+      await breakLifecycle(kind, row.contextId);
+      const p = pipeline();
+      expect(await p.run(world, npc, row.id)).toMatchObject({
+        error: "ineligible",
+      });
+      expect(p.provider.countInput).not.toHaveBeenCalled();
+      expect(p.budget.reserve).not.toHaveBeenCalled();
+      const incoming = (await createInteraction(database.db, world, npc, {
+        contextId: row.contextId,
+        communicationMode: "unknown",
+        interactionType: "social",
+        requestText: "After lifecycle break",
+      }))!;
+      expect(
+        await prepareLocalInteraction(database.db, {
+          ...s,
+          interactionId: incoming.id,
+          evidenceId: row.localPresenceId!,
+        }),
+      ).toMatchObject({ status: "blocked", reason: "revoked" });
+      const next = await grantLocalPresence(database.db, s);
+      if (next.status !== "granted") throw Error("Fresh confirmation failed");
+      expect(next.evidence.id).not.toBe(row.localPresenceId);
+      // A fresh confirmation cannot silently replace either old event's proof.
+      expect(
+        await prepareLocalInteraction(database.db, {
+          ...s,
+          interactionId: row.id,
+          evidenceId: next.evidence.id,
+        }),
+      ).toMatchObject({ status: "conflict" });
+      expect(
+        await prepareLocalInteraction(database.db, {
+          ...s,
+          interactionId: incoming.id,
+          evidenceId: next.evidence.id,
+        }),
+      ).toMatchObject({ reason: "stale" });
+      const fresh = (await createInteraction(database.db, world, npc, {
+        contextId: row.contextId,
+        communicationMode: "unknown",
+        interactionType: "social",
+        requestText: "Freshly confirmed request",
+      }))!;
+      expect(
+        await prepareLocalInteraction(database.db, {
+          ...s,
+          interactionId: fresh.id,
+          evidenceId: next.evidence.id,
+        }),
+      ).toMatchObject({ status: "prepared" });
+      expect((await p.run(world, npc, fresh.id)).ok).toBe(true);
+      expect(p.provider.generate).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each(["world", "scene", "npc", "entity"] as const)(
+    "fences %s deactivation/reactivation during fake generation",
+    async (kind) => {
+      const row = await interaction(),
+        p = pipeline();
+      vi.mocked(p.provider.generate).mockImplementationOnce(async () => {
+        await breakLifecycle(kind, row.contextId);
+        return {
+          text: JSON.stringify({
+            speech: "This stale answer must be withheld.",
+          }),
+          completed: true,
+          usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+        };
+      });
+      expect(await p.run(world, npc, row.id)).toMatchObject({
+        error: "claim_lost",
+      });
+      expect(await read(scope(row.id))).toMatchObject({
+        responseText: null,
+        responseGenerationOutcome: "uncertain",
+      });
+      expect(p.provider.generate).toHaveBeenCalledTimes(1);
+      expect(p.budget.reserve).toHaveBeenCalledTimes(1);
+      expect(p.budget.settle).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each(["delayed", "fresh", "malformed", "future"] as const)(
+    "checks original Discord event time for %s persistence",
+    async (kind) => {
+      const row = await interaction();
+      const s = { worldId: world, npcId: npc, contextId: row.contextId };
+      const {
+        rows: [grant],
+      } = await database.pool.query(
+        "select issued_at from local_presence where id=$1",
+        [row.localPresenceId],
+      );
+      await database.pool.query(
+        "update interaction_contexts set npc_intake_policy='mapped_players' where id=$1",
+        [row.contextId],
+      );
+      const messageId =
+        kind === "delayed"
+          ? discordId(grant.issued_at.getTime() - 1000)
+          : kind === "malformed"
+            ? "forged-id"
+            : kind === "future"
+              ? discordId(Date.now() + 60_000)
+              : await freshDiscordId(grant.issued_at);
+      const incoming = (await createInteraction(database.db, world, npc, {
+        contextId: row.contextId,
+        communicationMode: "unknown",
+        interactionType: "social",
+        requestText: "Source creation precedes receipt",
+        sourceProvider: "discord",
+        sourceMessageId: messageId,
+      }))!;
+      expect(incoming.createdAt.getTime()).toBeGreaterThanOrEqual(
+        grant.issued_at.getTime(),
+      );
+      const prepared = await prepareLocalInteraction(database.db, {
+        ...s,
+        interactionId: incoming.id,
+        evidenceId: row.localPresenceId!,
+      });
+      const p = pipeline();
+      if (kind === "fresh") {
+        expect(prepared.status).toBe("prepared");
+        expect((await p.run(world, npc, incoming.id)).ok).toBe(true);
+        expect(p.provider.generate).toHaveBeenCalledTimes(1);
+      } else {
+        expect(prepared).toMatchObject({ status: "blocked", reason: "stale" });
+        expect(await read(scope(incoming.id))).toEqual(incoming);
+        expect((await p.run(world, npc, incoming.id)).ok).toBe(false);
+        expect(p.provider.countInput).not.toHaveBeenCalled();
+        expect(p.budget.reserve).not.toHaveBeenCalled();
+      }
+    },
+  );
+  it.each([0, 1])(
+    "enforces grant precision for Discord creation at +%i milliseconds",
+    async (offset) => {
+      const row = await interaction();
+      const s = { worldId: world, npcId: npc, contextId: row.contextId };
+      await revokeLocalPresence(database.db, s, row.localPresenceId!);
+      // Exact operator-fixture time: .123456, so a source at .123 is too early.
+      const {
+        rows: [grant],
+      } = await database.pool.query(
+        `insert into local_presence(id,world_id,npc_id,context_id,location_id,state_version,issued_at)
+      select $1,world_id,npc_id,context_id,location_id,state_version,
+      date_trunc('second',clock_timestamp())-interval '1 second'+interval '123456 microseconds'
+      from local_presence where id=$2 returning id,issued_at`,
+        [randomUUID(), row.localPresenceId],
+      );
+      await database.pool.query(
+        "update interaction_contexts set npc_intake_policy='mapped_players' where id=$1",
+        [row.contextId],
+      );
+      const incoming = (await createInteraction(database.db, world, npc, {
+        contextId: row.contextId,
+        communicationMode: "unknown",
+        interactionType: "social",
+        requestText: "Sub-millisecond source boundary",
+        sourceProvider: "discord",
+        sourceMessageId: discordId(grant.issued_at.getTime() + offset),
+      }))!;
+      const prepared = await prepareLocalInteraction(database.db, {
+        ...s,
+        interactionId: incoming.id,
+        evidenceId: grant.id,
+      });
+      expect(prepared.status).toBe(offset === 0 ? "blocked" : "prepared");
+      if (offset === 0) expect(prepared).toMatchObject({ reason: "stale" });
+    },
+  );
+  it("rechecks source time for previously bound Discord events before generation", async () => {
+    const row = await interaction();
+    await database.pool.query(
+      "update interaction_contexts set npc_intake_policy='mapped_players' where id=$1",
+      [row.contextId],
+    );
+    const incoming = (await createInteraction(database.db, world, npc, {
+      contextId: row.contextId,
+      communicationMode: "unknown",
+      interactionType: "social",
+      requestText: "Legacy delayed event",
+      sourceProvider: "discord",
+      sourceMessageId: discordId(row.createdAt.getTime() - 60_000),
+    }))!;
+    // Model a binding written by the reviewed pre-remediation implementation.
+    await database.pool.query(
+      "update interactions set communication_mode='local',local_presence_id=$1 where id=$2",
+      [row.localPresenceId, incoming.id],
+    );
+    const p = pipeline();
+    expect(await p.run(world, npc, incoming.id)).toMatchObject({
+      error: "ineligible",
+    });
+    expect(p.provider.countInput).not.toHaveBeenCalled();
+    expect(p.budget.reserve).not.toHaveBeenCalled();
+    expect((await read(scope(incoming.id)))?.responseText).toBeNull();
+  });
+  it("blocks a disabled Discord context at response claim", async () => {
+    const row = await interaction();
+    // A prepared event cannot have its source identity rewritten.
+    await expect(
+      database.pool.query(
+        "update interactions set source_provider='discord', source_message_id='forged' where id=$1",
+        [row.id],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+    const grant = await grantLocalPresence(database.db, {
+      worldId: world,
+      npcId: npc,
+      contextId: scene,
+    });
+    if (grant.status !== "granted") throw Error("No grant");
+    await database.pool.query(
+      "update interaction_contexts set npc_intake_policy='mapped_players' where id=$1",
+      [scene],
+    );
+    const incoming = (await createInteraction(database.db, world, npc, {
+      contextId: scene,
+      communicationMode: "unknown",
+      interactionType: "social",
+      requestText: "Explicit Discord request",
+      sourceProvider: "discord",
+      sourceMessageId: await freshDiscordId(grant.evidence.issuedAt),
+    }))!;
+    const prepared = await prepareLocalInteraction(database.db, {
+      worldId: world,
+      npcId: npc,
+      contextId: scene,
+      interactionId: incoming.id,
+      evidenceId: grant.evidence.id,
+    });
+    expect(prepared.status).toBe("prepared");
+    await database.pool.query(
+      "update interaction_contexts set npc_intake_policy='disabled' where id=$1",
+      [scene],
+    );
+    const p = pipeline();
+    expect((await p.run(world, npc, incoming.id)).ok).toBe(false);
+    expect(p.provider.generate).not.toHaveBeenCalled();
+  });
   it("blocks a scene closed after claim and before dispatch", async () => {
     const row = await interaction();
     const p = pipeline({

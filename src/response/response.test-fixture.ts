@@ -31,7 +31,10 @@ export const responseSuccess = (
 });
 export async function responseFixture() {
   const reader = readerFixture();
-  let current: Interaction = interaction({ communicationMode: "local" });
+  let current: Interaction = interaction({
+    communicationMode: "local",
+    localPresenceId: ids.scene,
+  });
   const npc = (await reader.npc(ids.world, ids.npc))!;
   vi.mocked(reader.npc).mockResolvedValue({
     ...npc,
