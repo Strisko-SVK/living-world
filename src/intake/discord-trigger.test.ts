@@ -46,6 +46,12 @@ describe("explicit Discord trigger grammar", () => {
       ),
     ).toEqual({ alias: "great garak", body: "Hello <@456> [Other NPC]" });
   });
+  it("keeps meaningful prose with role and channel mentions", () => {
+    const body = "Please ask <@&456> to check <#789>.";
+    expect(
+      parseDiscordTrigger(`<@123> [Garak] ${body}`, "123", ["123"]),
+    ).toEqual({ alias: "garak", body });
+  });
   it.each([
     "@NPC BOT [Garak] Hello.",
     "<@456> [Garak] Hello.",
@@ -64,6 +70,11 @@ describe("explicit Discord trigger grammar", () => {
     "<@123> [Ga\nrak] Hello.",
     "<@123> [Ga\trak] Hello.",
     "<@123> [Ga\u200brak] Hello.",
+    "<@123> [Ga\u2028rak] Hello.",
+    "<@123> [Ga\u2029rak] Hello.",
+    "<@123> [Garak] <@&456>",
+    "<@123> [Garak] <#789>",
+    "<@123> [Garak] <@456> <@&789> <#101>",
     "> <@123> [Garak] Hello.",
     "```<@123> [Garak] Hello.```",
     "prefix <@123> [Garak] Hello.",

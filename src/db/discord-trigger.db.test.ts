@@ -215,6 +215,19 @@ afterEach(async () => {
 afterAll(async () => database.close());
 
 describe("M2.8 explicit authorized Discord intake", () => {
+  it.each([
+    "<@123> [Ga\u2028rak] Check the manifest.",
+    "<@123> [Ga\u2029rak] Check the manifest.",
+    "<@123> [Garak] <@&456>",
+    "<@123> [Garak] <#789>",
+    "<@123> [Garak] <@456> <@&789> <#101>",
+  ])(
+    "rejects invalid alias or mention-only request without persistence: %s",
+    async (content) => {
+      expect(await run({ ...message, content })).toBe("invalid_trigger");
+      expect(await rows()).toHaveLength(0);
+    },
+  );
   it("persists exactly one scoped unknown-mode interaction without asserting presence or invoking M2.7", async () => {
     const before = await getNpcWithState(database.db, world, npc);
     expect(await run()).toBe("accepted");

@@ -19,8 +19,8 @@ export function parseDiscordTrigger(
   if (
     !alias ||
     alias.length > 200 ||
-    /[\p{Cc}\p{Cf}]/u.test(alias) ||
-    !body.replace(/<@!?\d+>/gu, "").trim()
+    /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(alias) ||
+    !body.replace(/<(?:@!?\d+|@&\d+|#\d+)>/gu, "").trim()
   )
     return null;
   return { alias: normalizeAlias(alias), body };
