@@ -1042,3 +1042,122 @@ same millisecond as a grant may conservatively be rejected; send a fresh message
 This requires synchronized host/Discord clocks and represents technical
 wall-clock authorization, never narrative or game chronology. Non-Discord events
 retain the existing database receipt-window contract.
+
+### M2.10 NPC response delivery foundation
+
+Migration `0015_response_delivery_outbox` adds a direct-reply outbox and immutable
+original Discord route fields on interactions. Strict M2.8 intake snapshots the
+SDK message's guild, parent channel, exact thread (including null), and selected
+mapping ID in its existing authorized transaction. Replays preserve that binding
+and reject a changed original thread. Historical and compatibility-mode rows keep
+null route snapshots: they are not backfilled, enqueued, or eligible for delivery.
+Mapping IDs are snapshots rather than restrictive foreign keys, so removing a
+mapping revokes routing instead of preventing administrative removal.
+
+`createDeliveryRepository(db, options)` in `src/delivery/delivery.repository.ts`
+provides explicitly invoked `prepare`, `claim`, `preflight`, `acknowledge`, `fail`,
+`recover`, and trusted-operator `reconcile` operations. `options.clock` allows
+deterministic lease/backoff tests; production defaults to the host clock. Delivery
+time is technical wall-clock time, never fictional chronology.
+
+Preparation requires a Discord-origin, M2.7-generated `responded` or `completed`
+interaction with immutable response text and valid M2.9 local presence. World,
+scene, NPC entity/profile, location certainty/state version, pinned grant,
+source-event authorization window and context intake policy must remain valid.
+Only one active world may match the original location. The original selected
+mapping must still resolve to the exact original scene under exact-thread-before-
+parent precedence, and must have type `scene`. A replacement mapping or new exact
+mapping over an original parent fallback blocks delivery. NPC primary/home spaces
+are never destinations. Authorization and immutable snapshots are rechecked at
+prepare, claim, and preflight; blocked snapshots cannot be repurposed.
+
+One permanent unique outbox row per interaction is stronger than one active row:
+terminal/uncertain deliveries cannot be replaced by calling prepare again. The
+world/NPC/context/interaction composite FK prevents cross-world association.
+Payload, source reply ID, NPC identity, destination, fingerprint and creation time
+are immutable. The SHA-256 fingerprint uses canonical validated payload fields,
+not JSONB key order. Already generated speech and generation claim metadata are
+never rewritten by delivery. Acknowledgement updates only the delivery result and
+`responseMessageId`; it does not complete the interaction. Database guards require
+a matching delivered outbox acknowledgement before a route-bound interaction can
+acquire a response message reference, and prevent subsequent reference/content
+rewrites. Legacy interaction repository reference behavior remains unchanged.
+
+| State                | Meaning and next action                                                                 |
+| -------------------- | --------------------------------------------------------------------------------------- |
+| `pending`            | Explicitly prepared, ready to claim.                                                    |
+| `claimed`            | One fenced token/60-second lease; no possible send yet.                                 |
+| `sending`            | Durable preflight/dispatch marker committed before transport; a send may have occurred. |
+| `delivered`          | Matching acknowledgement durably recorded; terminal and idempotent.                     |
+| `retryable`          | Definitively not sent or lease expired before dispatch; retry only after backoff.       |
+| `uncertain`          | Timeout, throw, invalid/lost ACK, or expired sending lease; never automatically resend. |
+| `blocked` / `failed` | Authorization/snapshot failure or permanent/exhausted no-send failure; terminal.        |
+
+`createDeliveryDispatcher(repository, transport)` processes one explicit scope
+once. It has no default transport, timer, polling or startup integration. At most
+three claims are allowed, including recovered pre-dispatch crashes. Known-unsent
+failures use exponential backoff (1/2/4 seconds) and a longer transport-provided
+retry-after, bounded to one day. Parallel invocations cannot claim or preflight
+the same attempt twice. Expired workers cannot ACK or reuse an old token.
+
+The transport-neutral `DeliveryTransport` receives the immutable proposed payload,
+attempt token and fingerprint. A confirmed ACK must match the token, fingerprint
+and exact destination and supply a distinct message reference. Transport errors
+must distinguish proven `not_sent` from `uncertain`; an exception is never proof
+of no send. Lost acknowledgement of a committed DB result is read back without
+another send. ACK facts are recorded even if authorization changes after preflight,
+since pretending an already-sent message was not sent would cause unsafe retries.
+
+Reconciliation is a trusted local host/database operation, never a player/Discord
+endpoint. An operator must provide the exact uncertain attempt and an audit
+reference for verified delivery or verified no-send. The database login, time and
+reference are recorded atomically. No-send reconciliation respects the same
+attempt cap/backoff. Before asserting no-send, the operator must also stop/fence
+the old worker so it cannot resume after reconciliation. Incorrect operator
+evidence can still cause duplicate sends.
+There is no automatic provider-message fetch or ability to prove non-delivery in
+this milestone.
+
+NPC display identity comes from the scoped NPC entity's canonical name, with
+control/format characters, mentions, reserved names and invalid lengths rejected.
+Optional operator-approved avatar URLs come only from `options.avatars`, keyed by
+`worldId:npcId`; only static HTTPS `cdn.discordapp.com/avatars/...` references with
+no credentials/query/fragment/custom port are accepted. No content, metadata or
+freeform webhook URL supplies identity. Identity changes after prepare block the
+snapshot. Avatar URLs are never fetched here.
+
+The proposed envelope explicitly carries `allowedMentions` with empty parse,
+user and role lists and `repliedUser: false`. The future Discord adapter must
+serialize this to `allowed_mentions`, including `replied_user: false`; retaining
+the original mention-looking speech cannot itself grant ping permission. Content
+is limited conservatively to 2000 UTF-16 units in one message. Oversized output is
+blocked, with no truncation or splitting. No raw speech, route IDs, credentials or
+provider exception details are logged by this service.
+
+Locks follow the existing inbound routing boundary: location advisory lock,
+mapping/world shared locks, original context shared lock, interaction update
+lock, scoped delivery update lock, then M2.9 NPC/state/evidence checks. Mapping
+insertions use the same location advisory key. Lifecycle writers and presence
+revocation cooperate through the existing row locks. All transactions have bounded
+lock/statement waits and commit before any transport call; ACK/reconciliation
+also acquire interaction before delivery. Raw operator SQL must preserve the
+protocol. Multi-record writers must handle a failed/deadlocked transaction as a
+rollback rather than bypassing authorization.
+
+The only supplied transport is `fakeDeliveryTransport` in a test-fixture module.
+It refuses non-test execution and worlds outside its explicit fixture allowlist.
+The PostgreSQL suite creates/removes UUID-scoped worlds and records simulated
+ACKs only there. There is no production dry-run dispatcher or delivery flag, and
+no fake transport import from startup. Do not point a simulation at production
+worlds or treat a fake message reference as evidence of a real Discord message.
+Existing runtime tests still cover startup with inbound Discord enabled. The
+new tests simulate M2.7 persistence without invoking any LLM or budget provider.
+
+External delivery is **not transactionally exactly-once**. Revocation/route changes
+committed before a fence prevent dispatch; changes after preflight cannot
+atomically cancel a hypothetical external network send. A future real transport
+needs separate review of permissions, webhook credentials/identity, thread
+routing, `wait=true` ACK semantics, rate-limit handling and reconciliation. M2.10
+adds none of those live capabilities, outbound HTTP/Discord sends, autonomous
+responses, task-report delivery, background workers or paid calls. Independent
+security review remains required before merge or any live adapter.

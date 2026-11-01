@@ -251,15 +251,28 @@ export function createDiscordPersistence(
               prior[0].npcId === npcId &&
               prior[0].contextId === scene.id &&
               prior[0].speakerEntityId === speakerEntityId &&
-              prior[0].requestText === message.content
+              prior[0].requestText === message.content &&
+              (prior[0].sourceMappingId === null ||
+                (prior[0].sourceGuildId === message.guildId &&
+                  prior[0].sourceChannelId === message.channelId &&
+                  prior[0].sourceThreadId === message.threadId))
               ? "duplicate"
               : "event_conflict";
           }
+          const activeRoutes = routes.filter(
+            (r) => r.worldId === worldId && r.status === "active",
+          );
+          const route =
+            (message.threadId &&
+              activeRoutes.find((r) => r.threadId === message.threadId)) ||
+            activeRoutes.find((r) => r.threadId === null);
+          if (!route || route.contextId !== scene.id) return "unmapped";
           bound = {
             worldId,
             contextId: scene.id,
             speakerEntityId,
             npcIds: [npcId],
+            routeMappingId: route.id,
             message,
           };
         } else bound = input;
@@ -273,6 +286,14 @@ export function createDiscordPersistence(
               speakerEntityId: bound.speakerEntityId,
               sourceProvider: "discord",
               sourceMessageId: bound.message.sourceMessageId,
+              ...("routeMappingId" in bound
+                ? {
+                    sourceGuildId: bound.message.guildId,
+                    sourceChannelId: bound.message.channelId,
+                    sourceThreadId: bound.message.threadId,
+                    sourceMappingId: bound.routeMappingId,
+                  }
+                : {}),
               traceId: input.traceId,
               requestText: bound.message.content,
               interactionType: "social",

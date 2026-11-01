@@ -46,6 +46,10 @@ export const interactions = pgTable(
     status: interactionStatus("status").notNull().default("received"),
     sourceMessageId: text("source_message_id"),
     sourceProvider: text("source_provider"),
+    sourceGuildId: text("source_guild_id"),
+    sourceChannelId: text("source_channel_id"),
+    sourceThreadId: text("source_thread_id"),
+    sourceMappingId: uuid("source_mapping_id"),
     responseMessageId: text("response_message_id"),
     traceId: uuid("trace_id").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -63,6 +67,16 @@ export const interactions = pgTable(
     responseGenerationOutcome: text("response_generation_outcome"),
   },
   (table) => [
+    unique("interaction_delivery_scope_unique").on(
+      table.worldId,
+      table.npcId,
+      table.contextId,
+      table.id,
+    ),
+    check(
+      "interaction_source_route_shape",
+      sql`(${table.sourceGuildId} is null and ${table.sourceChannelId} is null and ${table.sourceThreadId} is null and ${table.sourceMappingId} is null) or (${table.sourceProvider} IS NOT DISTINCT FROM 'discord' and ${table.sourceGuildId} is not null and ${table.sourceChannelId} is not null and ${table.sourceMappingId} is not null)`,
+    ),
     foreignKey({
       name: "interaction_local_presence_fk",
       columns: [

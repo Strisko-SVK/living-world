@@ -85,6 +85,10 @@ export const createInteractionInputSchema = z
       .trim()
       .min(1, "Request text is required.")
       .max(20_000),
+    sourceGuildId: externalId,
+    sourceChannelId: externalId,
+    sourceThreadId: externalId,
+    sourceMappingId: z.string().uuid().nullable().optional(),
     sourceMessageId: externalId,
     sourceProvider: opaqueReference.max(100).nullable().optional(),
     traceId: z.string().uuid().optional(),
