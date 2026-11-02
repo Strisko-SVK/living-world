@@ -69,6 +69,8 @@ export function validateDevFixtureEnvironment(
     !["postgres:", "postgresql:"].includes(url.protocol) ||
     !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
     decodeURIComponent(url.pathname) !== "/" + devDbName ||
+    decodeURIComponent(url.username) !== "lw_gateway_dev" ||
+    url.password.length === 0 ||
     url.search !== "" ||
     url.hash !== ""
   )
@@ -350,13 +352,16 @@ export async function runDevFixtureCommand(
   const route = validateDevFixtureEnvironment(environment);
   const client = connect(environment);
   try {
-    // A second guard against a local forwarded port to a remote/production DB.
+    // Recheck the actual DB and restricted role, including local Docker instances.
     const identity = await client.pool.query<{
       database: string;
-      server: string | null;
+      db_role: string;
+      superuser: boolean;
       version: number;
     }>(
-      "select current_database() as database, inet_server_addr()::text as server, current_setting('server_version_num')::int as version",
+      "select current_database() as database, current_user as db_role, " +
+        "current_setting('server_version_num')::int as version, " +
+        "(select rolsuper from pg_roles where rolname=current_user) as superuser",
     );
     const row = identity.rows[0];
     if (
@@ -364,7 +369,8 @@ export async function runDevFixtureCommand(
       row.database !== devDbName ||
       row.version < 170000 ||
       row.version >= 180000 ||
-      (row.server !== "127.0.0.1" && row.server !== "::1")
+      row.db_role !== "lw_gateway_dev" ||
+      row.superuser !== false
     )
       throw new Error("DEV fixture database identity is not approved.");
     return await provisionDevFixture(client.db, route, apply);
