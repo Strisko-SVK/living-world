@@ -90,16 +90,23 @@ describe("offline synthetic Discord DEV world fixture", () => {
   it("preview makes no writes, first apply creates only expected records", async () => {
     const key = worldKey();
     const location = route();
-    expect(await provisionDevFixture(database.db, location, false, key)).toEqual({
+    expect(
+      await provisionDevFixture(database.db, location, false, key),
+    ).toEqual({
       status: "would_create",
       worldKey: key,
     });
-    const before = await database.pool.query("select id from worlds where key=$1", [key]);
+    const before = await database.pool.query(
+      "select id from worlds where key=$1",
+      [key],
+    );
     expect(before.rows).toHaveLength(0);
     const first = await apply(key, location);
     expect(first.status).toBe("created");
     expect(first.worldId).toBeDefined();
-    expect(await provisionDevFixture(database.db, location, false, key)).toEqual({
+    expect(
+      await provisionDevFixture(database.db, location, false, key),
+    ).toEqual({
       status: "already_present",
       worldKey: key,
       worldId: first.worldId,
@@ -138,9 +145,14 @@ describe("offline synthetic Discord DEV world fixture", () => {
   it("serializes concurrent first applications without duplicate resources", async () => {
     const key = worldKey();
     const location = route();
-    const results = await Promise.all([apply(key, location), apply(key, location)]);
+    const results = await Promise.all([
+      apply(key, location),
+      apply(key, location),
+    ]);
     const created = results.filter((item) => item.status === "created");
-    const existing = results.filter((item) => item.status === "already_present");
+    const existing = results.filter(
+      (item) => item.status === "already_present",
+    );
     expect(created).toHaveLength(1);
     expect(existing).toHaveLength(1);
     expect(created[0]!.worldId).toBe(existing[0]!.worldId);
@@ -181,9 +193,9 @@ describe("offline synthetic Discord DEV world fixture", () => {
       systemType: "test",
     });
     createdWorldIds.push(world.id);
-    await expect(provisionDevFixture(database.db, route(), true, key)).rejects.toThrow(
-      "conflicts",
-    );
+    await expect(
+      provisionDevFixture(database.db, route(), true, key),
+    ).rejects.toThrow("conflicts");
     expect(await dbCounts(world.id)).toMatchObject({
       entities: 0,
       contexts: 0,
@@ -198,9 +210,9 @@ describe("offline synthetic Discord DEV world fixture", () => {
     await addEntityAlias(database.db, first.worldId!, first.npcId!, {
       alias: "Unexpected",
     });
-    await expect(provisionDevFixture(database.db, location, true, key)).rejects.toThrow(
-      "conflicts",
-    );
+    await expect(
+      provisionDevFixture(database.db, location, true, key),
+    ).rejects.toThrow("conflicts");
     expect(await dbCounts(first.worldId!)).toMatchObject({
       entities: 3,
       contexts: 1,
@@ -259,9 +271,9 @@ describe("offline synthetic Discord DEV world fixture", () => {
     });
     createdWorldIds.push(existing.id);
     const location = route();
-    await expect(provisionDevFixture(database.db, location, true, key)).rejects.toThrow(
-      "conflicts",
-    );
+    await expect(
+      provisionDevFixture(database.db, location, true, key),
+    ).rejects.toThrow("conflicts");
     const result = await database.pool.query(
       "select id from discord_context_mappings where guild_id=$1 and channel_id=$2",
       [location.guildId, location.channelId],
