@@ -6,7 +6,8 @@ import {
 } from "./discord-dev-fixture.js";
 
 const valid = {
-  DATABASE_URL: "postgresql://fixture:password@127.0.0.1:5432/living_world_gateway_dev",
+  DATABASE_URL:
+    "postgresql://fixture:password@127.0.0.1:5432/living_world_gateway_dev",
   DISCORD_ENABLED: "false",
   DISCORD_OUTBOUND_ENABLED: "false",
   LLM_PROVIDER: "disabled",
@@ -18,9 +19,13 @@ const valid = {
 describe("offline Discord DEV fixture guards", () => {
   it("defaults to preview and demands explicit named database for apply", () => {
     expect(parseDevFixtureArguments([])).toBe(false);
-    expect(parseDevFixtureArguments([
-      "--apply", "--confirm-database", "living_world_gateway_dev",
-    ])).toBe(true);
+    expect(
+      parseDevFixtureArguments([
+        "--apply",
+        "--confirm-database",
+        "living_world_gateway_dev",
+      ]),
+    ).toBe(true);
     expect(() => parseDevFixtureArguments(["--apply"])).toThrow();
     expect(devWorldKey).toBe("lw-dev-gateway-001");
   });
@@ -36,7 +41,9 @@ describe("offline Discord DEV fixture guards", () => {
       { LW_DEV_GUILD_ID: "invalid" },
       { LW_DEV_THREAD_ID: "" },
     ]) {
-      expect(() => validateDevFixtureEnvironment({ ...valid, ...override })).toThrow();
+      expect(() =>
+        validateDevFixtureEnvironment({ ...valid, ...override }),
+      ).toThrow();
     }
   });
 
@@ -48,9 +55,13 @@ describe("offline Discord DEV fixture guards", () => {
       "file:///tmp/living_world_gateway_dev",
       "postgresql://local@127.0.0.1/living_world_gateway_dev#fragment",
     ]) {
-      expect(() => validateDevFixtureEnvironment({ ...valid, DATABASE_URL: url })).toThrow();
+      expect(() =>
+        validateDevFixtureEnvironment({ ...valid, DATABASE_URL: url }),
+      ).toThrow();
     }
-    expect(() => validateDevFixtureEnvironment({ ...valid, DATABASE_URL: "" })).toThrow();
+    expect(() =>
+      validateDevFixtureEnvironment({ ...valid, DATABASE_URL: "" }),
+    ).toThrow();
   });
 
   it("rejects any enabled network or paid generation mode", () => {
@@ -60,7 +71,9 @@ describe("offline Discord DEV fixture guards", () => {
       { LLM_PROVIDER: "openai" },
       { NODE_ENV: "production" },
     ]) {
-      expect(() => validateDevFixtureEnvironment({ ...valid, ...override })).toThrow();
+      expect(() =>
+        validateDevFixtureEnvironment({ ...valid, ...override }),
+      ).toThrow();
     }
   });
 });
