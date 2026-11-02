@@ -1,4 +1,5 @@
 name: Temporary DEV fixture Prettier export
+# One-time final formatting pass; this workflow will be deleted.
 on:
   push:
     branches:
