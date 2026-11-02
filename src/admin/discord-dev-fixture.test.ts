@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   parseDevFixtureArguments,
   validateDevFixtureEnvironment,
   devWorldKey,
+  runDevFixtureCommand,
 } from "./discord-dev-fixture.js";
 
 const valid = {
@@ -11,9 +12,9 @@ const valid = {
   DISCORD_ENABLED: "false",
   DISCORD_OUTBOUND_ENABLED: "false",
   LLM_PROVIDER: "disabled",
-  LW_DEV_GUILD_ID: "1566911648701223053",
-  LW_DEV_PARENT_CHANNEL_ID: "1566913668795469934",
-  LW_DEV_THREAD_ID: "1566914038158459090",
+  LW_DEV_GUILD_ID: "1111111111111111111",
+  LW_DEV_PARENT_CHANNEL_ID: "1222222222222222222",
+  LW_DEV_THREAD_ID: "1333333333333333333",
 };
 
 describe("offline Discord DEV fixture guards", () => {
@@ -77,5 +78,33 @@ describe("offline Discord DEV fixture guards", () => {
         validateDevFixtureEnvironment({ ...valid, ...override }),
       ).toThrow();
     }
+  });
+  it("rejects an unexpected or privileged database role before provisioning", async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    const query = vi.fn().mockResolvedValue({
+      rows: [
+        {
+          database: "living_world_gateway_dev",
+          db_role: "postgres",
+          superuser: true,
+          version: 170003,
+        },
+      ],
+    });
+    const transaction = vi.fn();
+    const connect = vi.fn().mockReturnValue({
+      pool: { query },
+      db: { transaction },
+      close,
+    });
+    await expect(
+      runDevFixtureCommand(
+        [],
+        valid,
+        connect as unknown as Parameters<typeof runDevFixtureCommand>[2],
+      ),
+    ).rejects.toThrow("database identity is not approved");
+    expect(transaction).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledOnce();
   });
 });
