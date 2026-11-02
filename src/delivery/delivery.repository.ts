@@ -31,6 +31,72 @@ import {
 
 type Database = Omit<DatabaseClient["db"], "$client">;
 export type DeliveryRow = typeof responseDeliveries.$inferSelect;
+// Read-only projection, not recovery: expired leases must never be advanced here.
+export function previewDeliveryState(
+  delivery:
+    | Readonly<
+        Pick<
+          DeliveryRow,
+          "status" | "attempts" | "nextAttemptAt" | "leaseUntil"
+        >
+      >
+    | undefined,
+  now: Date,
+) {
+  if (!delivery)
+    return {
+      status: "ready" as const,
+      canExecute: true as const,
+      requiresPreparation: true,
+    };
+  if (delivery.status === "uncertain")
+    return {
+      status: "requires_reconciliation" as const,
+      canExecute: false as const,
+      reason: "uncertain_delivery" as const,
+    };
+  if (delivery.status === "claimed" || delivery.status === "sending") {
+    const expired = delivery.leaseUntil !== null && delivery.leaseUntil <= now;
+    if (expired && delivery.status === "sending")
+      return {
+        status: "requires_reconciliation" as const,
+        canExecute: false as const,
+        reason: "expired_sending_lease" as const,
+      };
+    return {
+      status: "not_claimable" as const,
+      canExecute: false as const,
+      reason: expired ? ("recovery_required" as const) : delivery.status,
+    };
+  }
+  if (
+    delivery.status === "delivered" ||
+    delivery.status === "blocked" ||
+    delivery.status === "failed"
+  )
+    return {
+      status: "not_claimable" as const,
+      canExecute: false as const,
+      reason: delivery.status,
+    };
+  if (delivery.attempts >= MAX_ATTEMPTS)
+    return {
+      status: "not_claimable" as const,
+      canExecute: false as const,
+      reason: "attempts_exhausted" as const,
+    };
+  if (delivery.nextAttemptAt > now)
+    return {
+      status: "not_claimable" as const,
+      canExecute: false as const,
+      reason: "backoff" as const,
+    };
+  return {
+    status: "ready" as const,
+    canExecute: true as const,
+    requiresPreparation: false,
+  };
+}
 type Interaction = typeof interactions.$inferSelect;
 export interface DeliveryOptions {
   clock?: () => Date;
@@ -251,6 +317,49 @@ export function createDeliveryRepository(
     return true;
   }
   return {
+    // Non-mutating authorization preview for the isolated operator boundary.
+    // Existing lock order is reused; no outbox/interaction/evidence writes occur.
+    async preview(s: DeliveryScope) {
+      return (
+        (await within(s, async (tx, l) => {
+          const p = await plan(tx, l);
+          const deliveryStatus = l.delivery?.status ?? null;
+          if (!p.ok)
+            return {
+              status: "blocked" as const,
+              canExecute: false as const,
+              reason: p.reason,
+              deliveryStatus,
+            };
+          const state = previewDeliveryState(l.delivery, clock());
+          if (state.status !== "ready")
+            return {
+              ...state,
+              deliveryStatus,
+              payload: p.payload,
+              fingerprint: p.hash,
+            };
+          if (l.row.responseMessageId)
+            return {
+              status: "blocked" as const,
+              canExecute: false as const,
+              reason: "already_referenced",
+              deliveryStatus,
+            };
+          return {
+            ...state,
+            payload: p.payload,
+            fingerprint: p.hash,
+            deliveryStatus,
+          };
+        })) ?? {
+          status: "blocked" as const,
+          canExecute: false as const,
+          reason: "not_found",
+          deliveryStatus: null,
+        }
+      );
+    },
     async prepare(s: DeliveryScope) {
       return (
         (await within(s, async (tx, l) => {

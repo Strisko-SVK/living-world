@@ -1144,11 +1144,11 @@ also acquire interaction before delivery. Raw operator SQL must preserve the
 protocol. Multi-record writers must handle a failed/deadlocked transaction as a
 rollback rather than bypassing authorization.
 
-The only supplied transport is `fakeDeliveryTransport` in a test-fixture module.
+The M2.10 test transport is `fakeDeliveryTransport` in a test-fixture module.
 It refuses non-test execution and worlds outside its explicit fixture allowlist.
 The PostgreSQL suite creates/removes UUID-scoped worlds and records simulated
-ACKs only there. There is no production dry-run dispatcher or delivery flag, and
-no fake transport import from startup. Do not point a simulation at production
+ACKs only there. The M2.11 operator command below never uses fake ACKs, and no fake transport
+is imported by startup. Do not point a simulation at production
 worlds or treat a fake message reference as evidence of a real Discord message.
 Existing runtime tests still cover startup with inbound Discord enabled. The
 new tests simulate M2.7 persistence without invoking any LLM or budget provider.
@@ -1161,3 +1161,133 @@ routing, `wait=true` ACK semantics, rate-limit handling and reconciliation. M2.1
 adds none of those live capabilities, outbound HTTP/Discord sends, autonomous
 responses, task-report delivery, background workers or paid calls. Independent
 security review remains required before merge or any live adapter.
+
+### M2.11 Discord outbound adapter and controlled operator delivery
+
+The production-capable adapter is isolated in `src/adapters/discord-outbound`.
+Normal startup, Gateway intake and scheduled/background work never import it.
+`DISCORD_OUTBOUND_ENABLED` defaults to false. Even when true, it does not cause
+startup to send: only an explicit trusted operator invocation can reach the HTTP
+adapter. No live Discord request, credential provisioning or pilot activation is
+part of development/review. A later pilot requires separate human approval;
+merging this code is not approval to enable it.
+
+`pnpm admin:deliver --world WORLD_UUID --npc NPC_UUID --interaction INTERACTION_UUID --guild GUILD_SNOWFLAKE --channel PARENT_CHANNEL_SNOWFLAKE --thread THREAD_SNOWFLAKE`
+is the single-item operator interface. For a parent-channel post, the thread value
+must be the literal `none`. The six flag/value pairs are mandatory and ordered as
+shown. Default and `--dry-run` are non-mutating: they perform no HTTP requests,
+claims, preparation writes or fake acknowledgements. The read preview reuses
+M2.10's short transaction/lock ordering and reports only fixed status codes,
+`wouldSend: false`, `bindingVerified: false`, `canExecute` and the delivery status; it does not
+print IDs, speech, configuration or credentials. A structurally configured
+binding is not remotely verified by dry-run. Absent enablement/configuration
+returns a sanitized blocked plan without connecting to the database.
+Preview returns `ready` only when authorization and the current claim guards allow
+execution; an unprepared response explicitly reports `requiresPreparation: true`.
+Uncertain or expired-sending deliveries report `requires_reconciliation` with
+`canExecute: false`. Terminal, in-progress, recovery-required, exhausted or
+backing-off deliveries report `not_claimable` with a specific reason. Preview
+never expires a lease, advances a retry, or reconciles a delivery. Readiness is a
+snapshot; execute still rechecks the existing authorization and concurrency fences.
+
+Only a separately authorized operator may append `--execute` for a later pilot.
+The authority remains trusted host/environment/database access, not a caller's
+claimed Admin/DM ID. Never expose this command through Discord or a public API.
+All non-delivered execute outcomes exit nonzero. No retries or polling are started
+by the command: the operator must inspect durable status before invoking again.
+
+Private environment/secret injection must provide the following typed JSON;
+no registry or credentials are created by this repository:
+
+- `DISCORD_OUTBOUND_ALLOWLIST`: 1–16 strict records containing `worldId`, `guildId`,
+  `channelId` (the parent), `threadIds` (1–16 distinct exact snowflakes and/or null
+  for a parent-only post), `webhookId`, and a UUID `credentialVersion`. The trusted
+  operator must verify thread-to-parent membership when approving this registry.
+- `DISCORD_OUTBOUND_CREDENTIALS`: 1–16 strict records containing `webhookId`, UUID
+  `version`, and a private token. Version must match the selected binding. Tokens
+  are validated as bounded URL-safe segments, never URLs. Keep these values in a
+  private environment/secret store, never command-line flags, Git, SQL, logs or
+  tracing. Credential rotation requires a new explicit version and verification.
+- `DISCORD_OUTBOUND_AVATARS`: optional strict records containing `worldId`, `npcId`
+  and a safe `avatarUrl` under the existing M2.10 static Discord CDN rules. Records
+  must belong to allowlisted worlds and have unique world/NPC keys. Missing entries
+  use no avatar override; an existing outbox snapshot must still match exactly.
+
+All Discord IDs are canonical positive unsigned-64-bit snowflakes. Wildcards,
+unknown URL/origin fields, duplicate/broad target definitions, ambiguous credentials
+and mismatched versions fail closed. Configuration and approved capabilities are
+validated and frozen; payload values do not grant approval. The exact CLI target
+must also equal the immutable M2.10 original route and interaction scope.
+
+Before preparing/claiming anything, execution checks persisted rate-limit stops
+and retrieves webhook metadata with the configured token. Incoming webhook type,
+ID, guild and parent channel must match the approved binding; an unavailable or
+mismatched response blocks without creating a sending attempt. Metadata is checked
+again at the transport boundary. M2.10 prepare/claim/preflight remain authoritative
+for scene mapping, policy, active world/NPC/context and M2.9 presence/event-time
+proof. No generation is invoked. Existing uncertain deliveries are never resent.
+
+HTTP uses only the constructed origin `https://discord.com` and API v10. URLs are
+built from validated webhook ID/token, with no redirect following or automatic
+POST retry. Requests and body reads have a five-second deadline (hard maximum ten
+seconds) and a one-MiB response cap. Errors and metrics expose only fixed codes:
+attempted, confirmed, not-sent, uncertain, blocked, rate-limited and server-error.
+No raw URL, token, response body, speech or full Discord ID enters diagnostics.
+Do not enable external HTTP tracing that captures credential-bearing URLs.
+
+[Discord Execute Webhook](https://docs.discord.com/developers/resources/webhook)
+is called with `wait=true`; thread targets add the exact `thread_id`, while
+parent-only targets omit it. The body contains validated content, NPC `username`,
+optional `avatar_url`, and `allowed_mentions` with empty parse/user/role lists and
+`replied_user: false`. It contains no embeds, components, TTS, attachments or
+thread creation. `replyToMessageId` remains internal correlation: this is an
+in-scene webhook post, not a native Discord Reply; no unsupported
+`message_reference` is invented.
+
+An ACK requires HTTP 200 JSON with a valid distinct message snowflake, matching
+webhook ID and exact channel (thread ID for thread targets); guild and author ID
+are verified when present. HTTP 204, absent/malformed/mismatched ACKs, redirects,
+timeouts/resets and 5xx remain uncertain. Only validated Discord 400/401/403/404
+rejections are permanent known-unsent results; 401/403/404 also quarantine that
+credential version. Raw/malformed proxy-like errors never authorize blind retry.
+
+Migration `0016_discord_outbound_limits` adds only shared cooldown/quarantine
+metadata: hashed public-webhook/version keys, `not_before` and `disabled`. There
+are no webhook tokens, URLs, message bodies or new delivery states. This table is
+needed because per-item outbox retry timestamps cannot enforce a global 429 or
+stop other interactions/restarted commands from reusing rejected credentials.
+Global controls apply to all operator processes using the same database. Per-
+webhook controls conservatively cover all of that webhook's route buckets, even
+when Discord returns the same `X-RateLimit-Bucket` for different major resources.
+Deadlines are monotonic and read/written in short, bounded DB transactions; no DB
+locks are held while HTTP runs.
+
+[Discord rate-limit guidance](https://docs.discord.com/developers/topics/rate-limits)
+is followed using validated 429 JSON and numeric `Retry-After`/
+`X-RateLimit-Reset-After`, rounding up fractional milliseconds and choosing the
+longest trusted delay. Global signals also stop other webhooks. Exhausted success
+buckets defer later requests too. Missing/invalid/excessive retry information
+fails closed; supported retry delays are at most one day, with no downward clamp
+that could retry early. M2.10 still owns the attempt cap/backoff and definitive
+no-send/uncertain state transitions; there is no second delivery lifecycle.
+A quarantined version is not automatically cleared by a successful unrelated
+request. Restoring credentials/permissions requires trusted operator review and
+an explicitly reapproved version, not repeated requests to a rejected webhook.
+
+Unit and PostgreSQL tests inject offline HTTP clients with synthetic credentials.
+Both Vitest configurations install an immutable ambient-fetch guard, so accidental
+native HTTP calls fail before reaching a network. Integration fixtures are UUID-
+scoped, never create provider credentials and clean only their own rows; global
+cooldown testing rolls back its transaction. Existing M2.7–M2.10 fake tests remain
+in place. CI sends zero real Discord POSTs and makes zero paid API calls.
+
+Live permissions, Discord's real rate-limit behavior and token provisioning have
+not been exercised. Operators sharing an egress IP across independent databases
+must coordinate global limits externally; commands racing before a newly observed
+cooldown may still receive a safe 429. Host clocks must remain synchronized.
+Webhook movement/permission changes after metadata/preflight remain an external
+TOCTOU boundary; a mismatched ACK is uncertain but cannot undo an already accepted
+post. Discord and PostgreSQL are not transactionally exactly-once. Lost ACKs or
+expired sending leases require the existing trusted M2.10 reconciliation process;
+stop/fence the old worker before asserting no-send. Independent security review
+and later human sign-off remain prerequisites for any live pilot.

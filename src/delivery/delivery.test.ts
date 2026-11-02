@@ -1,6 +1,8 @@
+import { previewDeliveryState } from "./delivery.repository.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   fingerprint,
+  MAX_ATTEMPTS,
   identitySchema,
   payloadSchema,
   retryDelay,
@@ -215,4 +217,122 @@ describe("isolated fake transport", () => {
       vi.unstubAllEnvs();
     }
   });
+});
+
+describe("non-mutating delivery claimability preview", () => {
+  const now = new Date("2030-01-01T00:00:00Z");
+  const pending = {
+    status: "pending" as const,
+    attempts: 0,
+    nextAttemptAt: now,
+    leaseUntil: null as Date | null,
+  };
+  it("marks an eligible unprepared response as requiring preparation", () => {
+    expect(previewDeliveryState(undefined, now)).toEqual({
+      status: "ready",
+      canExecute: true,
+      requiresPreparation: true,
+    });
+  });
+  it.each(["pending", "retryable"] as const)(
+    "allows due %s at the exact backoff boundary",
+    (status) => {
+      expect(previewDeliveryState({ ...pending, status }, now)).toEqual({
+        status: "ready",
+        canExecute: true,
+        requiresPreparation: false,
+      });
+    },
+  );
+  it.each(["pending", "retryable"] as const)(
+    "does not execute %s during backoff",
+    (status) => {
+      expect(
+        previewDeliveryState(
+          { ...pending, status, nextAttemptAt: new Date(now.getTime() + 1) },
+          now,
+        ),
+      ).toEqual({
+        status: "not_claimable",
+        canExecute: false,
+        reason: "backoff",
+      });
+    },
+  );
+  it.each(["delivered", "blocked", "failed"] as const)(
+    "reports terminal %s without authorizing another attempt",
+    (status) => {
+      expect(previewDeliveryState({ ...pending, status }, now)).toEqual({
+        status: "not_claimable",
+        canExecute: false,
+        reason: status,
+      });
+    },
+  );
+  it("requires trusted reconciliation for uncertainty regardless of elapsed time", () => {
+    expect(
+      previewDeliveryState(
+        { ...pending, status: "uncertain", leaseUntil: new Date(0) },
+        now,
+      ),
+    ).toEqual({
+      status: "requires_reconciliation",
+      canExecute: false,
+      reason: "uncertain_delivery",
+    });
+  });
+  it.each(["claimed", "sending"] as const)(
+    "reports an active %s worker",
+    (status) => {
+      expect(
+        previewDeliveryState(
+          { ...pending, status, leaseUntil: new Date(now.getTime() + 1) },
+          now,
+        ),
+      ).toEqual({ status: "not_claimable", canExecute: false, reason: status });
+    },
+  );
+  it("requires explicit recovery for an expired claimed lease without advancing it", () => {
+    const row = Object.freeze({
+      ...pending,
+      status: "claimed" as const,
+      leaseUntil: now,
+    });
+    const before = structuredClone(row);
+    expect(previewDeliveryState(row, now)).toEqual({
+      status: "not_claimable",
+      canExecute: false,
+      reason: "recovery_required",
+    });
+    expect(row).toEqual(before);
+  });
+  it("requires reconciliation for an expired sending lease without advancing it", () => {
+    const row = Object.freeze({
+      ...pending,
+      status: "sending" as const,
+      leaseUntil: now,
+    });
+    const before = structuredClone(row);
+    expect(previewDeliveryState(row, now)).toEqual({
+      status: "requires_reconciliation",
+      canExecute: false,
+      reason: "expired_sending_lease",
+    });
+    expect(row).toEqual(before);
+  });
+  it.each(["pending", "retryable"] as const)(
+    "rejects exhausted %s attempts",
+    (status) => {
+      expect(
+        previewDeliveryState(
+          { ...pending, status, attempts: MAX_ATTEMPTS },
+          now,
+        ),
+      ).toEqual({
+        status: "not_claimable",
+        canExecute: false,
+        reason: "attempts_exhausted",
+      });
+    },
+  );
 });

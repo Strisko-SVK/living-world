@@ -23,7 +23,8 @@
     "db:down": "docker compose down",
     "prepare": "husky",
     "quality:gate": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build",
-    "admin:context-policy": "node --env-file-if-exists=.env --import tsx src/admin/context-intake-policy.ts"
+    "admin:context-policy": "node --env-file-if-exists=.env --import tsx src/admin/context-intake-policy.ts",
+    "admin:deliver": "node --env-file-if-exists=.env --import tsx src/admin/discord-delivery.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
