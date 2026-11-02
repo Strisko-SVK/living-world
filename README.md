@@ -1292,7 +1292,6 @@ expired sending leases require the existing trusted M2.10 reconciliation process
 stop/fence the old worker before asserting no-send. Independent security review
 and later human sign-off remain prerequisites for any live pilot.
 
-
 ## Isolated Discord DEV fixture (offline, operator-only)
 
 The DEV fixture is **not** a Discord runtime or deployment. The script lives at `src/admin/discord-dev-fixture.ts`. It does not log in to Discord, send webhooks, call an LLM, or bind an actual Discord user identity. It reuses the existing domain models and creates one synthetic world, one scene with an exact thread route, one NPC with alias, one location, and one unbound test character. The context intake policy remains `disabled`.
