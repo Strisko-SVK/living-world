@@ -251,6 +251,22 @@ export function createDeliveryRepository(
     return true;
   }
   return {
+    // Non-mutating authorization preview for the isolated operator boundary.
+    // Existing lock order is reused; no outbox/interaction/evidence writes occur.
+    async preview(s: DeliveryScope) {
+      return (
+        (await within(s, async (tx, l) => {
+          const p = await plan(tx, l);
+          if (!p.ok) return { status: "blocked" as const, reason: p.reason };
+          return {
+            status: "ready" as const,
+            payload: p.payload,
+            fingerprint: p.hash,
+            deliveryStatus: l.delivery?.status ?? null,
+          };
+        })) ?? { status: "blocked" as const, reason: "not_found" }
+      );
+    },
     async prepare(s: DeliveryScope) {
       return (
         (await within(s, async (tx, l) => {

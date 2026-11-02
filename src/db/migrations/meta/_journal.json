@@ -113,6 +113,13 @@
       "when": 1793535587173,
       "tag": "0015_response_delivery_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793647173083,
+      "tag": "0016_discord_outbound_limits",
+      "breakpoints": true
     }
   ]
 }

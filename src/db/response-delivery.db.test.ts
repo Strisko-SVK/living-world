@@ -1,3 +1,16 @@
+import { runDeliveryCommand } from "../admin/discord-delivery.js";
+import {
+  createOutboundLimits,
+  limitKeys,
+} from "../adapters/discord-outbound/limits.js";
+import {
+  ackBody,
+  jsonResponse,
+  offlineHttp,
+  outboundEnvironment,
+  version,
+} from "../adapters/discord-outbound/outbound.test-fixture.js";
+import { sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
   afterAll,
@@ -49,12 +62,14 @@ import {
 
 const database = createDatabaseClient();
 const ownedWorlds: string[] = [];
+const controlKeys: string[] = [];
 const generation = createResponseStore(database.db);
 let serial = 0n;
 async function fixture(
   fallback = false,
   thread = true,
   speech = "@everyone @here <@123> <@&456> The report remains uncertain.",
+  numericRoute = false,
 ) {
   const world = (
     await createWorld(database.db, {
@@ -93,9 +108,17 @@ async function fixture(
       linkedLocationEntityId: place,
     })
   ).id;
-  const guild = "guild-" + randomUUID(),
-    channel = "channel-" + randomUUID(),
-    threadId = thread ? "thread-" + randomUUID() : null;
+  const identifier = () =>
+    numericRoute
+      ? String(((BigInt(Date.now()) - 1420070400000n) << 22n) + ++serial)
+      : randomUUID();
+  const guild = numericRoute ? identifier() : "guild-" + identifier(),
+    channel = numericRoute ? identifier() : "channel-" + identifier(),
+    threadId = thread
+      ? numericRoute
+        ? identifier()
+        : "thread-" + identifier()
+      : null;
   const mapping = (
     await mapDiscordContext(database.db, world, {
       contextId: scene,
@@ -215,6 +238,11 @@ beforeEach(async () => {
   f = await fixture();
 });
 afterEach(async () => {
+  if (controlKeys.length)
+    await database.pool.query(
+      "delete from discord_outbound_limits where key=any($1::text[])",
+      [controlKeys.splice(0)],
+    );
   for (const id of ownedWorlds.splice(0)) {
     const client = await database.pool.connect();
     try {
@@ -868,4 +896,301 @@ describe("durable direct-reply delivery", () => {
     ).toBe("delivered");
     expect(fake.send).toHaveBeenCalledTimes(1);
   });
+});
+
+// Entire production adapter/operator path; all HTTP below is an injected mock.
+describe("M2.11 controlled outbound PostgreSQL path", () => {
+  async function setup(
+    post?: (url: string, init: RequestInit) => Promise<Response>,
+  ) {
+    f = await fixture(false, true, undefined, true);
+    const preview = await f.repository.preview(f.scope);
+    if (preview.status !== "ready") throw Error("No fixture preview");
+    const p = preview.payload,
+      id = String(BigInt(f.message.sourceMessageId) + 1000n);
+    const env = outboundEnvironment(p, id);
+    const http = offlineHttp(
+      p,
+      post ?? (async () => jsonResponse(ackBody(p, id))),
+      id,
+    );
+    const args = [
+      "--world",
+      f.world,
+      "--npc",
+      f.npc,
+      "--interaction",
+      f.scope.interactionId,
+      "--guild",
+      f.guild,
+      "--channel",
+      f.channel,
+      "--thread",
+      f.threadId!,
+    ];
+    const keys = limitKeys(id, version);
+    controlKeys.push(keys.webhook, keys.credential);
+    const connect = () => ({ ...database, close: async () => {} });
+    const run = (execute = true) =>
+      runDeliveryCommand([...args, ...(execute ? ["--execute"] : [])], env, {
+        connect,
+        http,
+      });
+    return { p, id, env, http, args, connect, run };
+  }
+  it("performs no DB mutations or HTTP in default/explicit dry-run", async () => {
+    const x = await setup();
+    const before = await f.read();
+    expect(await x.run(false)).toMatchObject({
+      mode: "dry_run",
+      status: "ready",
+      wouldSend: false,
+    });
+    expect(
+      await runDeliveryCommand([...x.args, "--dry-run"], x.env, {
+        connect: x.connect,
+        http: x.http,
+      }),
+    ).toMatchObject({ mode: "dry_run", status: "ready" });
+    expect(x.http).not.toHaveBeenCalled();
+    expect(await f.read()).toEqual(before);
+    expect(await f.outbox()).toBeUndefined();
+    expect(JSON.stringify(await x.run(false))).not.toContain(f.world);
+  });
+  it("delivers once under concurrent explicit operator invocations using the existing outbox", async () => {
+    const x = await setup();
+    const before = (await f.read())!;
+    const results = await Promise.all([x.run(), x.run(), x.run()]);
+    expect(results.filter((r) => r.status === "delivered")).toHaveLength(1);
+    expect(
+      x.http.mock.calls.filter((c) => c[1].method === "POST"),
+    ).toHaveLength(1);
+    expect(await f.read()).toEqual({
+      ...before,
+      responseMessageId: ackBody(x.p, x.id).id,
+    });
+    expect((await f.outbox()).status).toBe("delivered");
+  });
+  it.each([
+    "disabled",
+    "credential",
+    "target",
+    "metadata",
+    "revoked",
+    "policy",
+    "identity",
+  ] as const)("blocks %s before any claim/POST", async (change) => {
+    const x = await setup();
+    if (change === "disabled") x.env.DISCORD_OUTBOUND_ENABLED = "false";
+    if (change === "credential") x.env.DISCORD_OUTBOUND_CREDENTIALS = "[]";
+    if (change === "target") {
+      const bindings = JSON.parse(x.env.DISCORD_OUTBOUND_ALLOWLIST);
+      bindings[0].threadIds = ["723456789012345678"];
+      x.env.DISCORD_OUTBOUND_ALLOWLIST = JSON.stringify(bindings);
+    }
+    if (change === "metadata")
+      x.http.mockResolvedValue(
+        jsonResponse({
+          id: x.id,
+          type: 1,
+          channel_id: "723456789012345678",
+          guild_id: f.guild,
+        }),
+      );
+    if (change === "revoked")
+      await revokeLocalPresence(
+        database.db,
+        { worldId: f.world, npcId: f.npc, contextId: f.scene },
+        f.grant.id,
+      );
+    if (change === "policy")
+      await database.pool.query(
+        "update interaction_contexts set npc_intake_policy='disabled' where id=$1",
+        [f.scene],
+      );
+    if (change === "identity")
+      await database.pool.query(
+        "update entities set canonical_name='Pelo'||chr(8232)||'Garak' where id=$1",
+        [f.npc],
+      );
+    expect((await x.run()).status).toBe("blocked");
+    expect(await f.outbox()).toBeUndefined();
+    expect(
+      x.http.mock.calls.filter((c) => c[1].method === "POST"),
+    ).toHaveLength(0);
+  });
+  it.each([204, 401, 403, 404, 500])(
+    "persists conservative POST HTTP %i outcomes",
+    async (status) => {
+      const x = await setup(async () =>
+        status === 204
+          ? new Response(null, { status })
+          : jsonResponse({ code: 10015, message: "Rejected" }, status),
+      );
+      const result = await x.run();
+      expect(result.status).toBe(
+        [401, 403, 404].includes(status) ? "failed" : "uncertain",
+      );
+      expect((await f.outbox()).status).toBe(result.status);
+      expect((await f.read())?.responseMessageId).toBeNull();
+      await x.run();
+      expect(
+        x.http.mock.calls.filter((c) => c[1].method === "POST"),
+      ).toHaveLength(1);
+    },
+  );
+  it("requires the approved command destination to match the immutable original route", async () => {
+    const x = await setup();
+    const bindings = JSON.parse(x.env.DISCORD_OUTBOUND_ALLOWLIST);
+    bindings[0].channelId = "723456789012345678";
+    const args = [...x.args];
+    args[9] = "723456789012345678";
+    const result = await runDeliveryCommand(
+      [...args, "--execute"],
+      { ...x.env, DISCORD_OUTBOUND_ALLOWLIST: JSON.stringify(bindings) },
+      { connect: x.connect, http: x.http },
+    );
+    expect(result.reason).toBe("original_route_mismatch");
+    expect(x.http).not.toHaveBeenCalled();
+    expect(await f.outbox()).toBeUndefined();
+  });
+  it("uses the separately approved avatar configuration without trusting message metadata", async () => {
+    const x = await setup();
+    const env = {
+      ...x.env,
+      DISCORD_OUTBOUND_AVATARS: JSON.stringify([
+        {
+          worldId: f.world,
+          npcId: f.npc,
+          avatarUrl: "https://cdn.discordapp.com/avatars/123/abc.png",
+        },
+      ]),
+    };
+    expect(
+      (
+        await runDeliveryCommand([...x.args, "--execute"], env, {
+          connect: x.connect,
+          http: x.http,
+        })
+      ).status,
+    ).toBe("delivered");
+    const request = x.http.mock.calls.find((c) => c[1].method === "POST")!;
+    expect(JSON.parse(request[1].body as string).avatar_url).toBe(
+      "https://cdn.discordapp.com/avatars/123/abc.png",
+    );
+  });
+  it("does not claim or POST after metadata exhausts a rate-limit bucket", async () => {
+    const x = await setup();
+    x.http.mockResolvedValueOnce(
+      jsonResponse(
+        { id: x.id, type: 1, guild_id: f.guild, channel_id: f.channel },
+        200,
+        { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset-After": "30" },
+      ),
+    );
+    expect((await x.run()).reason).toBe("rate_limited");
+    expect(await f.outbox()).toBeUndefined();
+    expect(x.http).toHaveBeenCalledTimes(1);
+    expect((await x.run()).reason).toBe("rate_limited");
+    expect(x.http).toHaveBeenCalledTimes(1);
+  });
+  it("shares scoped 429 cooldowns across repository/command instances without a second attempt", async () => {
+    const x = await setup(async () =>
+      jsonResponse(
+        { message: "Limited", retry_after: 30, global: false },
+        429,
+        { "Retry-After": "30", "X-RateLimit-Bucket": "offline-bucket" },
+      ),
+    );
+    expect((await x.run()).status).toBe("retryable");
+    const row = await f.outbox();
+    expect((await x.run()).reason).toBe("rate_limited");
+    expect(await f.outbox()).toEqual(row);
+    expect(
+      x.http.mock.calls.filter((c) => c[1].method === "POST"),
+    ).toHaveLength(1);
+    const limits = createOutboundLimits(database.db);
+    expect((await limits.check(x.id, version)).allowed).toBe(false);
+  });
+  it("shares global rate limits and monotonic deadlines without persisting secrets", async () => {
+    const x = await setup();
+    const rollback = Error("Fixture rollback");
+    try {
+      await database.db.transaction(async (tx) => {
+        let now = new Date("2030-01-01T00:00:00Z");
+        const limits = createOutboundLimits(tx, () => now);
+        await limits.defer(x.id, 1500, true);
+        await limits.defer(x.id, 100, false);
+        expect(
+          await createOutboundLimits(tx, () => now).check(
+            "723456789012345678",
+            version,
+          ),
+        ).toMatchObject({
+          allowed: false,
+          reason: "rate_limited",
+          retryAfterMs: 1500,
+        });
+        now = new Date(now.getTime() + 1500);
+        expect((await limits.check(x.id, version)).allowed).toBe(true);
+        const { rows } = await tx.execute(
+          sql`select key,not_before,disabled from discord_outbound_limits where key in (${limitKeys(x.id, version).webhook},${"discord:global"})`,
+        );
+        expect(JSON.stringify(rows)).not.toContain(x.id);
+        expect(Object.keys(rows[0]).sort()).toEqual([
+          "disabled",
+          "key",
+          "not_before",
+        ]);
+        throw rollback;
+      });
+    } catch (error) {
+      if (error !== rollback) throw error;
+    }
+  });
+  it("records a lost HTTP ACK as uncertain and never automatically resends", async () => {
+    const x = await setup(async () => {
+      throw Error("Offline socket reset after send");
+    });
+    expect((await x.run()).status).toBe("uncertain");
+    expect((await x.run()).status).toBe("not_claimed");
+    expect(
+      x.http.mock.calls.filter((c) => c[1].method === "POST"),
+    ).toHaveLength(1);
+  });
+  it.each(["presence", "policy", "route"] as const)(
+    "blocks %s revocation after metadata verification in the existing claim fence",
+    async (change) => {
+      const x = await setup();
+      x.http.mockImplementationOnce(async () => {
+        if (change === "presence")
+          await revokeLocalPresence(
+            database.db,
+            { worldId: f.world, npcId: f.npc, contextId: f.scene },
+            f.grant.id,
+          );
+        if (change === "policy")
+          await database.pool.query(
+            "update interaction_contexts set npc_intake_policy='disabled' where id=$1",
+            [f.scene],
+          );
+        if (change === "route")
+          await database.pool.query(
+            "update discord_context_mappings set status='inactive' where id=$1",
+            [f.mapping],
+          );
+        return jsonResponse({
+          id: x.id,
+          type: 1,
+          channel_id: f.channel,
+          guild_id: f.guild,
+        });
+      });
+      expect((await x.run()).status).toBe("blocked");
+      expect(
+        x.http.mock.calls.filter((c) => c[1].method === "POST"),
+      ).toHaveLength(0);
+      expect(await f.outbox()).toBeUndefined();
+    },
+  );
 });
