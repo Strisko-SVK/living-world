@@ -15,7 +15,8 @@ import { responseDeliveries } from "../db/schema/response-deliveries.js";
 import { createWorld } from "../domains/world/world.repository.js";
 import { createEntity } from "../domains/entity/entity.repository.js";
 import { createNpc, getNpcWithState } from "../domains/npc/npc.repository.js";
-import { addEntityAlias, normalizeAlias } from "../domains/entity/entity.repository.js";
+import { addEntityAlias } from "../domains/entity/entity.repository.js";
+import { normalizeAlias } from "../domains/entity/alias-normalizer.js";
 import { createInteractionContext } from "../domains/interaction/interaction.repository.js";
 import { mapDiscordContext } from "../domains/discord-mapping/discord-mapping.repository.js";
 
@@ -240,10 +241,10 @@ export async function provisionDevFixture(
       mappings[0]!.status !== "active" ||
       mappings[0]!.npcId !== null
     ) conflict();
-    for (const table of [discordIdentities, localPresence, interactions, responseDeliveries]) {
-      const rows = await tx.select().from(table).where(eq(table.worldId, world.id)).limit(1);
-      if (rows.length) conflict();
-    }
+    if ((await tx.select().from(discordIdentities).where(eq(discordIdentities.worldId, world.id)).limit(1)).length) conflict();
+    if ((await tx.select().from(localPresence).where(eq(localPresence.worldId, world.id)).limit(1)).length) conflict();
+    if ((await tx.select().from(interactions).where(eq(interactions.worldId, world.id)).limit(1)).length) conflict();
+    if ((await tx.select().from(responseDeliveries).where(eq(responseDeliveries.worldId, world.id)).limit(1)).length) conflict();
     return {
       status: "already_present",
       worldKey,
