@@ -898,6 +898,147 @@ describe("durable direct-reply delivery", () => {
   });
 });
 
+async function preparePreviewState(
+  repository: ReturnType<typeof createDeliveryRepository>,
+  state:
+    | "pending"
+    | "claimed"
+    | "sending"
+    | "uncertain"
+    | "delivered"
+    | "blocked"
+    | "failed"
+    | "retryable",
+  retryAfterMs = 1000,
+) {
+  await repository.prepare(f.scope);
+  if (state === "pending") return;
+  if (state === "blocked") {
+    await database.pool.query(
+      "update entities set canonical_name='@everyone' where id=$1",
+      [f.npc],
+    );
+    expect(await repository.claim(f.scope)).toBeNull();
+    await database.pool.query(
+      "update entities set canonical_name='Pelo' where id=$1",
+      [f.npc],
+    );
+    return;
+  }
+  const claimed = (await repository.claim(f.scope))!;
+  if (state === "claimed") return;
+  const sending = (await repository.preflight(f.scope, claimed.attemptId!))!;
+  if (state === "sending") return;
+  if (state === "delivered") {
+    expect(
+      await repository.acknowledge(
+        f.scope,
+        fakeAcknowledgement({
+          payload: sending.payload,
+          attemptId: sending.attemptId!,
+          fingerprint: sending.fingerprint,
+        }),
+      ),
+    ).toBe(true);
+  } else
+    await repository.fail(
+      f.scope,
+      claimed.attemptId!,
+      state === "uncertain"
+        ? { kind: "uncertain" }
+        : {
+            kind: "not_sent",
+            retryable: state === "retryable",
+            retryAfterMs,
+          },
+    );
+}
+describe("read-only delivery preview against durable outbox states", () => {
+  it.each([
+    "pending",
+    "claimed",
+    "sending",
+    "uncertain",
+    "delivered",
+    "blocked",
+    "failed",
+    "retryable",
+  ] as const)(
+    "reports %s accurately without changing any durable row",
+    async (state) => {
+      await preparePreviewState(f.repository, state);
+      const before = await f.outbox(),
+        interaction = await f.read();
+      const result = await f.repository.preview(f.scope);
+      expect(result).toMatchObject({
+        status:
+          state === "pending"
+            ? "ready"
+            : state === "uncertain"
+              ? "requires_reconciliation"
+              : "not_claimable",
+        canExecute: state === "pending",
+        deliveryStatus: state,
+      });
+      if (state === "pending")
+        expect(result).toMatchObject({ requiresPreparation: false });
+      if (state === "retryable")
+        expect(result).toMatchObject({ reason: "backoff" });
+      expect(await f.outbox()).toEqual(before);
+      expect(await f.read()).toEqual(interaction);
+      expect(f.fake.send).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["claimed", "sending"] as const)(
+    "does not recover an expired %s lease as a side effect",
+    async (state) => {
+      await preparePreviewState(f.repository, state);
+      f.advance(LEASE_MS);
+      const before = await f.outbox();
+      expect(await f.repository.preview(f.scope)).toMatchObject({
+        status:
+          state === "sending" ? "requires_reconciliation" : "not_claimable",
+        reason:
+          state === "sending" ? "expired_sending_lease" : "recovery_required",
+        canExecute: false,
+        deliveryStatus: state,
+      });
+      expect(await f.outbox()).toEqual(before);
+    },
+  );
+  it("becomes ready at the retry boundary without claiming or changing retry metadata", async () => {
+    await preparePreviewState(f.repository, "retryable");
+    const before = await f.outbox();
+    expect(await f.repository.preview(f.scope)).toMatchObject({
+      canExecute: false,
+      reason: "backoff",
+    });
+    f.advance(1000);
+    expect(await f.repository.preview(f.scope)).toMatchObject({
+      status: "ready",
+      canExecute: true,
+      deliveryStatus: "retryable",
+    });
+    expect(await f.outbox()).toEqual(before);
+  });
+  it("still denies revoked authorization for an otherwise claimable pending row", async () => {
+    await preparePreviewState(f.repository, "pending");
+    await revokeLocalPresence(
+      database.db,
+      { worldId: f.world, npcId: f.npc, contextId: f.scene },
+      f.grant.id,
+    );
+    const before = await f.outbox();
+    expect(await f.repository.preview(f.scope)).toMatchObject({
+      status: "blocked",
+      canExecute: false,
+      reason: "revoked",
+      deliveryStatus: "pending",
+    });
+    expect(await f.outbox()).toEqual(before);
+  });
+});
+
 // Entire production adapter/operator path; all HTTP below is an injected mock.
 describe("M2.11 controlled outbound PostgreSQL path", () => {
   async function setup(
@@ -957,6 +1098,51 @@ describe("M2.11 controlled outbound PostgreSQL path", () => {
     expect(await f.outbox()).toBeUndefined();
     expect(JSON.stringify(await x.run(false))).not.toContain(f.world);
   });
+  it.each([
+    "pending",
+    "uncertain",
+    "delivered",
+    "blocked",
+    "failed",
+    "claimed",
+    "sending",
+    "retryable",
+  ] as const)(
+    "dry-run distinguishes %s and does no HTTP or state writes",
+    async (state) => {
+      const x = await setup();
+      await preparePreviewState(
+        createDeliveryRepository(database.db),
+        state,
+        60_000,
+      );
+      const before = await f.outbox(),
+        interaction = await f.read();
+      expect(await x.run(false)).toMatchObject({
+        mode: "dry_run",
+        status:
+          state === "pending"
+            ? "ready"
+            : state === "uncertain"
+              ? "requires_reconciliation"
+              : "not_claimable",
+        canExecute: state === "pending",
+        deliveryStatus: state,
+        wouldSend: false,
+      });
+      expect(await f.outbox()).toEqual(before);
+      expect(await f.read()).toEqual(interaction);
+      expect(x.http).not.toHaveBeenCalled();
+      if (state !== "pending") {
+        expect(await x.run()).toMatchObject({
+          canExecute: false,
+          deliveryStatus: state,
+        });
+        expect(await f.outbox()).toEqual(before);
+        expect(x.http).not.toHaveBeenCalled();
+      }
+    },
+  );
   it("delivers once under concurrent explicit operator invocations using the existing outbox", async () => {
     const x = await setup();
     const before = (await f.read())!;
@@ -1039,21 +1225,30 @@ describe("M2.11 controlled outbound PostgreSQL path", () => {
       ).toHaveLength(1);
     },
   );
-  it("requires the approved command destination to match the immutable original route", async () => {
-    const x = await setup();
-    const bindings = JSON.parse(x.env.DISCORD_OUTBOUND_ALLOWLIST);
-    bindings[0].channelId = "723456789012345678";
-    const args = [...x.args];
-    args[9] = "723456789012345678";
-    const result = await runDeliveryCommand(
-      [...args, "--execute"],
-      { ...x.env, DISCORD_OUTBOUND_ALLOWLIST: JSON.stringify(bindings) },
-      { connect: x.connect, http: x.http },
-    );
-    expect(result.reason).toBe("original_route_mismatch");
-    expect(x.http).not.toHaveBeenCalled();
-    expect(await f.outbox()).toBeUndefined();
-  });
+  it.each(["unprepared", "uncertain"] as const)(
+    "requires the approved command destination to match the immutable original route for %s",
+    async (state) => {
+      const x = await setup();
+      if (state === "uncertain")
+        await preparePreviewState(
+          createDeliveryRepository(database.db),
+          "uncertain",
+        );
+      const before = await f.outbox();
+      const bindings = JSON.parse(x.env.DISCORD_OUTBOUND_ALLOWLIST);
+      bindings[0].channelId = "723456789012345678";
+      const args = [...x.args];
+      args[9] = "723456789012345678";
+      const result = await runDeliveryCommand(
+        [...args, "--execute"],
+        { ...x.env, DISCORD_OUTBOUND_ALLOWLIST: JSON.stringify(bindings) },
+        { connect: x.connect, http: x.http },
+      );
+      expect(result.reason).toBe("original_route_mismatch");
+      expect(x.http).not.toHaveBeenCalled();
+      expect(await f.outbox()).toEqual(before);
+    },
+  );
   it("uses the separately approved avatar configuration without trusting message metadata", async () => {
     const x = await setup();
     const env = {
@@ -1104,7 +1299,11 @@ describe("M2.11 controlled outbound PostgreSQL path", () => {
     );
     expect((await x.run()).status).toBe("retryable");
     const row = await f.outbox();
-    expect((await x.run()).reason).toBe("rate_limited");
+    expect(await x.run()).toMatchObject({
+      status: "not_claimable",
+      canExecute: false,
+      reason: "backoff",
+    });
     expect(await f.outbox()).toEqual(row);
     expect(
       x.http.mock.calls.filter((c) => c[1].method === "POST"),
@@ -1153,7 +1352,7 @@ describe("M2.11 controlled outbound PostgreSQL path", () => {
       throw Error("Offline socket reset after send");
     });
     expect((await x.run()).status).toBe("uncertain");
-    expect((await x.run()).status).toBe("not_claimed");
+    expect((await x.run()).status).toBe("requires_reconciliation");
     expect(
       x.http.mock.calls.filter((c) => c[1].method === "POST"),
     ).toHaveLength(1);

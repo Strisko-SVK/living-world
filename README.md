@@ -1178,10 +1178,17 @@ must be the literal `none`. The six flag/value pairs are mandatory and ordered a
 shown. Default and `--dry-run` are non-mutating: they perform no HTTP requests,
 claims, preparation writes or fake acknowledgements. The read preview reuses
 M2.10's short transaction/lock ordering and reports only fixed status codes,
-`wouldSend: false`, `bindingVerified: false` and the delivery status; it does not
+`wouldSend: false`, `bindingVerified: false`, `canExecute` and the delivery status; it does not
 print IDs, speech, configuration or credentials. A structurally configured
 binding is not remotely verified by dry-run. Absent enablement/configuration
 returns a sanitized blocked plan without connecting to the database.
+Preview returns `ready` only when authorization and the current claim guards allow
+execution; an unprepared response explicitly reports `requiresPreparation: true`.
+Uncertain or expired-sending deliveries report `requires_reconciliation` with
+`canExecute: false`. Terminal, in-progress, recovery-required, exhausted or
+backing-off deliveries report `not_claimable` with a specific reason. Preview
+never expires a lease, advances a retry, or reconciles a delivery. Readiness is a
+snapshot; execute still rechecks the existing authorization and concurrency fences.
 
 Only a separately authorized operator may append `--execute` for a later pilot.
 The authority remains trusted host/environment/database access, not a caller's

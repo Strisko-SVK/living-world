@@ -75,14 +75,29 @@ export async function runDeliveryCommand(
       ),
     });
     const preview = await repository.preview(request.scope);
-    if (preview.status !== "ready") throw new OutboundBlocked(preview.reason);
-    if (!matchesTarget(preview.payload, request.target, request.scope))
+    if (
+      "payload" in preview &&
+      !matchesTarget(preview.payload, request.target, request.scope)
+    )
       throw new OutboundBlocked("original_route_mismatch");
+    if (preview.status !== "ready")
+      return {
+        event: "discord_delivery",
+        mode: execute ? "execute" : "dry_run",
+        status: preview.status,
+        reason: preview.reason,
+        canExecute: false,
+        wouldSend: false,
+        bindingVerified: false,
+        deliveryStatus: preview.deliveryStatus,
+      };
     if (!execute)
       return {
         event: "discord_delivery",
         mode: "dry_run",
         status: "ready",
+        canExecute: preview.canExecute,
+        requiresPreparation: preview.requiresPreparation,
         wouldSend: false,
         bindingVerified: false,
         deliveryStatus: preview.deliveryStatus,
