@@ -7,7 +7,7 @@ import {
 
 const valid = {
   DATABASE_URL:
-    "postgresql://fixture:password@127.0.0.1:5432/living_world_gateway_dev",
+    "postgresql://lw_gateway_dev:password@127.0.0.1:5432/living_world_gateway_dev",
   DISCORD_ENABLED: "false",
   DISCORD_OUTBOUND_ENABLED: "false",
   LLM_PROVIDER: "disabled",
@@ -49,11 +49,13 @@ describe("offline Discord DEV fixture guards", () => {
 
   it("rejects non-isolated database endpoints, including remote hosts and other DBs", () => {
     for (const url of [
-      "postgresql://local@db.example.com/living_world_gateway_dev",
-      "postgresql://local@127.0.0.1/living_world",
-      "postgresql://local@127.0.0.1/living_world_gateway_dev?sslmode=require",
+      "postgresql://lw_gateway_dev:password@db.example.com/living_world_gateway_dev",
+      "postgresql://lw_gateway_dev:password@127.0.0.1/living_world",
+      "postgresql://lw_gateway_dev:password@127.0.0.1/living_world_gateway_dev?sslmode=require",
       "file:///tmp/living_world_gateway_dev",
-      "postgresql://local@127.0.0.1/living_world_gateway_dev#fragment",
+      "postgresql://postgres:password@127.0.0.1/living_world_gateway_dev",
+      "postgresql://lw_gateway_dev@127.0.0.1/living_world_gateway_dev",
+      "postgresql://lw_gateway_dev:password@127.0.0.1/living_world_gateway_dev#fragment",
     ]) {
       expect(() =>
         validateDevFixtureEnvironment({ ...valid, DATABASE_URL: url }),
