@@ -1,11 +1,11 @@
 import { pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { createDatabaseClient, type DatabaseClient } from "../db/client.js";
 import { worlds } from "../db/schema/worlds.js";
 import { entities } from "../db/schema/entities.js";
 import { entityAliases } from "../db/schema/entity-aliases.js";
-import { npcs } from "../db/schema/npcs.js";
 import { interactionContexts } from "../db/schema/interaction-contexts.js";
 import { discordContextMappings } from "../db/schema/discord-context-mappings.js";
 import { discordIdentities } from "../db/schema/discord-identities.js";
@@ -203,7 +203,7 @@ export async function provisionDevFixture(
       npc.state.version !== 1 ||
       npc.state.currentLocationId !== null ||
       npc.state.locationCertainty !== "unknown" ||
-      JSON.stringify(npc.npc.baselineProfile) !== JSON.stringify(baselineProfile)
+      !isDeepStrictEqual(npc.npc.baselineProfile, baselineProfile)
     ) conflict();
     const aliases = await tx.select({ alias: entityAliases, entity: entities })
       .from(entityAliases)
