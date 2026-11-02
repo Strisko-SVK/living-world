@@ -28,11 +28,13 @@ const locationName = "Test Chamber A";
 const npcName = "Sentinel-001";
 const npcAlias = "Sentinel";
 const playerName = "Gateway Test Character";
-const routeSchema = z.object({
-  guildId: z.string().regex(/^\d{17,20}$/u),
-  channelId: z.string().regex(/^\d{17,20}$/u),
-  threadId: z.string().regex(/^\d{17,20}$/u),
-}).strict();
+const routeSchema = z
+  .object({
+    guildId: z.string().regex(/^\d{17,20}$/u),
+    channelId: z.string().regex(/^\d{17,20}$/u),
+    threadId: z.string().regex(/^\d{17,20}$/u),
+  })
+  .strict();
 
 export type DevFixtureRoute = z.infer<typeof routeSchema>;
 export type DevFixtureResult = {
@@ -53,24 +55,31 @@ export function validateDevFixtureEnvironment(
     environment.DISCORD_ENABLED === "true" ||
     environment.DISCORD_OUTBOUND_ENABLED === "true" ||
     (environment.LLM_PROVIDER ?? "disabled") !== "disabled"
-  ) throw new Error("DEV fixture requires disabled Discord, outbound and LLM.");
+  )
+    throw new Error("DEV fixture requires disabled Discord, outbound and LLM.");
   const raw = environment.DATABASE_URL;
   if (!raw) throw new Error("DEV fixture requires a local isolated database.");
   let url: URL;
-  try { url = new URL(raw); }
-  catch { throw new Error("DEV fixture database URL is invalid."); }
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("DEV fixture database URL is invalid.");
+  }
   if (
     !["postgres:", "postgresql:"].includes(url.protocol) ||
     !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
     decodeURIComponent(url.pathname) !== "/" + devDbName ||
-    url.search !== "" || url.hash !== ""
-  ) throw new Error("DEV fixture database target is not permitted.");
+    url.search !== "" ||
+    url.hash !== ""
+  )
+    throw new Error("DEV fixture database target is not permitted.");
   const parsed = routeSchema.safeParse({
     guildId: environment.LW_DEV_GUILD_ID,
     channelId: environment.LW_DEV_PARENT_CHANNEL_ID,
     threadId: environment.LW_DEV_THREAD_ID,
   });
-  if (!parsed.success) throw new Error("DEV fixture needs three valid Discord route IDs.");
+  if (!parsed.success)
+    throw new Error("DEV fixture needs three valid Discord route IDs.");
   if (new Set(Object.values(parsed.data)).size !== 3)
     throw new Error("DEV fixture route IDs must be distinct.");
   return parsed.data;
@@ -83,17 +92,27 @@ export function parseDevFixtureArguments(args: readonly string[]): boolean {
     args[0] === "--apply" &&
     args[1] === "--confirm-database" &&
     args[2] === devDbName
-  ) return true;
-  throw new Error("Use preview (no arguments) or --apply --confirm-database living_world_gateway_dev.");
+  )
+    return true;
+  throw new Error(
+    "Use preview (no arguments) or --apply --confirm-database living_world_gateway_dev.",
+  );
 }
 
 function conflict(): never {
-  throw new Error("DEV fixture conflicts with existing records; no changes applied.");
+  throw new Error(
+    "DEV fixture conflicts with existing records; no changes applied.",
+  );
 }
 
 const baselineProfile = {
-  identity: { name: npcName, species: "Synthetic", role: "Gateway test sentinel" },
-  summary: "Synthetic offline integration-test character. No campaign knowledge.",
+  identity: {
+    name: npcName,
+    species: "Synthetic",
+    role: "Gateway test sentinel",
+  },
+  summary:
+    "Synthetic offline integration-test character. No campaign knowledge.",
   personality: { traits: ["neutral"], values: [] as string[] },
 };
 
@@ -101,9 +120,11 @@ function sameRoute(
   row: typeof discordContextMappings.$inferSelect,
   route: DevFixtureRoute,
 ) {
-  return row.guildId === route.guildId &&
+  return (
+    row.guildId === route.guildId &&
     row.channelId === route.channelId &&
-    row.threadId === route.threadId;
+    row.threadId === route.threadId
+  );
 }
 
 export async function provisionDevFixture(
@@ -120,23 +141,34 @@ export async function provisionDevFixture(
     // Serializes concurrent first creations, before the world row exists.
     await tx.execute(sql`select pg_advisory_xact_lock(8202601102)`);
     // No parent-wide fallback or overlapping route, even in a foreign world.
-    const routed = await tx.select().from(discordContextMappings).where(
-      and(
-        eq(discordContextMappings.guildId, route.guildId),
-        eq(discordContextMappings.channelId, route.channelId),
-      ),
-    );
-    const existing = await tx.select().from(worlds).where(eq(worlds.key, worldKey)).limit(2);
+    const routed = await tx
+      .select()
+      .from(discordContextMappings)
+      .where(
+        and(
+          eq(discordContextMappings.guildId, route.guildId),
+          eq(discordContextMappings.channelId, route.channelId),
+        ),
+      );
+    const existing = await tx
+      .select()
+      .from(worlds)
+      .where(eq(worlds.key, worldKey))
+      .limit(2);
     if (existing.length > 1) conflict();
     const world = existing[0];
     if (!world) {
       if (routed.length) conflict();
       if (!apply) return { status: "would_create", worldKey };
       const createdWorld = await createWorld(tx, {
-        key: worldKey, name: devWorldName, systemType: "test", status: "active",
+        key: worldKey,
+        name: devWorldName,
+        systemType: "test",
+        status: "active",
       });
       const location = await createEntity(tx, createdWorld.id, {
-        entityType: "location", canonicalName: locationName,
+        entityType: "location",
+        canonicalName: locationName,
       });
       const npc = await createNpc(tx, createdWorld.id, {
         canonicalName: npcName,
@@ -144,9 +176,12 @@ export async function provisionDevFixture(
         narrativeWeight: 0,
         baselineProfile,
       });
-      await addEntityAlias(tx, createdWorld.id, npc.entityId, { alias: npcAlias });
+      await addEntityAlias(tx, createdWorld.id, npc.entityId, {
+        alias: npcAlias,
+      });
       await createEntity(tx, createdWorld.id, {
-        entityType: "player_character", canonicalName: playerName,
+        entityType: "player_character",
+        canonicalName: playerName,
       });
       const context = await createInteractionContext(tx, createdWorld.id, {
         contextType: "scene",
@@ -175,14 +210,19 @@ export async function provisionDevFixture(
       world.systemType !== "test" ||
       world.status !== "active" ||
       Object.keys(world.config).length !== 0
-    ) conflict();
-    const worldEntities = await tx.select().from(entities).where(eq(entities.worldId, world.id));
+    )
+      conflict();
+    const worldEntities = await tx
+      .select()
+      .from(entities)
+      .where(eq(entities.worldId, world.id));
     if (worldEntities.length !== 3) conflict();
     const locate = (name: string, type: string) => {
-      const matches = worldEntities.filter(row =>
-        row.canonicalName === name &&
-        row.entityType === type &&
-        row.status === "active",
+      const matches = worldEntities.filter(
+        (row) =>
+          row.canonicalName === name &&
+          row.entityType === type &&
+          row.status === "active",
       );
       if (matches.length !== 1) conflict();
       return matches[0]!;
@@ -204,8 +244,10 @@ export async function provisionDevFixture(
       npc.state.currentLocationId !== null ||
       npc.state.locationCertainty !== "unknown" ||
       !isDeepStrictEqual(npc.npc.baselineProfile, baselineProfile)
-    ) conflict();
-    const aliases = await tx.select({ alias: entityAliases, entity: entities })
+    )
+      conflict();
+    const aliases = await tx
+      .select({ alias: entityAliases, entity: entities })
       .from(entityAliases)
       .innerJoin(entities, eq(entityAliases.entityId, entities.id))
       .where(eq(entities.worldId, world.id));
@@ -214,8 +256,11 @@ export async function provisionDevFixture(
       aliases[0]!.alias.entityId !== npcEntity.id ||
       aliases[0]!.alias.alias !== npcAlias ||
       aliases[0]!.alias.normalizedAlias !== normalizeAlias(npcAlias)
-    ) conflict();
-    const contexts = await tx.select().from(interactionContexts)
+    )
+      conflict();
+    const contexts = await tx
+      .select()
+      .from(interactionContexts)
       .where(eq(interactionContexts.worldId, world.id));
     if (contexts.length !== 1) conflict();
     const context = contexts[0]!;
@@ -228,8 +273,11 @@ export async function provisionDevFixture(
       context.externalGuildId !== route.guildId ||
       context.externalChannelId !== route.channelId ||
       context.externalThreadId !== route.threadId
-    ) conflict();
-    const mappings = await tx.select().from(discordContextMappings)
+    )
+      conflict();
+    const mappings = await tx
+      .select()
+      .from(discordContextMappings)
       .where(eq(discordContextMappings.worldId, world.id));
     if (
       mappings.length !== 1 ||
@@ -240,11 +288,48 @@ export async function provisionDevFixture(
       mappings[0]!.mappingType !== "scene" ||
       mappings[0]!.status !== "active" ||
       mappings[0]!.npcId !== null
-    ) conflict();
-    if ((await tx.select().from(discordIdentities).where(eq(discordIdentities.worldId, world.id)).limit(1)).length) conflict();
-    if ((await tx.select().from(localPresence).where(eq(localPresence.worldId, world.id)).limit(1)).length) conflict();
-    if ((await tx.select().from(interactions).where(eq(interactions.worldId, world.id)).limit(1)).length) conflict();
-    if ((await tx.select().from(responseDeliveries).where(eq(responseDeliveries.worldId, world.id)).limit(1)).length) conflict();
+    )
+      conflict();
+    if (
+      (
+        await tx
+          .select()
+          .from(discordIdentities)
+          .where(eq(discordIdentities.worldId, world.id))
+          .limit(1)
+      ).length
+    )
+      conflict();
+    if (
+      (
+        await tx
+          .select()
+          .from(localPresence)
+          .where(eq(localPresence.worldId, world.id))
+          .limit(1)
+      ).length
+    )
+      conflict();
+    if (
+      (
+        await tx
+          .select()
+          .from(interactions)
+          .where(eq(interactions.worldId, world.id))
+          .limit(1)
+      ).length
+    )
+      conflict();
+    if (
+      (
+        await tx
+          .select()
+          .from(responseDeliveries)
+          .where(eq(responseDeliveries.worldId, world.id))
+          .limit(1)
+      ).length
+    )
+      conflict();
     return {
       status: "already_present",
       worldKey,
@@ -267,7 +352,9 @@ export async function runDevFixtureCommand(
   try {
     // A second guard against a local forwarded port to a remote/production DB.
     const identity = await client.pool.query<{
-      database: string; server: string | null; version: number;
+      database: string;
+      server: string | null;
+      version: number;
     }>(
       "select current_database() as database, inet_server_addr()::text as server, current_setting('server_version_num')::int as version",
     );
@@ -278,18 +365,24 @@ export async function runDevFixtureCommand(
       row.version < 170000 ||
       row.version >= 180000 ||
       (row.server !== "127.0.0.1" && row.server !== "::1")
-    ) throw new Error("DEV fixture database identity is not approved.");
+    )
+      throw new Error("DEV fixture database identity is not approved.");
     return await provisionDevFixture(client.db, route, apply);
   } finally {
     await client.close();
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   void runDevFixtureCommand(process.argv.slice(2)).then(
     (result) => console.info(JSON.stringify(result)),
     () => {
-      console.error("DEV fixture failed safely; check local DB identity and fixture conflicts.");
+      console.error(
+        "DEV fixture failed safely; check local DB identity and fixture conflicts.",
+      );
       process.exitCode = 1;
     },
   );
