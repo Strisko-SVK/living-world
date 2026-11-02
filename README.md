@@ -1291,3 +1291,16 @@ post. Discord and PostgreSQL are not transactionally exactly-once. Lost ACKs or
 expired sending leases require the existing trusted M2.10 reconciliation process;
 stop/fence the old worker before asserting no-send. Independent security review
 and later human sign-off remain prerequisites for any live pilot.
+
+
+## Isolated Discord DEV fixture (offline, operator-only)
+
+The DEV fixture is **not** a Discord runtime or deployment. The script lives at `src/admin/discord-dev-fixture.ts`. It does not log in to Discord, send webhooks, call an LLM, or bind an actual Discord user identity. It reuses the existing domain models and creates one synthetic world, one scene with an exact thread route, one NPC with alias, one location, and one unbound test character. The context intake policy remains `disabled`.
+
+Before running it, create a **separate local PostgreSQL 17** instance/database named `living_world_gateway_dev`; never point it at production or at the repo's default `living_world` DB. Run the existing migrations only against that isolated database, then set `DATABASE_URL` privately using `localhost` or `127.0.0.1`. The script verifies the database name, PostgreSQL major version and server loopback address as a defense in depth. Use a dedicated, least-privileged local DB account. Port-forwarded endpoints are **not** proof of safe database isolation: verify the underlying instance yourself. Never use live player data.
+
+Set `LW_DEV_GUILD_ID`, `LW_DEV_PARENT_CHANNEL_ID` and `LW_DEV_THREAD_ID` privately to the three exact, non-secret IDs from Notion handoff section 8. The script requires all three values and validates that they are distinct Discord snowflake IDs. No route IDs are hardcoded into code. Keep `DISCORD_ENABLED=false`, `DISCORD_OUTBOUND_ENABLED=false`, `LLM_PROVIDER=disabled`; do not set `NODE_ENV=production`.
+
+Run `node --env-file-if-exists=.env --import tsx src/admin/discord-dev-fixture.ts` to preview. It checks the isolated database and current fixture without making changes. Apply **only after inspecting the database and route** with `node --env-file-if-exists=.env --import tsx src/admin/discord-dev-fixture.ts --apply --confirm-database living_world_gateway_dev`. The apply step is transaction-bound; repeated matching invocations report `already_present`. A mismatch rejects without silent repair. No cleanup runs automatically; if disposal is necessary, review world-scoped dependencies and delete the dedicated local database, never a shared/production world.
+
+This offline fixture does not approve a live Gateway connection. Any bot login, permission test, context policy enablement, Discord user mapping, webhook pilot, deployment or paid LLM call remains a separate explicit owner-controlled action.
