@@ -41,7 +41,7 @@ export const identitySchema = z
       .refine(
         (s) =>
           s === s.trim() &&
-          !/[@<>\p{Cc}\p{Cf}]/u.test(s) &&
+          !/[@<>\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(s) &&
           !["everyone", "here", "discord", "clyde"].includes(s.toLowerCase()),
       ),
     avatarUrl: avatar.nullable(),

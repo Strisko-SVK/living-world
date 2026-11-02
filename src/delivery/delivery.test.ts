@@ -79,6 +79,23 @@ describe("delivery payload and identity boundary", () => {
     ).toBe(false),
   );
   it.each([
+    ["line separator", "Pelo\u2028Garak"],
+    ["paragraph separator", "Pelo\u2029Garak"],
+  ])("rejects an embedded Unicode %s in a display name", (_, displayName) => {
+    expect(
+      identitySchema.safeParse({ displayName, avatarUrl: null }).success,
+    ).toBe(false);
+  });
+  it.each(["Pelo Garak", "Ľuboš", "ガラク"])(
+    "preserves a valid single-line display name: %s",
+    (displayName) => {
+      expect(identitySchema.parse({ displayName, avatarUrl: null })).toEqual({
+        displayName,
+        avatarUrl: null,
+      });
+    },
+  );
+  it.each([
     "http://cdn.discordapp.com/avatars/123/abc.png",
     "https://localhost/a.png",
     "https://evil.test/a.png",
