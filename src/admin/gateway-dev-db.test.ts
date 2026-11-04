@@ -112,4 +112,3 @@ describe("isolated DEV database setup safety", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 });
-

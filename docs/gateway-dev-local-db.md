@@ -67,4 +67,3 @@ Stopping retains the dedicated volume. Do **not** run `down --volumes` or delete
 ## Automated verification
 
 The unit suite checks generated secrets, local-only config validation and privilege restrictions. A dedicated GitHub Actions job starts this isolated Compose service on an ephemeral runner, verifies identity and migrations, and tests offline preview/apply/replay using synthetic Discord IDs. The CI job removes only its own disposable container/volume, without any live Gateway or paid calls.
-
