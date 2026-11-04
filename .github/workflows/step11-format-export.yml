@@ -1,0 +1,28 @@
+name: Temporary Step11 Formatter
+on:
+  push:
+    branches: [feat/step11-isolated-pilot-fixture]
+    paths:
+      - .github/workflows/step11-format-export.yml
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.17.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - run: pnpm install --frozen-lockfile
+      - name: Format pilot preflight files (synthetic data only)
+        run: |
+          for f in src/admin/discord-pilot-fixture.ts src/admin/discord-pilot-fixture.test.ts docs/step11-isolated-pilot.md src/db/discord-dev-fixture.db.test.ts; do
+            pnpm exec prettier --write "$f"
+            printf '\n__LW_STEP11_BEGIN__:%s\n' "$f"
+            cat "$f"
+            printf '\n__LW_STEP11_END__:%s\n' "$f"
+          done
