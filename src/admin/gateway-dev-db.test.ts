@@ -14,7 +14,7 @@ const rolePassword = "b".repeat(64);
 const valid = {
   LW_GATEWAY_DEV_ADMIN_PASSWORD: adminPassword,
   LW_GATEWAY_DEV_ROLE_PASSWORD: rolePassword,
-  DATABASE_URL: `postgresql://lw_gateway_dev:${rolePassword@127.0.0.1:55432/living_world_gateway_dev`,
+  DATABASE_URL: `postgresql://lw_gateway_dev:${rolePassword}@127.0.0.1:55432/living_world_gateway_dev`,
   DISCORD_ENABLED: "false",
   DISCORD_OUTBOUND_ENABLED: "false",
   LLM_PROVIDER: "disabled",
