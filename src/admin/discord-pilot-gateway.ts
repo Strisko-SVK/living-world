@@ -405,6 +405,7 @@ export async function connectOnePilotMessage(
 ): Promise<void> {
   let ready = false;
   let claimed = false;
+  const pending = new Set<Promise<void>>();
   let complete!: () => void;
   let fail!: (reason: Error) => void;
   const observed = new Promise<void>((resolve, reject) => {
@@ -433,7 +434,7 @@ export async function connectOnePilotMessage(
     if (!normalized) return;
     claimed = true; // Synchronous single-event latch before the first await.
     client.off(Events.MessageCreate, onMessage);
-    void (async () => {
+    const work = (async () => {
       const outcome = await intake(normalized, config.botId);
       if (outcome !== "accepted")
         throw new Error("The one authorized message was not accepted.");
@@ -441,9 +442,13 @@ export async function connectOnePilotMessage(
       console.info(JSON.stringify({ event: "pilot_gateway_received" }));
       console.info(JSON.stringify({ event: "pilot_gateway_audit_pass" }));
       complete();
-    })().catch((error: unknown) => {
-      fail(error instanceof Error ? error : new Error("Pilot intake failed."));
-    });
+    })();
+    pending.add(work);
+    void work
+      .catch((error: unknown) => {
+        fail(error instanceof Error ? error : new Error("Pilot intake failed."));
+      })
+      .finally(() => pending.delete(work));
   };
   const onError = () => fail(new Error("Gateway transport failure."));
   client.on(Events.ClientReady, onReady);
@@ -464,8 +469,14 @@ export async function connectOnePilotMessage(
     client.off(Events.Error, onError);
     client.off(Events.ShardError, onError);
     client.off(Events.ShardDisconnect, onError);
-    await client.destroy();
-    console.info(JSON.stringify({ event: "pilot_gateway_stopped" }));
+    try {
+      await client.destroy();
+    } finally {
+      // A disconnect, SIGINT or timeout may race with an in-flight database
+      // transaction. Drain the one claimed task before the caller closes pg.
+      await Promise.allSettled(pending);
+      console.info(JSON.stringify({ event: "pilot_gateway_stopped" }));
+    }
   }
 }
 
