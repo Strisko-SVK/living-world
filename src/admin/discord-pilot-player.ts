@@ -110,22 +110,25 @@ export async function reconcilePilotPlayer(
       throw new Error("Pilot scene no longer matches approved route.");
     const context = contexts[0]!;
 
-    const [worldRoutes, locationRoutes, playerEntities] = await Promise.all([
-      tx
-        .select()
-        .from(discordContextMappings)
-        .where(eq(discordContextMappings.worldId, world.id)),
-      tx
-        .select()
-        .from(discordContextMappings)
-        .where(
-          and(
-            eq(discordContextMappings.guildId, request.route.guildId),
-            eq(discordContextMappings.channelId, request.route.channelId),
-          ),
+    // One PostgreSQL transaction uses one client connection. Do not execute
+    // queries concurrently on it (pg warns and pg@9 will reject this).
+    const worldRoutes = await tx
+      .select()
+      .from(discordContextMappings)
+      .where(eq(discordContextMappings.worldId, world.id));
+    const locationRoutes = await tx
+      .select()
+      .from(discordContextMappings)
+      .where(
+        and(
+          eq(discordContextMappings.guildId, request.route.guildId),
+          eq(discordContextMappings.channelId, request.route.channelId),
         ),
-      tx.select().from(entities).where(eq(entities.worldId, world.id)),
-    ]);
+      );
+    const playerEntities = await tx
+      .select()
+      .from(entities)
+      .where(eq(entities.worldId, world.id));
     const mapping = worldRoutes[0];
     if (
       worldRoutes.length !== 1 ||
@@ -199,18 +202,16 @@ export async function reconcilePilotPlayer(
           "Previously revoked pilot identity needs manual review.",
         );
       }
-      const [priorInteractions, priorDeliveries] = await Promise.all([
-        tx
-          .select({ id: interactions.id })
-          .from(interactions)
-          .where(eq(interactions.worldId, world.id))
-          .limit(1),
-        tx
-          .select({ id: responseDeliveries.id })
-          .from(responseDeliveries)
-          .where(eq(responseDeliveries.worldId, world.id))
-          .limit(1),
-      ]);
+      const priorInteractions = await tx
+        .select({ id: interactions.id })
+        .from(interactions)
+        .where(eq(interactions.worldId, world.id))
+        .limit(1);
+      const priorDeliveries = await tx
+        .select({ id: responseDeliveries.id })
+        .from(responseDeliveries)
+        .where(eq(responseDeliveries.worldId, world.id))
+        .limit(1);
       if (priorInteractions.length || priorDeliveries.length)
         throw new Error("Cannot enroll a player in a used pilot world.");
       const created = await mapDiscordUserToEntity(tx, world.id, {
