@@ -78,12 +78,14 @@ export function matchesGatewaySmokeTarget(
 // Transport-only: does not import the application runtime, intake persistence,
 // LLM, webhook delivery, or any send/reply/edit API. Logs no message contents,
 // authors, message IDs or bot token. It never mutates the database.
-export async function connectGatewaySmoke(config: GatewaySmokeConfig): Promise<void> {
-  const client = new Client({
+export async function connectGatewaySmoke(
+  config: GatewaySmokeConfig,
+  client: Client = new Client({
     // MessageCreate metadata is sufficient for this first smoke.
     // Do not request privileged MessageContent until a later authorized phase.
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
-  });
+  }),
+): Promise<void> {
   let ready = false;
   let complete!: () => void;
   let fail!: (error: Error) => void;
