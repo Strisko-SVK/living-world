@@ -76,3 +76,51 @@ jobs:
         run: pnpm db:migrate
       - name: Run PostgreSQL integration tests
         run: pnpm test:db
+
+  gateway-dev:
+    name: Isolated Gateway DEV PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.17.1
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Generate disposable local DB credentials
+        run: node --import tsx src/admin/gateway-dev-db.ts init
+      - name: Start dedicated isolated PostgreSQL 17
+        run: |
+          docker compose --env-file .env.gateway-dev.local -f compose.gateway-dev.yml config --quiet
+          docker compose --env-file .env.gateway-dev.local -f compose.gateway-dev.yml up -d --wait
+      - name: Verify DB identity and apply real migrations
+        run: |
+          node --env-file=.env.gateway-dev.local --import tsx src/admin/gateway-dev-db.ts check
+          node --env-file=.env.gateway-dev.local --import tsx src/admin/gateway-dev-db.ts migrate
+      - name: Offline CLI fixture preview, apply and replay
+        env:
+          LW_DEV_GUILD_ID: "1111111111111111111"
+          LW_DEV_PARENT_CHANNEL_ID: "1222222222222222222"
+          LW_DEV_THREAD_ID: "1333333333333333333"
+        run: |
+          PREVIEW="$(node --env-file=.env.gateway-dev.local --import tsx src/admin/discord-dev-fixture.ts)"
+          test "$PREVIEW" = '{"status":"would_create","worldKey":"lw-dev-gateway-001"}'
+          CREATED="$(node --env-file=.env.gateway-dev.local --import tsx src/admin/discord-dev-fixture.ts --apply --confirm-database living_world_gateway_dev)"
+          printf '%s' "$CREATED" | grep -q '"status":"created"'
+          REPLAY="$(node --env-file=.env.gateway-dev.local --import tsx src/admin/discord-dev-fixture.ts)"
+          printf '%s' "$REPLAY" | grep -q '"status":"already_present"'
+      - name: Dispose CI-only PostgreSQL and volume
+        if: always()
+        run: |
+          if [ -f .env.gateway-dev.local ]; then
+            docker compose --env-file .env.gateway-dev.local -f compose.gateway-dev.yml down --volumes --remove-orphans
+          fi
