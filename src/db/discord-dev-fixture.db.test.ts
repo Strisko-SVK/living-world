@@ -517,3 +517,53 @@ describe("Step 10 offline Discord thread -> authorized NPC interaction", () => {
     ]);
   });
 });
+
+describe("Step 11 strict fixture coexistence across independent DEV parents", () => {
+  it("preserves the pristine original when a second pilot world uses another parent", async () => {
+    const originalKey = worldKey();
+    const pilotKey = worldKey();
+    const original = route();
+    const pilot = {
+      guildId: original.guildId,
+      channelId: String(BigInt(original.channelId) + 100n),
+      threadId: String(BigInt(original.threadId) + 101n),
+    };
+
+    const base = await apply(originalKey, original);
+    const baseline = await dbCounts(base.worldId!);
+    expect(baseline).toMatchObject({
+      identities: 0,
+      interactions: 0,
+      deliveries: 0,
+      presence: 0,
+    });
+    const second = await apply(pilotKey, pilot);
+    expect(second.status).toBe("created");
+    expect(second.worldId).not.toBe(base.worldId);
+    expect(second.contextId).not.toBe(base.contextId);
+    expect(second.npcId).not.toBe(base.npcId);
+
+    expect(
+      await provisionDevFixture(database.db, original, false, originalKey),
+    ).toEqual({ ...base, status: "already_present" });
+    expect(
+      await provisionDevFixture(database.db, pilot, false, pilotKey),
+    ).toEqual({ ...second, status: "already_present" });
+    expect(await dbCounts(base.worldId!)).toEqual(baseline);
+    expect(await dbCounts(second.worldId!)).toMatchObject(baseline);
+
+    // A second thread under the original parent would break its pristine
+    // route invariant, so Step 11 must use a new parent, not only a new thread.
+    const overlapping = {
+      guildId: original.guildId,
+      channelId: original.channelId,
+      threadId: String(BigInt(original.threadId) + 200n),
+    };
+    await expect(
+      provisionDevFixture(database.db, overlapping, true, worldKey()),
+    ).rejects.toThrow("conflicts");
+    expect(
+      await provisionDevFixture(database.db, original, false, originalKey),
+    ).toEqual({ ...base, status: "already_present" });
+  });
+});
