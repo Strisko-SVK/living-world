@@ -133,11 +133,7 @@ export async function createInteraction(
   // This repository also runs inside Discord's per-event transaction,
   // backed by one pg client. Serialize these lookups for pg@9 compatibility.
   const npc = await getNpc(database, worldId, npcId);
-  const context = await getInteractionContext(
-    database,
-    worldId,
-    value.contextId,
-  );
+  const context = await getInteractionContext(database, worldId, value.contextId);
   if (!npc) return null;
   if (!context)
     throw new Error(
