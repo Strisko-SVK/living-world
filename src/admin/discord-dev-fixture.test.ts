@@ -8,7 +8,7 @@ import {
 
 const valid = {
   DATABASE_URL:
-    "***127.0.0.1:5432/living_world_gateway_dev",
+    "postgresql://lw_gateway_dev:password@127.0.0.1:5432/living_world_gateway_dev",
   DISCORD_ENABLED: "false",
   DISCORD_OUTBOUND_ENABLED: "false",
   LLM_PROVIDER: "disabled",
