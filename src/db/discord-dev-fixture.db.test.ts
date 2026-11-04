@@ -6,6 +6,8 @@ import { createWorld } from "../domains/world/world.repository.js";
 import { addEntityAlias } from "../domains/entity/entity.repository.js";
 import { createDiscordPersistence } from "../adapters/discord/persistence.js";
 import { createDiscordIntake } from "../intake/discord-intake.js";
+import { mapDiscordUserToEntity } from "../domains/discord-mapping/discord-mapping.repository.js";
+import { runContextPolicyCommand } from "../admin/context-intake-policy.js";
 import {
   provisionDevFixture,
   type DevFixtureRoute,
@@ -345,5 +347,154 @@ describe("offline synthetic Discord DEV world fixture", () => {
     await expect(
       provisionDevFixture(database.db, location, true, key),
     ).rejects.toThrow("conflicts");
+  });
+});
+
+describe("Step 10 offline Discord thread -> authorized NPC interaction", () => {
+  it("enforces default deny, mapped-player authorization, idempotency and policy revocation without outbound", async () => {
+    // IMPORTANT: Unique synthetic world/route, never the persistent owner's
+    // lw-dev-gateway-001 fixture or real Discord guild, user or message IDs.
+    const key = worldKey();
+    const location = route();
+    const first = await apply(key, location);
+    expect(first.status).toBe("created");
+    expect(first.worldId).toBeDefined();
+    expect(first.contextId).toBeDefined();
+    expect(first.npcId).toBeDefined();
+
+    const worldId = first.worldId!;
+    const contextId = first.contextId!;
+    const npcId = first.npcId!;
+    const botId = "1234567890123456789";
+    const syntheticAuthorId = "1999999999999999999";
+    const message = {
+      sourceMessageId: randomUUID(),
+      authorId: syntheticAuthorId,
+      guildId: location.guildId,
+      channelId: location.channelId,
+      threadId: location.threadId,
+      content: "<@" + botId + "> [Sentinel] Report readiness.",
+      mentionedUserIds: [botId],
+    };
+    const intake = createDiscordIntake(createDiscordPersistence(database.db));
+    const run = (input = message) => intake(input, botId);
+
+    // A valid alias and route alone never authorize the request.
+    expect(await run()).toBe("unauthorized");
+    expect(await dbCounts(worldId)).toMatchObject({
+      identities: 0,
+      interactions: 0,
+      deliveries: 0,
+      presence: 0,
+    });
+
+    const player = await database.pool.query<{ id: string }>(
+      "select id from entities where world_id=$1 and entity_type='player_character'",
+      [worldId],
+    );
+    expect(player.rows).toHaveLength(1);
+    const playerId = player.rows[0]!.id;
+    await mapDiscordUserToEntity(database.db, worldId, {
+      discordUserId: syntheticAuthorId,
+      entityId: playerId,
+      mappingType: "player_character",
+    });
+
+    // Mapping an identity does not override the disabled scene policy.
+    expect(await run()).toBe("unauthorized");
+    expect(await dbCounts(worldId)).toMatchObject({
+      identities: 1,
+      interactions: 0,
+      deliveries: 0,
+      presence: 0,
+    });
+
+    const approved = await runContextPolicyCommand([
+      "--world", worldId,
+      "--context", contextId,
+      "--policy", "mapped_players",
+    ]);
+    expect(approved).toMatchObject({
+      worldId,
+      contextId,
+      previousPolicy: "disabled",
+      policy: "mapped_players",
+    });
+
+    expect(await run()).toBe("accepted");
+    expect(await run()).toBe("duplicate");
+
+    const stored = await database.pool.query(
+      "select world_id, context_id, npc_id, speaker_entity_id, " +
+        "source_provider, source_message_id, source_guild_id, " +
+        "source_channel_id, source_thread_id, source_mapping_id, " +
+        "status, communication_mode, response_text, response_claim_id " +
+        "from interactions where world_id=$1",
+      [worldId],
+    );
+    expect(stored.rows).toHaveLength(1);
+    expect(stored.rows[0]).toMatchObject({
+      world_id: worldId,
+      context_id: contextId,
+      npc_id: npcId,
+      speaker_entity_id: playerId,
+      source_provider: "discord",
+      source_message_id: message.sourceMessageId,
+      source_guild_id: location.guildId,
+      source_channel_id: location.channelId,
+      source_thread_id: location.threadId,
+      status: "received",
+      communication_mode: "unknown",
+      response_text: null,
+      response_claim_id: null,
+    });
+    expect(stored.rows[0].source_mapping_id).toBeTruthy();
+    expect(await dbCounts(worldId)).toMatchObject({
+      identities: 1,
+      interactions: 1,
+      deliveries: 0,
+      presence: 0,
+    });
+
+    // Reject retargeting, wrong thread, and the absence of an explicit alias.
+    expect(
+      await run({ ...message, content: "<@" + botId + "> [Sentinel] Different request." }),
+    ).toBe("event_conflict");
+    expect(
+      await run({ ...message, sourceMessageId: randomUUID(), threadId: String(BigInt(location.threadId) + 10n) }),
+    ).toBe("unmapped");
+    expect(
+      await run({ ...message, sourceMessageId: randomUUID(), content: "<@" + botId + "> Hello." }),
+    ).toBe("invalid_trigger");
+
+    const revoked = await runContextPolicyCommand([
+      "--world", worldId,
+      "--context", contextId,
+      "--policy", "disabled",
+    ]);
+    expect(revoked).toMatchObject({
+      previousPolicy: "mapped_players",
+      policy: "disabled",
+    });
+    expect(
+      await run({ ...message, sourceMessageId: randomUUID() }),
+    ).toBe("unauthorized");
+    expect(await dbCounts(worldId)).toMatchObject({
+      identities: 1,
+      interactions: 1,
+      deliveries: 0,
+      presence: 0,
+    });
+
+    const audit = await database.pool.query(
+      "select previous_policy, target_policy from context_intake_policy_audit " +
+        "where world_id=$1 order by created_at, id",
+      [worldId],
+    );
+    expect(audit.rows).toHaveLength(2);
+    expect(audit.rows.map((row) => [row.previous_policy, row.target_policy])).toEqual([
+      ["disabled", "mapped_players"],
+      ["mapped_players", "disabled"],
+    ]);
   });
 });
