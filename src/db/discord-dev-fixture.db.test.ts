@@ -10,6 +10,7 @@ import { createDiscordIntake } from "../intake/discord-intake.js";
 import { mapDiscordUserToEntity } from "../domains/discord-mapping/discord-mapping.repository.js";
 import { runContextPolicyCommand } from "../admin/context-intake-policy.js";
 import { reconcilePilotPlayer } from "../admin/discord-pilot-player.js";
+import { reconcilePilotPolicy } from "../admin/discord-pilot-policy.js";
 import {
   provisionDevFixture,
   type DevFixtureRoute,
@@ -766,5 +767,173 @@ describe("Step 12 pg transaction serial-query regression", () => {
       client.query = originalQuery;
       client.release();
     }
+  });
+});
+
+
+describe("Step 13 guarded pilot-only scene policy and audit", () => {
+  it("allows only enrolled pilot identity, logs enable/disable atomically, and leaves original world pristine", async () => {
+    const pristineKey = worldKey();
+    const pilotKey = worldKey();
+    const pristineRoute = route();
+    const pilotRoute = {
+      guildId: pristineRoute.guildId,
+      channelId: String(BigInt(pristineRoute.channelId) + 100n),
+      threadId: String(BigInt(pristineRoute.threadId) + 101n),
+    };
+    const pristine = await apply(pristineKey, pristineRoute);
+    const baseline = await dbCounts(pristine.worldId!);
+    const pilot = await apply(pilotKey, pilotRoute);
+    const testUserId = "1777777777777777777";
+    const run = (
+      mode: "preview" | "enable" | "disable",
+      confirmedContextId = pilot.contextId,
+    ) =>
+      reconcilePilotPolicy(database.db, {
+        worldKey: pilotKey,
+        route: pilotRoute,
+        mode,
+        confirmedContextId,
+        testUserId,
+      });
+
+    expect(await run("preview")).toMatchObject({
+      event: "pilot_policy_preview",
+      worldId: pilot.worldId,
+      contextId: pilot.contextId,
+      policy: "disabled",
+      identityStatus: "absent",
+      policyAuditEvents: 0,
+    });
+    await expect(run("enable")).rejects.toThrow("approved active player");
+    const playerPreview = await reconcilePilotPlayer(database.db, {
+      worldKey: pilotKey,
+      route: pilotRoute,
+      userId: testUserId,
+      mode: "preview",
+    });
+    expect(playerPreview).toMatchObject({ identityStatus: "absent" });
+    expect(
+      await reconcilePilotPlayer(database.db, {
+        worldKey: pilotKey,
+        route: pilotRoute,
+        userId: testUserId,
+        mode: "enroll",
+      }),
+    ).toMatchObject({ event: "pilot_player_enrolled", policy: "disabled" });
+
+    await expect(
+      run("enable", pristine.contextId),
+    ).rejects.toThrow("Confirmed pilot context");
+    const input = {
+      sourceMessageId: randomUUID(),
+      authorId: testUserId,
+      guildId: pilotRoute.guildId,
+      channelId: pilotRoute.channelId,
+      threadId: pilotRoute.threadId,
+      content: "<@1234567890123456789> [Sentinel] Hello.",
+      mentionedUserIds: ["1234567890123456789"],
+    };
+    const intake = createDiscordIntake(createDiscordPersistence(database.db));
+    expect(await intake(input, "1234567890123456789")).toBe("unauthorized");
+    expect(await dbCounts(pilot.worldId!)).toMatchObject({
+      interactions: 0,
+      deliveries: 0,
+    });
+
+    expect(await run("enable")).toMatchObject({
+      event: "pilot_policy_changed",
+      worldId: pilot.worldId,
+      contextId: pilot.contextId,
+      previousPolicy: "disabled",
+      policy: "mapped_players",
+    });
+    expect(await run("preview")).toMatchObject({
+      policy: "mapped_players",
+      identityStatus: "active",
+      policyAuditEvents: 1,
+    });
+    await expect(run("enable")).rejects.toThrow("must be disabled");
+    await expect(
+      reconcilePilotPlayer(database.db, {
+        worldKey: pilotKey,
+        route: pilotRoute,
+        userId: testUserId,
+        mode: "revoke",
+      }),
+    ).rejects.toThrow("Disable pilot intake");
+
+    expect(await intake(input, "1234567890123456789")).toBe("accepted");
+    expect(await dbCounts(pilot.worldId!)).toMatchObject({
+      identities: 1,
+      interactions: 1,
+      deliveries: 0,
+    });
+    expect(await run("disable")).toMatchObject({
+      event: "pilot_policy_changed",
+      previousPolicy: "mapped_players",
+      policy: "disabled",
+    });
+    expect(await run("disable")).toMatchObject({
+      event: "pilot_policy_already_disabled",
+      policy: "disabled",
+    });
+    expect(await intake({ ...input, sourceMessageId: randomUUID() }, "1234567890123456789")).toBe("unauthorized");
+    expect(await run("preview")).toMatchObject({
+      policy: "disabled",
+      identityStatus: "active",
+      policyAuditEvents: 2,
+    });
+    await expect(run("enable")).rejects.toThrow("already activated");
+    const audit = await database.pool.query(
+      "select previous_policy,target_policy from context_intake_policy_audit where world_id=$1 order by created_at,id",
+      [pilot.worldId],
+    );
+    expect(audit.rows).toEqual([
+      { previous_policy: "disabled", target_policy: "mapped_players" },
+      { previous_policy: "mapped_players", target_policy: "disabled" },
+    ]);
+
+    expect(
+      await provisionDevFixture(database.db, pristineRoute, false, pristineKey),
+    ).toEqual({ ...pristine, status: "already_present" });
+    expect(await dbCounts(pristine.worldId!)).toEqual(baseline);
+  });
+
+  it("allows emergency disable even if the player identity was inactivated unexpectedly", async () => {
+    const key = worldKey();
+    const location = route();
+    const pilot = await apply(key, location);
+    const userId = "1777777777777777777";
+    await reconcilePilotPlayer(database.db, {
+      worldKey: key, route: location, userId, mode: "enroll",
+    });
+    const request = {
+      worldKey: key,
+      route: location,
+      confirmedContextId: pilot.contextId,
+      testUserId: userId,
+      mode: "enable" as const,
+    };
+    expect(await reconcilePilotPolicy(database.db, request)).toMatchObject({
+      policy: "mapped_players",
+    });
+    await database.pool.query(
+      "update discord_identities set status='inactive',is_primary=false where world_id=$1",
+      [pilot.worldId],
+    );
+    expect(await reconcilePilotPolicy(database.db, {
+      ...request,
+      mode: "disable",
+      testUserId: undefined,
+    })).toMatchObject({
+      previousPolicy: "mapped_players",
+      policy: "disabled",
+    });
+    expect(await dbCounts(pilot.worldId!)).toMatchObject({
+      identities: 1,
+      interactions: 0,
+      deliveries: 0,
+    });
   });
 });
