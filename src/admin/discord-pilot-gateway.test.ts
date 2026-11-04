@@ -251,13 +251,18 @@ describe("Step 14 inbound-only pilot offline guards", () => {
     const client = fakeClient();
     let resolveIntake!: (value: string) => void;
     const intake = vi.fn().mockImplementation(
-      () => new Promise<string>((resolve) => {
-        resolveIntake = resolve;
-      }),
+      () =>
+        new Promise<string>((resolve) => {
+          resolveIntake = resolve;
+        }),
     );
     const verifyAfter = vi.fn().mockResolvedValue(undefined);
     const running = connectOnePilotMessage(
-      config, intake, verifyAfter, client as unknown as Client, 500,
+      config,
+      intake,
+      verifyAfter,
+      client as unknown as Client,
+      500,
     );
     await Promise.resolve();
     client.emit(Events.ClientReady);
@@ -265,8 +270,12 @@ describe("Step 14 inbound-only pilot offline guards", () => {
     client.emit(Events.ShardDisconnect);
     let completed = false;
     void running.then(
-      () => { completed = true; },
-      () => { completed = true; },
+      () => {
+        completed = true;
+      },
+      () => {
+        completed = true;
+      },
     );
     await Promise.resolve();
     await Promise.resolve();

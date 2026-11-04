@@ -446,7 +446,9 @@ export async function connectOnePilotMessage(
     pending.add(work);
     void work
       .catch((error: unknown) => {
-        fail(error instanceof Error ? error : new Error("Pilot intake failed."));
+        fail(
+          error instanceof Error ? error : new Error("Pilot intake failed."),
+        );
       })
       .finally(() => pending.delete(work));
   };
