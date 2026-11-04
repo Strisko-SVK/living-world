@@ -245,9 +245,15 @@ describe("Discord DEV fixture real CLI smoke on disposable PostgreSQL 17", () =>
           created.rows[0].external_channel_id,
           route.LW_DEV_PARENT_CHANNEL_ID,
         );
-        assert.equal(created.rows[0].external_thread_id, route.LW_DEV_THREAD_ID);
+        assert.equal(
+          created.rows[0].external_thread_id,
+          route.LW_DEV_THREAD_ID,
+        );
         assert.equal(created.rows[0].guild_id, route.LW_DEV_GUILD_ID);
-        assert.equal(created.rows[0].channel_id, route.LW_DEV_PARENT_CHANNEL_ID);
+        assert.equal(
+          created.rows[0].channel_id,
+          route.LW_DEV_PARENT_CHANNEL_ID,
+        );
         assert.equal(created.rows[0].thread_id, route.LW_DEV_THREAD_ID);
         assert.equal(created.rows[0].mapping_type, "scene");
         assert.equal(created.rows[0].status, "active");
@@ -255,12 +261,7 @@ describe("Discord DEV fixture real CLI smoke on disposable PostgreSQL 17", () =>
         const second = { ...first, status: "already_present" };
         assert.deepEqual(await cli(devEnv), second);
         assert.deepEqual(
-          await cli(
-            devEnv,
-            "--apply",
-            "--confirm-database",
-            targetDatabase,
-          ),
+          await cli(devEnv, "--apply", "--confirm-database", targetDatabase),
           second,
         );
         assert.deepEqual(await snapshot(dev), created);
