@@ -27,19 +27,17 @@ const dbName = "living_world_gateway_dev";
 const botUserId = "1566909036899868712";
 const snowflake = /^\d{17,20}$/u;
 
-export function validatePilotPlayerEnvironment(
-  env: NodeJS.ProcessEnv,
-): { route: DevFixtureRoute; userId: string } {
+export function validatePilotPlayerEnvironment(env: NodeJS.ProcessEnv): {
+  route: DevFixtureRoute;
+  userId: string;
+} {
   const route = validatePilotFixtureEnvironment(env);
   const userId = env.LW_PILOT_TEST_USER_ID ?? "";
   if (
     !snowflake.test(userId) ||
     userId === botUserId ||
     Object.values(route).includes(userId) ||
-    [
-      env.LW_DEV_PARENT_CHANNEL_ID,
-      env.LW_DEV_THREAD_ID,
-    ].includes(userId)
+    [env.LW_DEV_PARENT_CHANNEL_ID, env.LW_DEV_THREAD_ID].includes(userId)
   )
     throw new Error("Pilot test user must be an isolated human Discord ID.");
   return { route, userId };
@@ -59,7 +57,9 @@ export function parsePilotPlayerArguments(
     args[4] === dbName
   )
     return args[0] === "--enroll" ? "enroll" : "revoke";
-  throw new Error("Pilot player write requires exact world and DB confirmation.");
+  throw new Error(
+    "Pilot player write requires exact world and DB confirmation.",
+  );
 }
 
 export type PilotPlayerRequest = {
@@ -124,10 +124,7 @@ export async function reconcilePilotPlayer(
             eq(discordContextMappings.channelId, request.route.channelId),
           ),
         ),
-      tx
-        .select()
-        .from(entities)
-        .where(eq(entities.worldId, world.id)),
+      tx.select().from(entities).where(eq(entities.worldId, world.id)),
     ]);
     const mapping = worldRoutes[0];
     if (
@@ -198,7 +195,9 @@ export async function reconcilePilotPlayer(
       if (identity) {
         if (identity.status === "active")
           return { event: "pilot_player_already_enrolled", ...base };
-        throw new Error("Previously revoked pilot identity needs manual review.");
+        throw new Error(
+          "Previously revoked pilot identity needs manual review.",
+        );
       }
       const [priorInteractions, priorDeliveries] = await Promise.all([
         tx

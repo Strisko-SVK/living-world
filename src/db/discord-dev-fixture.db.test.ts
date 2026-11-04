@@ -665,20 +665,32 @@ describe("Step 12 reversible pilot player enrollment (offline PostgreSQL)", () =
     const location = route();
     const pilot = await apply(key, location);
     const userId = "1888888888888888888";
-    const request = { worldKey: key, route: location, userId, mode: "enroll" as const };
-    await expect(reconcilePilotPlayer(database.db, {
-      ...request,
-      route: { ...location, threadId: String(BigInt(location.threadId) + 5n) },
-    })).rejects.toThrow("scene");
+    const request = {
+      worldKey: key,
+      route: location,
+      userId,
+      mode: "enroll" as const,
+    };
+    await expect(
+      reconcilePilotPlayer(database.db, {
+        ...request,
+        route: {
+          ...location,
+          threadId: String(BigInt(location.threadId) + 5n),
+        },
+      }),
+    ).rejects.toThrow("scene");
     expect(await dbCounts(pilot.worldId!)).toMatchObject({
       identities: 0,
       interactions: 0,
       deliveries: 0,
     });
-    expect(await reconcilePilotPlayer(database.db, {
-      ...request,
-      mode: "preview",
-    })).toMatchObject({
+    expect(
+      await reconcilePilotPlayer(database.db, {
+        ...request,
+        mode: "preview",
+      }),
+    ).toMatchObject({
       identityStatus: "absent",
     });
   });

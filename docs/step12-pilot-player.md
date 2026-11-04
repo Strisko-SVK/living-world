@@ -45,7 +45,7 @@ Expect event `pilot_player_preview` with `policy:"disabled"`, `identityStatus:"a
 node --env-file=.env.gateway-dev.local --env-file=.env.gateway-pilot.local --env-file=.env.gateway-player.local --import tsx src/admin/discord-pilot-player.ts --enroll --confirm-world lw-dev-pilot-001 --confirm-database living_world_gateway_dev
 ```
 
-Expected event `pilot_player_enrolled`. Re-running enrollment returns `pilot_player_already_enrolled` without duplicating rows; an inactive prior mapping causes a safe stop, never silent reactivation. It adds only one `player_character` identity mapping; **NPC intake stays disabled**. Once the pilot is enrolled, the strict pilot fixture `already_present` check is expected to reject legitimate identity drift; from this point use the **new pilot-player preview** instead of repeating the pristine fixture command for pilot. The *original* fixture must still report `already_present`.
+Expected event `pilot_player_enrolled`. Re-running enrollment returns `pilot_player_already_enrolled` without duplicating rows; an inactive prior mapping causes a safe stop, never silent reactivation. It adds only one `player_character` identity mapping; **NPC intake stays disabled**. Once the pilot is enrolled, the strict pilot fixture `already_present` check is expected to reject legitimate identity drift; from this point use the **new pilot-player preview** instead of repeating the pristine fixture command for pilot. The _original_ fixture must still report `already_present`.
 
 After a **separately approved live** pilot (not part of this PR), first change the pilot scene policy to `disabled` via an audited, pilot-scoped operator gate. Then revoke the test identity using:
 

@@ -39,8 +39,20 @@ describe("Step 12 local pilot player safety gates", () => {
       ).toBe(action);
     for (const args of [
       ["--enroll"],
-      ["--revoke", "--confirm-world", "lw-dev-gateway-001", "--confirm-database", database],
-      ["--enroll", "--confirm-world", world, "--confirm-database", "living_world"],
+      [
+        "--revoke",
+        "--confirm-world",
+        "lw-dev-gateway-001",
+        "--confirm-database",
+        database,
+      ],
+      [
+        "--enroll",
+        "--confirm-world",
+        world,
+        "--confirm-database",
+        "living_world",
+      ],
       ["--delete"],
     ])
       expect(() => parsePilotPlayerArguments(args)).toThrow();
@@ -78,17 +90,26 @@ describe("Step 12 local pilot player safety gates", () => {
 
   it("rejects privileged/wrong database before attempting any enrollment", async () => {
     const execute = vi.fn().mockResolvedValue({
-      rows: [{
-        database: database,
-        db_role: "postgres",
-        version: 170003,
-        superuser: true,
-      }],
+      rows: [
+        {
+          database: database,
+          db_role: "postgres",
+          version: 170003,
+          superuser: true,
+        },
+      ],
     });
     const innerTransaction = vi.fn();
-    const transaction = vi.fn().mockImplementation(async (
-      callback: (tx: { execute: typeof execute; transaction: typeof innerTransaction }) => Promise<unknown>,
-    ) => callback({ execute, transaction: innerTransaction }));
+    const transaction = vi
+      .fn()
+      .mockImplementation(
+        async (
+          callback: (tx: {
+            execute: typeof execute;
+            transaction: typeof innerTransaction;
+          }) => Promise<unknown>,
+        ) => callback({ execute, transaction: innerTransaction }),
+      );
     const close = vi.fn().mockResolvedValue(undefined);
     const connect = vi.fn().mockReturnValue({ db: { transaction }, close });
     await expect(
