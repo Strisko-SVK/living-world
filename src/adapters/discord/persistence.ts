@@ -76,10 +76,10 @@ export function createDiscordPersistence(
       return eligible.filter((mapping) => mapping !== null);
     },
     async isNpc(worldId, entityId) {
-      const [npc, entity] = await Promise.all([
-        getNpc(database, worldId, entityId),
-        getEntity(database, worldId, entityId),
-      ]);
+      // A scoped persistence adapter can run inside an existing transaction,
+      // which has only one pg client. Never query it in parallel (pg@9).
+      const npc = await getNpc(database, worldId, entityId);
+      const entity = await getEntity(database, worldId, entityId);
       return (
         !!npc && npc.lifecycleState === "active" && entity?.status === "active"
       );
