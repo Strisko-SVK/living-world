@@ -770,7 +770,6 @@ describe("Step 12 pg transaction serial-query regression", () => {
   });
 });
 
-
 describe("Step 13 guarded pilot-only scene policy and audit", () => {
   it("allows only enrolled pilot identity, logs enable/disable atomically, and leaves original world pristine", async () => {
     const pristineKey = worldKey();
@@ -822,9 +821,9 @@ describe("Step 13 guarded pilot-only scene policy and audit", () => {
       }),
     ).toMatchObject({ event: "pilot_player_enrolled", policy: "disabled" });
 
-    await expect(
-      run("enable", pristine.contextId),
-    ).rejects.toThrow("Confirmed pilot context");
+    await expect(run("enable", pristine.contextId)).rejects.toThrow(
+      "Confirmed pilot context",
+    );
     const input = {
       sourceMessageId: randomUUID(),
       authorId: testUserId,
@@ -878,7 +877,12 @@ describe("Step 13 guarded pilot-only scene policy and audit", () => {
       event: "pilot_policy_already_disabled",
       policy: "disabled",
     });
-    expect(await intake({ ...input, sourceMessageId: randomUUID() }, "1234567890123456789")).toBe("unauthorized");
+    expect(
+      await intake(
+        { ...input, sourceMessageId: randomUUID() },
+        "1234567890123456789",
+      ),
+    ).toBe("unauthorized");
     expect(await run("preview")).toMatchObject({
       policy: "disabled",
       identityStatus: "active",
@@ -906,7 +910,10 @@ describe("Step 13 guarded pilot-only scene policy and audit", () => {
     const pilot = await apply(key, location);
     const userId = "1777777777777777777";
     await reconcilePilotPlayer(database.db, {
-      worldKey: key, route: location, userId, mode: "enroll",
+      worldKey: key,
+      route: location,
+      userId,
+      mode: "enroll",
     });
     const request = {
       worldKey: key,
@@ -922,11 +929,13 @@ describe("Step 13 guarded pilot-only scene policy and audit", () => {
       "update discord_identities set status='inactive',is_primary=false where world_id=$1",
       [pilot.worldId],
     );
-    expect(await reconcilePilotPolicy(database.db, {
-      ...request,
-      mode: "disable",
-      testUserId: undefined,
-    })).toMatchObject({
+    expect(
+      await reconcilePilotPolicy(database.db, {
+        ...request,
+        mode: "disable",
+        testUserId: undefined,
+      }),
+    ).toMatchObject({
       previousPolicy: "mapped_players",
       policy: "disabled",
     });

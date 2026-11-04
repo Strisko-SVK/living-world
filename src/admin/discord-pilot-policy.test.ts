@@ -75,12 +75,22 @@ describe("Step 13 safe pilot scene policy CLI", () => {
 
   it("permits emergency disable without a private player env value", async () => {
     const execute = vi.fn().mockResolvedValue({
-      rows: [{ database: "other", db_role: "postgres", version: 170000, superuser: true }],
+      rows: [
+        {
+          database: "other",
+          db_role: "postgres",
+          version: 170000,
+          superuser: true,
+        },
+      ],
     });
-    const transaction = vi.fn().mockImplementation(
-      async (callback: (tx: { execute: typeof execute }) => Promise<unknown>) =>
-        callback({ execute }),
-    );
+    const transaction = vi
+      .fn()
+      .mockImplementation(
+        async (
+          callback: (tx: { execute: typeof execute }) => Promise<unknown>,
+        ) => callback({ execute }),
+      );
     const close = vi.fn().mockResolvedValue(undefined);
     const connect = vi.fn().mockReturnValue({ db: { transaction }, close });
     const missingUser = { ...env };

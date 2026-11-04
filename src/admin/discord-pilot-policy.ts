@@ -102,12 +102,11 @@ export async function reconcilePilotPolicy(
       contexts[0]!.externalChannelId !== request.route.channelId ||
       contexts[0]!.externalThreadId !== request.route.threadId
     )
-      throw new Error("Pilot scene is not the approved isolated Discord route.");
+      throw new Error(
+        "Pilot scene is not the approved isolated Discord route.",
+      );
     const context = contexts[0]!;
-    if (
-      request.mode !== "preview" &&
-      request.confirmedContextId !== context.id
-    )
+    if (request.mode !== "preview" && request.confirmedContextId !== context.id)
       throw new Error("Confirmed pilot context does not match the scene.");
 
     const mappings = await tx
@@ -204,7 +203,9 @@ export async function reconcilePilotPolicy(
       identity.entityId !== player[0]!.id ||
       identity.mappingType !== "player_character"
     )
-      throw new Error("Pilot does not have exactly one approved active player.");
+      throw new Error(
+        "Pilot does not have exactly one approved active player.",
+      );
 
     const priorInteractions = await tx
       .select({ id: interactions.id })
