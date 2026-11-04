@@ -4,7 +4,7 @@
 
 ## Goal and boundary
 
-The existing main runtime receives explicitly addressed Discord messages, validates the exact world/context/scene route, checks an explicit context intake policy and mapped player identity, resolves an NPC alias, and persists one interaction. This step verifies that path offline with a *synthetic* Discord event and real isolated PostgreSQL. It deliberately does not use Discord HTTP, Discord Gateway, network access, the operator's local sentinel world, or an LLM.
+The existing main runtime receives explicitly addressed Discord messages, validates the exact world/context/scene route, checks an explicit context intake policy and mapped player identity, resolves an NPC alias, and persists one interaction. This step verifies that path offline with a _synthetic_ Discord event and real isolated PostgreSQL. It deliberately does not use Discord HTTP, Discord Gateway, network access, the operator's local sentinel world, or an LLM.
 
 **Critical:** The previously provisioned persistent world `lw-dev-gateway-001` and NPC `Sentinel-001` are a clean Step 8 fixture: its replay validator rejects extra identities, policy history and interactions. Do **not** enable `mapped_players` or map a Discord user on that world merely to test Step 10, because its `already_present` acceptance would then fail. Step 10 tests create their own UUID-scoped synthetic world and route and clean up only those test-owned rows.
 
@@ -13,7 +13,7 @@ The existing main runtime receives explicitly addressed Discord messages, valida
 With the actual repositories and PostgreSQL schema, for one synthetic world, one scene mapped to a synthetic thread and one NPC `Sentinel` with registered alias:
 
 1. Begin with policy `disabled`, no identity binding, no interactions/outbound. A correctly shaped mention+alias message must be rejected as `unauthorized`.
-2. Create a synthetic mapping from a fake Discord author ID to the synthetic player-character entity. The same message must *still* be rejected while policy is `disabled`.
+2. Create a synthetic mapping from a fake Discord author ID to the synthetic player-character entity. The same message must _still_ be rejected while policy is `disabled`.
 3. Change this synthetic context policy to `mapped_players` through the existing operator command, including the policy audit record.
 4. A synthetic message of form `<@bot-id> [Sentinel] Report readiness.` must produce `accepted` and **exactly one** durable interaction with expected world, context, NPC, author entity, thread, provider, message ID and status `received`.
 5. Replay of the same event must produce `duplicate`, not another interaction. Reused source ID with altered content returns `event_conflict`; messages for wrong thread or lacking explicit alias are rejected.

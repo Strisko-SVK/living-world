@@ -410,9 +410,12 @@ describe("Step 10 offline Discord thread -> authorized NPC interaction", () => {
     });
 
     const approved = await runContextPolicyCommand([
-      "--world", worldId,
-      "--context", contextId,
-      "--policy", "mapped_players",
+      "--world",
+      worldId,
+      "--context",
+      contextId,
+      "--policy",
+      "mapped_players",
     ]);
     expect(approved).toMatchObject({
       worldId,
@@ -458,27 +461,41 @@ describe("Step 10 offline Discord thread -> authorized NPC interaction", () => {
 
     // Reject retargeting, wrong thread, and the absence of an explicit alias.
     expect(
-      await run({ ...message, content: "<@" + botId + "> [Sentinel] Different request." }),
+      await run({
+        ...message,
+        content: "<@" + botId + "> [Sentinel] Different request.",
+      }),
     ).toBe("event_conflict");
     expect(
-      await run({ ...message, sourceMessageId: randomUUID(), threadId: String(BigInt(location.threadId) + 10n) }),
+      await run({
+        ...message,
+        sourceMessageId: randomUUID(),
+        threadId: String(BigInt(location.threadId) + 10n),
+      }),
     ).toBe("unmapped");
     expect(
-      await run({ ...message, sourceMessageId: randomUUID(), content: "<@" + botId + "> Hello." }),
+      await run({
+        ...message,
+        sourceMessageId: randomUUID(),
+        content: "<@" + botId + "> Hello.",
+      }),
     ).toBe("invalid_trigger");
 
     const revoked = await runContextPolicyCommand([
-      "--world", worldId,
-      "--context", contextId,
-      "--policy", "disabled",
+      "--world",
+      worldId,
+      "--context",
+      contextId,
+      "--policy",
+      "disabled",
     ]);
     expect(revoked).toMatchObject({
       previousPolicy: "mapped_players",
       policy: "disabled",
     });
-    expect(
-      await run({ ...message, sourceMessageId: randomUUID() }),
-    ).toBe("unauthorized");
+    expect(await run({ ...message, sourceMessageId: randomUUID() })).toBe(
+      "unauthorized",
+    );
     expect(await dbCounts(worldId)).toMatchObject({
       identities: 1,
       interactions: 1,
@@ -492,7 +509,9 @@ describe("Step 10 offline Discord thread -> authorized NPC interaction", () => {
       [worldId],
     );
     expect(audit.rows).toHaveLength(2);
-    expect(audit.rows.map((row) => [row.previous_policy, row.target_policy])).toEqual([
+    expect(
+      audit.rows.map((row) => [row.previous_policy, row.target_policy]),
+    ).toEqual([
       ["disabled", "mapped_players"],
       ["mapped_players", "disabled"],
     ]);
