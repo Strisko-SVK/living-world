@@ -120,7 +120,7 @@ function runMigrations(environment: NodeJS.ProcessEnv): Promise<void> {
     child.once("error", reject);
     child.once("exit", (code, signal) => {
       if (code === 0) resolve();
-      else reject(new Error(`DEV migration failed (exit ${code ?? signal).`));
+      else reject(new Error(`DEV migration failed (exit ${code ?? signal}).`));
     });
   });
 }
