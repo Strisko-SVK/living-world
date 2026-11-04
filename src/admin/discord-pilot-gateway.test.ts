@@ -247,6 +247,37 @@ describe("Step 14 inbound-only pilot offline guards", () => {
     }
   });
 
+  it("drains an in-flight intake on a Gateway disconnect before returning failure", async () => {
+    const client = fakeClient();
+    let resolveIntake!: (value: string) => void;
+    const intake = vi.fn().mockImplementation(
+      () => new Promise<string>((resolve) => {
+        resolveIntake = resolve;
+      }),
+    );
+    const verifyAfter = vi.fn().mockResolvedValue(undefined);
+    const running = connectOnePilotMessage(
+      config, intake, verifyAfter, client as unknown as Client, 500,
+    );
+    await Promise.resolve();
+    client.emit(Events.ClientReady);
+    client.emit(Events.MessageCreate, message());
+    client.emit(Events.ShardDisconnect);
+    let completed = false;
+    void running.then(
+      () => { completed = true; },
+      () => { completed = true; },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    resolveIntake("accepted");
+    await expect(running).rejects.toThrow("Gateway transport failure");
+    expect(verifyAfter).toHaveBeenCalledOnce();
+    expect(client.destroy).toHaveBeenCalledOnce();
+    expect(client.listenerCount(Events.MessageCreate)).toBe(0);
+  });
+
   it("stops safely on wrong bot identity, unexpected intake outcome and timeout", async () => {
     const wrongBot = fakeClient({ user: { id: "1666666666666666666" } });
     const wrong = connectOnePilotMessage(
