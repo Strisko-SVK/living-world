@@ -66,3 +66,11 @@ Unit tests cover exact CLI confirmation, ID/route validation, blocked network/LL
 - Durable mapping-change audit records beyond the identity row status/timestamps. This is a deliberately small DEV-pilot-only tool, not a general player onboarding system or permanent allowlist.
 
 **Next gate:** code review and passing CI, owner-approved merge, then privately choose one human DEV Discord test account and run read-only preview. Local enrollment and scene policy changes require their own explicit approvals.
+
+## Local preview deprecation warning and regression guard
+
+After the first owner-run read-only preview, PostgreSQL returned the correct `pilot_player_preview` (`policy:"disabled"`, `identityStatus:"absent"`) but node-postgres emitted a deprecation warning about `client.query()` while another query was still executing. The initial Step 12 helper launched independent `Promise.all` selects inside one transaction, which shares **one physical pg client**; that concurrency is unsupported in newer `pg` releases.
+
+The follow-up patch replaces these batches with serial `await` calls **without changing any SQL conditions, row mutations, permissions, policy, or pilot identifiers**. A focused PostgreSQL integration regression wraps one dedicated checked-out pg client and rejects _any_ overlapping query during preview/enroll/revoke. Run all CI jobs before authorizing an operator-side enrollment.
+
+Once this fix is merged, repeat only the read-only `--preview` command. Expected result remains `pilot_player_preview` with `identityStatus:"absent"` and `policy:"disabled"`, but **without** the pg deprecation warning. Do not run `--enroll` until the fixed preview and a separate owner approval are confirmed.

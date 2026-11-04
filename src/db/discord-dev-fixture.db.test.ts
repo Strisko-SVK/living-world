@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { drizzle } from "drizzle-orm/node-postgres";
 
 import { createDatabaseClient } from "./client.js";
 import { createWorld } from "../domains/world/world.repository.js";
@@ -693,5 +694,77 @@ describe("Step 12 reversible pilot player enrollment (offline PostgreSQL)", () =
     ).toMatchObject({
       identityStatus: "absent",
     });
+  });
+});
+
+describe("Step 12 pg transaction serial-query regression", () => {
+  it("never overlaps pg client queries during pilot preview, enrollment or revocation", async () => {
+    const key = worldKey();
+    const location = route();
+    const pilot = await apply(key, location);
+    const userId = "1777777777777777777";
+    const client = await database.pool.connect();
+    const originalQuery = client.query;
+    let inFlight = false;
+    let executed = 0;
+
+    // Dedicated checked-out PG client: fail deterministically on concurrent
+    // queries instead of relying on pg's non-failing deprecation warning.
+    client.query = ((...args: unknown[]) => {
+      if (inFlight)
+        throw new Error("Concurrent SQL queries on one pg transaction client.");
+      inFlight = true;
+      let result: unknown;
+      try {
+        result = (originalQuery as (...params: unknown[]) => unknown).apply(
+          client,
+          args,
+        );
+      } catch (error) {
+        inFlight = false;
+        throw error;
+      }
+      executed++;
+      return Promise.resolve(result).finally(() => {
+        inFlight = false;
+      });
+    }) as typeof client.query;
+
+    try {
+      const guardedDb = drizzle({ client });
+      const run = (mode: "preview" | "enroll" | "revoke") =>
+        reconcilePilotPlayer(guardedDb, {
+          mode,
+          worldKey: key,
+          route: location,
+          userId,
+        });
+      expect(await run("preview")).toMatchObject({
+        event: "pilot_player_preview",
+        worldId: pilot.worldId,
+        identityStatus: "absent",
+        policy: "disabled",
+      });
+      expect(await run("enroll")).toMatchObject({
+        event: "pilot_player_enrolled",
+        worldId: pilot.worldId,
+        policy: "disabled",
+      });
+      expect(await run("revoke")).toMatchObject({
+        event: "pilot_player_revoked",
+        worldId: pilot.worldId,
+        policy: "disabled",
+      });
+      expect(executed).toBeGreaterThan(15);
+      expect(await dbCounts(pilot.worldId!)).toMatchObject({
+        identities: 1,
+        interactions: 0,
+        deliveries: 0,
+        presence: 0,
+      });
+    } finally {
+      client.query = originalQuery;
+      client.release();
+    }
   });
 });
