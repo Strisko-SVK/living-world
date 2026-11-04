@@ -124,8 +124,9 @@ export async function connectGatewaySmoke(
   process.once("SIGINT", onSignal);
   process.once("SIGTERM", onSignal);
   try {
-    await client.login(config.token);
-    await observed;
+    // Observe both promises immediately so early transport errors cannot
+    // become an unhandled rejection while login is still pending.
+    await Promise.all([client.login(config.token), observed]);
   } finally {
     clearTimeout(timeout);
     process.off("SIGINT", onSignal);
