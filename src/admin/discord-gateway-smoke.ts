@@ -1,10 +1,5 @@
 import { pathToFileURL } from "node:url";
-import {
-  Client,
-  Events,
-  GatewayIntentBits,
-  type Message,
-} from "discord.js";
+import { Client, Events, GatewayIntentBits, type Message } from "discord.js";
 import { validateDevFixtureEnvironment } from "./discord-dev-fixture.js";
 import { validateGatewayDevDatabaseEnv } from "./gateway-dev-db.js";
 
@@ -59,7 +54,13 @@ export function parseGatewaySmokeMode(
 export function matchesGatewaySmokeTarget(
   message: Pick<
     Message,
-    "partial" | "author" | "webhookId" | "system" | "guildId" | "channelId" | "channel"
+    | "partial"
+    | "author"
+    | "webhookId"
+    | "system"
+    | "guildId"
+    | "channelId"
+    | "channel"
   >,
   config: Pick<GatewaySmokeConfig, "guildId" | "parentId" | "threadId">,
 ): boolean {

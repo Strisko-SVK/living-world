@@ -74,7 +74,9 @@ describe("Gateway smoke fail-closed preflight", () => {
       { DATABASE_URL: env.DATABASE_URL.replace("55432", "5432") },
       { DATABASE_URL: env.DATABASE_URL.replace("gateway_dev", "production") },
     ]) {
-      expect(() => validateGatewaySmokeConfig({ ...env, ...override })).toThrow();
+      expect(() =>
+        validateGatewaySmokeConfig({ ...env, ...override }),
+      ).toThrow();
     }
   });
 
@@ -143,9 +145,14 @@ describe("Gateway smoke transport lifecycle (offline fake)", () => {
         JSON.stringify({ event: "gateway_smoke_target_message" }),
         JSON.stringify({ event: "gateway_smoke_stopped" }),
       ]);
-      expect(JSON.stringify(log.mock.calls)).not.toContain("Sensitive test content");
+      expect(JSON.stringify(log.mock.calls)).not.toContain(
+        "Sensitive test content",
+      );
       expect(JSON.stringify(log.mock.calls)).not.toContain(token);
-      expect((targetMessage.channel as unknown as { send: ReturnType<typeof vi.fn> }).send).not.toHaveBeenCalled();
+      expect(
+        (targetMessage.channel as unknown as { send: ReturnType<typeof vi.fn> })
+          .send,
+      ).not.toHaveBeenCalled();
       expect(client.listenerCount(Events.MessageCreate)).toBe(0);
     } finally {
       log.mockRestore();
