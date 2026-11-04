@@ -1029,14 +1029,43 @@ describe("Step 14 bounded inbound-only Gateway acceptance (offline real PG17)", 
     const normalized = pickPilotInboundMessage(fake, config);
     expect(normalized).not.toBeNull();
     const intake = createDiscordIntake(createDiscordPersistence(database.db));
-    expect(await intake(normalized, botId)).toBe("accepted");
-    await verifyPilotInboundDatabase(
-      database.db,
-      config,
-      "after",
-      sourceMessageId,
-    );
-    expect(await intake(normalized, botId)).toBe("duplicate");
+    // Guard one checked-out pg client. Any Promise.all over queries inside
+    // the intake transaction must fail deterministically, not just warn.
+    const pgClient = await database.pool.connect();
+    const originalQuery = pgClient.query;
+    let inFlight = false;
+    let executed = 0;
+    pgClient.query = ((...args: unknown[]) => {
+      if (inFlight)
+        throw new Error("Concurrent queries on one pilot intake pg client.");
+      inFlight = true;
+      let result: unknown;
+      try {
+        result = (originalQuery as (...params: unknown[]) => unknown).apply(
+          pgClient,
+          args,
+        );
+      } catch (error) {
+        inFlight = false;
+        throw error;
+      }
+      executed++;
+      return Promise.resolve(result).finally(() => {
+        inFlight = false;
+      });
+    }) as typeof pgClient.query;
+    try {
+      const guardedDb = drizzle({ client: pgClient });
+      const guardedIntake = createDiscordIntake(
+        createDiscordPersistence(guardedDb),
+      );
+      expect(await guardedIntake(normalized, botId)).toBe("accepted");
+      expect(await guardedIntake(normalized, botId)).toBe("duplicate");
+      expect(executed).toBeGreaterThan(15);
+    } finally {
+      pgClient.query = originalQuery;
+      pgClient.release();
+    }
     await verifyPilotInboundDatabase(
       database.db,
       config,
