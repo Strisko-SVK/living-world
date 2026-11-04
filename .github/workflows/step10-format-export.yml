@@ -1,0 +1,27 @@
+name: Temporary Step10 Formatter
+on:
+  push:
+    branches: [test/step10-offline-discord-intake]
+    paths: [.github/workflows/step10-format-export.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.17.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - run: pnpm install --frozen-lockfile
+      - name: Format Step10 new test and runbook (synthetic identifiers only)
+        run: |
+          for f in src/db/discord-dev-fixture.db.test.ts docs/step10-offline-intake.md; do
+            pnpm exec prettier --write "$f"
+            printf '\n__LW_STEP10_FMT_BEGIN__:%s\n' "$f"
+            cat "$f"
+            printf '\n__LW_STEP10_FMT_END__:%s\n' "$f"
+          done
