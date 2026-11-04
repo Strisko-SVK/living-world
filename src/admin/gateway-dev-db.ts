@@ -15,9 +15,9 @@ export function renderGatewayDevConfig(adminPassword: string, rolePassword: stri
     throw new Error("DEV passwords must be long hex strings.");
   return [
     "# Local-only secrets. Never copy to Git, Notion, chat or CI logs.",
-    `LW_GATEWAY_DEV_ADMIN_PASSWORD=${adminPassword`,
-    `LW_GATEWAY_DEV_ROLE_PASSWORD=${rolePassword`,
-    `DATABASE_URL=postgresql://${dbUser:${rolePassword@127.0.0.1:${dbPort/${dbName`,
+    `LW_GATEWAY_DEV_ADMIN_PASSWORD=${adminPassword}`,
+    `LW_GATEWAY_DEV_ROLE_PASSWORD=${rolePassword}`,
+    `DATABASE_URL=postgresql://${dbUser}:${rolePassword}@127.0.0.1:${dbPort}/${dbName}`,
     "DISCORD_ENABLED=false",
     "DISCORD_OUTBOUND_ENABLED=false",
     "LLM_PROVIDER=disabled",
@@ -67,7 +67,7 @@ export function validateGatewayDevDatabaseEnv(environment: NodeJS.ProcessEnv): v
     url.protocol !== "postgresql:" ||
     url.hostname !== "127.0.0.1" ||
     url.port !== dbPort ||
-    url.pathname !== `/${dbName` ||
+    url.pathname !== `/${dbName}` ||
     decodeURIComponent(url.username) !== dbUser ||
     decodeURIComponent(url.password) !== rolePassword ||
     url.search !== "" ||
@@ -129,7 +129,7 @@ async function main(args: readonly string[]): Promise<void> {
   if (args.length !== 1) throw new Error("Use init, check or migrate.");
   if (args[0] === "init") {
     await writeGatewayDevConfig();
-    console.info(`Created ${gatewayDevConfigPath. Keep secrets private and fill route IDs locally.`);
+    console.info(`Created ${gatewayDevConfigPath}. Keep secrets private and fill route IDs locally.`);
     return;
   }
   if (args[0] !== "check" && args[0] !== "migrate")
