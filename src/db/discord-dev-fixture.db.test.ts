@@ -8,6 +8,7 @@ import { createDiscordPersistence } from "../adapters/discord/persistence.js";
 import { createDiscordIntake } from "../intake/discord-intake.js";
 import { mapDiscordUserToEntity } from "../domains/discord-mapping/discord-mapping.repository.js";
 import { runContextPolicyCommand } from "../admin/context-intake-policy.js";
+import { reconcilePilotPlayer } from "../admin/discord-pilot-player.js";
 import {
   provisionDevFixture,
   type DevFixtureRoute,
@@ -565,5 +566,132 @@ describe("Step 11 strict fixture coexistence across independent DEV parents", ()
     expect(
       await provisionDevFixture(database.db, original, false, originalKey),
     ).toEqual({ ...base, status: "already_present" });
+  });
+});
+
+describe("Step 12 reversible pilot player enrollment (offline PostgreSQL)", () => {
+  it("enrolls only in a separate default-deny pilot, is idempotent, and revokes without touching the pristine baseline", async () => {
+    const baseKey = worldKey();
+    const pilotKey = worldKey();
+    const original = route();
+    const pilotRoute = {
+      guildId: original.guildId,
+      channelId: String(BigInt(original.channelId) + 100n),
+      threadId: String(BigInt(original.threadId) + 101n),
+    };
+    const base = await apply(baseKey, original);
+    const pilot = await apply(pilotKey, pilotRoute);
+    const userId = "1888888888888888888";
+    const request = { worldKey: pilotKey, route: pilotRoute, userId };
+    const run = (mode: "preview" | "enroll" | "revoke") =>
+      reconcilePilotPlayer(database.db, { ...request, mode });
+
+    const originalCounts = await dbCounts(base.worldId!);
+    expect(await run("preview")).toMatchObject({
+      event: "pilot_player_preview",
+      worldId: pilot.worldId,
+      contextId: pilot.contextId,
+      identityStatus: "absent",
+      policy: "disabled",
+    });
+    expect(await dbCounts(pilot.worldId!)).toMatchObject({
+      identities: 0,
+      interactions: 0,
+      deliveries: 0,
+      presence: 0,
+    });
+
+    const enrolled = await run("enroll");
+    expect(enrolled).toMatchObject({
+      event: "pilot_player_enrolled",
+      worldId: pilot.worldId,
+      policy: "disabled",
+    });
+    expect(await run("enroll")).toMatchObject({
+      event: "pilot_player_already_enrolled",
+    });
+    expect(await run("preview")).toMatchObject({
+      identityStatus: "active",
+      policy: "disabled",
+    });
+    expect(await dbCounts(pilot.worldId!)).toMatchObject({
+      identities: 1,
+      interactions: 0,
+      deliveries: 0,
+      presence: 0,
+    });
+
+    const incoming = {
+      sourceMessageId: randomUUID(),
+      authorId: userId,
+      guildId: pilotRoute.guildId,
+      channelId: pilotRoute.channelId,
+      threadId: pilotRoute.threadId,
+      content: "<@1234567890123456789> [Sentinel] Hello.",
+      mentionedUserIds: ["1234567890123456789"],
+    };
+    const intake = createDiscordIntake(createDiscordPersistence(database.db));
+    expect(await intake(incoming, "1234567890123456789")).toBe("unauthorized");
+    expect(await dbCounts(pilot.worldId!)).toMatchObject({
+      interactions: 0,
+      deliveries: 0,
+    });
+
+    expect(await run("revoke")).toMatchObject({
+      event: "pilot_player_revoked",
+      policy: "disabled",
+    });
+    expect(await run("revoke")).toMatchObject({
+      event: "pilot_player_already_revoked",
+    });
+    expect(await run("preview")).toMatchObject({
+      identityStatus: "inactive",
+    });
+    await expect(run("enroll")).rejects.toThrow("manual review");
+    expect(await dbCounts(pilot.worldId!)).toMatchObject({
+      identities: 1,
+      interactions: 0,
+      deliveries: 0,
+    });
+
+    expect(
+      await provisionDevFixture(database.db, original, false, baseKey),
+    ).toEqual({ ...base, status: "already_present" });
+    expect(await dbCounts(base.worldId!)).toEqual(originalCounts);
+  });
+
+  it("rejects wrong route or unrecognized identity without changing a pristine world", async () => {
+    const key = worldKey();
+    const location = route();
+    const pilot = await apply(key, location);
+    const userId = "1888888888888888888";
+    const request = {
+      worldKey: key,
+      route: location,
+      userId,
+      mode: "enroll" as const,
+    };
+    await expect(
+      reconcilePilotPlayer(database.db, {
+        ...request,
+        route: {
+          ...location,
+          threadId: String(BigInt(location.threadId) + 5n),
+        },
+      }),
+    ).rejects.toThrow("scene");
+    expect(await dbCounts(pilot.worldId!)).toMatchObject({
+      identities: 0,
+      interactions: 0,
+      deliveries: 0,
+    });
+    expect(
+      await reconcilePilotPlayer(database.db, {
+        ...request,
+        mode: "preview",
+      }),
+    ).toMatchObject({
+      identityStatus: "absent",
+    });
   });
 });
