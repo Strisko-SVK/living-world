@@ -1,0 +1,27 @@
+name: Temporary DEV fixture CLI test formatter
+on:
+  push:
+    branches:
+      - feat/discord-dev-offline-fixture
+    paths:
+      - .github/workflows/dev-fixture-format-export.yml
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.17.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - run: pnpm install --frozen-lockfile
+      - name: Format CLI test and display source
+        run: |
+          pnpm exec prettier --write src/db/discord-dev-fixture-cli.db.test.ts
+          echo '__LW_FORMAT_BEGIN__'
+          cat src/db/discord-dev-fixture-cli.db.test.ts
+          echo '__LW_FORMAT_END__'
