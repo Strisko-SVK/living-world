@@ -31,7 +31,9 @@ export function validatePilotFixtureEnvironment(
     channelId === original.threadId ||
     threadId === original.threadId
   )
-    throw new Error("Pilot route must be distinct from the pristine DEV route.");
+    throw new Error(
+      "Pilot route must be distinct from the pristine DEV route.",
+    );
 
   // The pilot must stay in the existing private DEV guild, not an arbitrary
   // guild supplied by the operator or an untrusted Discord event.
@@ -44,9 +46,7 @@ export function validatePilotFixtureEnvironment(
   return { guildId: original.guildId, channelId, threadId };
 }
 
-export function parsePilotFixtureArguments(
-  args: readonly string[],
-): boolean {
+export function parsePilotFixtureArguments(args: readonly string[]): boolean {
   if (args.length === 0 || (args.length === 1 && args[0] === "--preview"))
     return false;
   if (
@@ -58,7 +58,9 @@ export function parsePilotFixtureArguments(
     args[4] === databaseName
   )
     return true;
-  throw new Error("Pilot apply requires exact world and database confirmation.");
+  throw new Error(
+    "Pilot apply requires exact world and database confirmation.",
+  );
 }
 
 export async function runPilotFixtureCommand(

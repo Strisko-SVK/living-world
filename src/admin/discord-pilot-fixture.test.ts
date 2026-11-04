@@ -57,7 +57,9 @@ describe("Step 11 isolated pilot fixture preflight", () => {
       { LLM_PROVIDER: "openai" },
       { NODE_ENV: "production" },
       { DATABASE_URL: valid.DATABASE_URL?.replace("55432", "5432") },
-      { DATABASE_URL: valid.DATABASE_URL?.replace("gateway_dev", "production") },
+      {
+        DATABASE_URL: valid.DATABASE_URL?.replace("gateway_dev", "production"),
+      },
       { LW_GATEWAY_DEV_ROLE_PASSWORD: "wrong" },
     ]) {
       expect(() =>
@@ -80,8 +82,20 @@ describe("Step 11 isolated pilot fixture preflight", () => {
     ).toBe(true);
     for (const args of [
       ["--apply"],
-      ["--apply", "--confirm-world", "lw-dev-gateway-001", "--confirm-database", "living_world_gateway_dev"],
-      ["--apply", "--confirm-world", pilotWorldKey, "--confirm-database", "living_world"],
+      [
+        "--apply",
+        "--confirm-world",
+        "lw-dev-gateway-001",
+        "--confirm-database",
+        "living_world_gateway_dev",
+      ],
+      [
+        "--apply",
+        "--confirm-world",
+        pilotWorldKey,
+        "--confirm-database",
+        "living_world",
+      ],
       ["--delete"],
     ]) {
       expect(() => parsePilotFixtureArguments(args)).toThrow();
@@ -107,9 +121,11 @@ describe("Step 11 isolated pilot fixture preflight", () => {
       status: "would_create",
       worldKey: pilotWorldKey,
     });
-    const transaction = vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
-      fn({ execute, transaction: innerTransaction }),
-    );
+    const transaction = vi
+      .fn()
+      .mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn({ execute, transaction: innerTransaction }),
+      );
     const connect = vi.fn().mockReturnValue({ db: { transaction }, close });
     await expect(
       runPilotFixtureCommand(
@@ -140,9 +156,11 @@ describe("Step 11 isolated pilot fixture preflight", () => {
         ],
       });
     const innerTransaction = vi.fn();
-    const transaction = vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
-      fn({ execute, transaction: innerTransaction }),
-    );
+    const transaction = vi
+      .fn()
+      .mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn({ execute, transaction: innerTransaction }),
+      );
     const close = vi.fn().mockResolvedValue(undefined);
     const connect = vi.fn().mockReturnValue({ db: { transaction }, close });
     await expect(

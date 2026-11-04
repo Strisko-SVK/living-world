@@ -13,7 +13,7 @@ The new pilot world key is `lw-dev-pilot-001`. It reuses the existing tested `pr
 - Create `#rp-pilot-scene` as a new private text parent channel in Living World DEV, plus a dedicated thread within it. Do not reuse the Step 8 parent, thread, or any production guild. Prefer a dedicated private category with no untrusted members.
 - Keep the bot offline while provisioning the channel. Initially only the owner and authorized DEV DM should have access. Verify the effective bot role permissions before any future inbound test: **View Channel** and access to test thread, but no Administrator, send, manage, webhook or cross-channel permissions. Never grant access to `#dev-control`.
 - Record **only nonsecret** IDs in the private project handoff; never paste bot token, `.env`, passwords or real RP content.
-- The user account used for a later *live* player mapping is a separate approval; do not add `discord_identities`, change `npc_intake_policy` or run the normal runtime as part of this provisioning.
+- The user account used for a later _live_ player mapping is a separate approval; do not add `discord_identities`, change `npc_intake_policy` or run the normal runtime as part of this provisioning.
 
 ## Operator preflight (after code is reviewed/merged; separate approval before apply)
 
