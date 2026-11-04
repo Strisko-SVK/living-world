@@ -133,7 +133,8 @@ describe("Gateway smoke transport lifecycle (offline fake)", () => {
         Events.MessageCreate,
         message({ channelId: "1666666666666666666" }),
       );
-      client.emit(Events.MessageCreate, message());
+      const targetMessage = message();
+      client.emit(Events.MessageCreate, targetMessage);
       await running;
       expect(client.login).toHaveBeenCalledWith(token);
       expect(client.destroy).toHaveBeenCalledOnce();
@@ -144,7 +145,7 @@ describe("Gateway smoke transport lifecycle (offline fake)", () => {
       ]);
       expect(JSON.stringify(log.mock.calls)).not.toContain("Sensitive test content");
       expect(JSON.stringify(log.mock.calls)).not.toContain(token);
-      expect((message().channel as { send: ReturnType<typeof vi.fn> }).send).not.toHaveBeenCalled();
+      expect((targetMessage.channel as unknown as { send: ReturnType<typeof vi.fn> }).send).not.toHaveBeenCalled();
       expect(client.listenerCount(Events.MessageCreate)).toBe(0);
     } finally {
       log.mockRestore();
