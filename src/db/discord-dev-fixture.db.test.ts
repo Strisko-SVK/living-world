@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ChannelType, MessageType, type Message } from "discord.js";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { drizzle } from "drizzle-orm/node-postgres";
 
@@ -11,6 +12,7 @@ import { mapDiscordUserToEntity } from "../domains/discord-mapping/discord-mappi
 import { runContextPolicyCommand } from "../admin/context-intake-policy.js";
 import { reconcilePilotPlayer } from "../admin/discord-pilot-player.js";
 import { reconcilePilotPolicy } from "../admin/discord-pilot-policy.js";
+import { pickPilotInboundMessage, verifyPilotInboundDatabase } from "../admin/discord-pilot-gateway.js";
 import {
   provisionDevFixture,
   type DevFixtureRoute,
@@ -943,6 +945,105 @@ describe("Step 13 guarded pilot-only scene policy and audit", () => {
       identities: 1,
       interactions: 0,
       deliveries: 0,
+    });
+  });
+});
+
+
+describe("Step 14 bounded inbound-only Gateway acceptance (offline real PG17)", () => {
+  it("persists exactly one synthetic direct-mention event and verifies no delivery, response or original-world drift", async () => {
+    const originalKey = worldKey();
+    const pilotKey = worldKey();
+    const baselineRoute = route();
+    const pilotRoute = {
+      guildId: baselineRoute.guildId,
+      channelId: String(BigInt(baselineRoute.channelId) + 100n),
+      threadId: String(BigInt(baselineRoute.threadId) + 101n),
+    };
+    const original = await apply(originalKey, baselineRoute);
+    const pristineCounts = await dbCounts(original.worldId!);
+    const pilot = await apply(pilotKey, pilotRoute);
+    const botId = "1234567890123456789";
+    const userId = "1777777777777777777";
+    const mapped = await reconcilePilotPlayer(database.db, {
+      worldKey: pilotKey, route: pilotRoute, userId, mode: "enroll",
+    });
+    expect(mapped).toMatchObject({ event: "pilot_player_enrolled", policy: "disabled" });
+    if (!("mappingId" in mapped)) throw new Error("Pilot mapping missing");
+    const policy = await reconcilePilotPolicy(database.db, {
+      worldKey: pilotKey, route: pilotRoute,
+      mode: "enable", confirmedContextId: pilot.contextId, testUserId: userId,
+    });
+    expect(policy).toMatchObject({ policy: "mapped_players" });
+    if (!("auditId" in policy)) throw new Error("Pilot policy audit missing");
+    const scope = {
+      worldKey: pilotKey,
+      worldId: pilot.worldId!,
+      contextId: pilot.contextId!,
+      npcId: pilot.npcId!,
+      playerMappingId: mapped.mappingId,
+      policyAuditId: policy.auditId,
+      originalWorldId: original.worldId!,
+    };
+    const config = {
+      scope, botId, playerId: userId, token: "offline-no-real-token",
+      guildId: pilotRoute.guildId,
+      parentId: pilotRoute.channelId,
+      threadId: pilotRoute.threadId,
+    };
+
+    await verifyPilotInboundDatabase(database.db, config, "before");
+    const sourceMessageId = "1888888888888888888";
+    const text = "<@" + botId + "> [Sentinel] Report readiness.";
+    const fake = {
+      partial: false, author: { id: userId, bot: false },
+      webhookId: null, system: false,
+      id: sourceMessageId, guildId: pilotRoute.guildId,
+      channelId: pilotRoute.threadId, content: text,
+      type: MessageType.Default,
+      channel: {
+        type: ChannelType.PublicThread,
+        isThread: () => true,
+        parentId: pilotRoute.channelId,
+      },
+      mentions: { users: new Map([[botId, { id: botId }]]) },
+    } as unknown as Message;
+    const normalized = pickPilotInboundMessage(fake, config);
+    expect(normalized).not.toBeNull();
+    const intake = createDiscordIntake(createDiscordPersistence(database.db));
+    expect(await intake(normalized, botId)).toBe("accepted");
+    await verifyPilotInboundDatabase(database.db, config, "after", sourceMessageId);
+    expect(await intake(normalized, botId)).toBe("duplicate");
+    await verifyPilotInboundDatabase(database.db, config, "after", sourceMessageId);
+    await expect(
+      verifyPilotInboundDatabase(database.db, config, "before"),
+    ).rejects.toThrow("already used");
+    await expect(
+      verifyPilotInboundDatabase(database.db, config, "after", "1999999999999999999"),
+    ).rejects.toThrow("one inert");
+    expect(await dbCounts(pilot.worldId!)).toMatchObject({
+      identities: 1, interactions: 1, deliveries: 0, presence: 0,
+    });
+    expect(await dbCounts(original.worldId!)).toEqual(pristineCounts);
+    expect(
+      await provisionDevFixture(database.db, baselineRoute, false, originalKey),
+    ).toEqual({ ...original, status: "already_present" });
+
+    const disabled = await reconcilePilotPolicy(database.db, {
+      worldKey: pilotKey, route: pilotRoute,
+      mode: "disable", confirmedContextId: pilot.contextId,
+    });
+    expect(disabled).toMatchObject({
+      previousPolicy: "mapped_players", policy: "disabled",
+    });
+    await expect(
+      verifyPilotInboundDatabase(database.db, config, "before"),
+    ).rejects.toThrow("not approved");
+    expect(await intake({
+      ...normalized!, sourceMessageId: "1999999999999999999",
+    }, botId)).toBe("unauthorized");
+    expect(await dbCounts(pilot.worldId!)).toMatchObject({
+      identities: 1, interactions: 1, deliveries: 0, presence: 0,
     });
   });
 });
