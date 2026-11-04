@@ -280,4 +280,70 @@ describe("offline synthetic Discord DEV world fixture", () => {
     );
     expect(result.rows).toHaveLength(0);
   });
+
+  it("rejects NPC state drift even without a version increment", async () => {
+    const key = worldKey();
+    const location = route();
+    const first = await apply(key, location);
+    await database.pool.query(
+      "update npc_state set physical_state = $2::jsonb where npc_id = $1",
+      [first.npcId, JSON.stringify({ summary: "unexpected" })],
+    );
+    await expect(
+      provisionDevFixture(database.db, location, true, key),
+    ).rejects.toThrow("conflicts");
+    expect(await dbCounts(first.worldId!)).toMatchObject({
+      entities: 3,
+      contexts: 1,
+      routes: 1,
+    });
+  });
+
+  it("rejects unexpected context metadata or a game profile", async () => {
+    const key = worldKey();
+    const location = route();
+    const first = await apply(key, location);
+    await database.pool.query(
+      "update interaction_contexts set metadata = $2::jsonb where id = $1",
+      [first.contextId, JSON.stringify({ unexpected: true })],
+    );
+    await expect(
+      provisionDevFixture(database.db, location, true, key),
+    ).rejects.toThrow("conflicts");
+    await database.pool.query(
+      "update interaction_contexts set metadata = null where id = $1",
+      [first.contextId],
+    );
+    await database.pool.query(
+      "insert into npc_game_profiles (npc_id, game_system, stat_depth) values ($1, 'test', 0)",
+      [first.npcId],
+    );
+    await expect(
+      provisionDevFixture(database.db, location, true, key),
+    ).rejects.toThrow("conflicts");
+  });
+
+  it("rejects added capabilities and reverted policy history", async () => {
+    const key = worldKey();
+    const location = route();
+    const first = await apply(key, location);
+    await database.pool.query(
+      "insert into npc_capabilities (npc_id, capability_key, level, source, confidence) values ($1, 'unexpected', 'basic', 'manual', 0.5)",
+      [first.npcId],
+    );
+    await expect(
+      provisionDevFixture(database.db, location, true, key),
+    ).rejects.toThrow("conflicts");
+    await database.pool.query(
+      "delete from npc_capabilities where npc_id = $1",
+      [first.npcId],
+    );
+    await database.pool.query(
+      "insert into context_intake_policy_audit (id, world_id, context_id, previous_policy, target_policy) values ($1, $2, $3, 'disabled', 'mapped_players')",
+      [randomUUID(), first.worldId, first.contextId],
+    );
+    await expect(
+      provisionDevFixture(database.db, location, true, key),
+    ).rejects.toThrow("conflicts");
+  });
 });

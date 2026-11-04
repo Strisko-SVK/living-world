@@ -10,6 +10,9 @@ import { interactionContexts } from "../db/schema/interaction-contexts.js";
 import { discordContextMappings } from "../db/schema/discord-context-mappings.js";
 import { discordIdentities } from "../db/schema/discord-identities.js";
 import { localPresence } from "../db/schema/local-presence.js";
+import { contextIntakePolicyAudit } from "../db/schema/context-intake-policy-audit.js";
+import { npcCapabilities } from "../db/schema/npc-capabilities.js";
+import { npcGameProfiles } from "../db/schema/npc-game-profiles.js";
 import { interactions } from "../db/schema/interactions.js";
 import { responseDeliveries } from "../db/schema/response-deliveries.js";
 import { createWorld } from "../domains/world/world.repository.js";
@@ -245,7 +248,11 @@ export async function provisionDevFixture(
       npc.state.version !== 1 ||
       npc.state.currentLocationId !== null ||
       npc.state.locationCertainty !== "unknown" ||
-      !isDeepStrictEqual(npc.npc.baselineProfile, baselineProfile)
+      !isDeepStrictEqual(npc.npc.baselineProfile, baselineProfile) ||
+      !isDeepStrictEqual(npc.state.physicalState, {}) ||
+      !isDeepStrictEqual(npc.state.emotionalState, {}) ||
+      !isDeepStrictEqual(npc.state.materialState, {}) ||
+      !isDeepStrictEqual(npc.state.availabilityState, {})
     )
       conflict();
     const aliases = await tx
@@ -260,6 +267,27 @@ export async function provisionDevFixture(
       aliases[0]!.alias.normalizedAlias !== normalizeAlias(npcAlias)
     )
       conflict();
+    // Reject unexpected capabilities or game-system data on the synthetic NPC.
+    if (
+      (
+        await tx
+          .select({ npcId: npcGameProfiles.npcId })
+          .from(npcGameProfiles)
+          .where(eq(npcGameProfiles.npcId, npcEntity.id))
+          .limit(1)
+      ).length
+    )
+      conflict();
+    if (
+      (
+        await tx
+          .select({ npcId: npcCapabilities.npcId })
+          .from(npcCapabilities)
+          .where(eq(npcCapabilities.npcId, npcEntity.id))
+          .limit(1)
+      ).length
+    )
+      conflict();
     const contexts = await tx
       .select()
       .from(interactionContexts)
@@ -270,6 +298,7 @@ export async function provisionDevFixture(
       context.contextType !== "scene" ||
       context.status !== "active" ||
       context.npcIntakePolicy !== "disabled" ||
+      context.metadata !== null ||
       context.linkedLocationEntityId !== location.id ||
       context.externalProvider !== "discord" ||
       context.externalGuildId !== route.guildId ||
@@ -290,6 +319,17 @@ export async function provisionDevFixture(
       mappings[0]!.mappingType !== "scene" ||
       mappings[0]!.status !== "active" ||
       mappings[0]!.npcId !== null
+    )
+      conflict();
+    // A reverted policy change is not a pristine, default-deny fixture.
+    if (
+      (
+        await tx
+          .select({ id: contextIntakePolicyAudit.id })
+          .from(contextIntakePolicyAudit)
+          .where(eq(contextIntakePolicyAudit.worldId, world.id))
+          .limit(1)
+      ).length
     )
       conflict();
     if (
@@ -352,28 +392,26 @@ export async function runDevFixtureCommand(
   const route = validateDevFixtureEnvironment(environment);
   const client = connect(environment);
   try {
-    // Recheck the actual DB and restricted role, including local Docker instances.
-    const identity = await client.pool.query<{
-      database: string;
-      db_role: string;
-      superuser: boolean;
-      version: number;
-    }>(
-      "select current_database() as database, current_user as db_role, " +
-        "current_setting('server_version_num')::int as version, " +
-        "(select rolsuper from pg_roles where rolname=current_user) as superuser",
-    );
-    const row = identity.rows[0];
-    if (
-      !row ||
-      row.database !== devDbName ||
-      row.version < 170000 ||
-      row.version >= 180000 ||
-      row.db_role !== "lw_gateway_dev" ||
-      row.superuser !== false
-    )
-      throw new Error("DEV fixture database identity is not approved.");
-    return await provisionDevFixture(client.db, route, apply);
+    // Identity and provisioning must share the same PostgreSQL transaction:
+    // a separate pool.query() might check a different backend connection.
+    return await client.db.transaction(async (tx) => {
+      const identity = await tx.execute(sql`
+        select current_database() as database, current_user as db_role,
+          current_setting('server_version_num')::int as version,
+          (select rolsuper from pg_roles where rolname=current_user) as superuser
+      `);
+      const row = identity.rows[0];
+      if (
+        !row ||
+        row.database !== devDbName ||
+        row.version < 170000 ||
+        row.version >= 180000 ||
+        row.db_role !== "lw_gateway_dev" ||
+        row.superuser !== false
+      )
+        throw new Error("DEV fixture database identity is not approved.");
+      return provisionDevFixture(tx, route, apply);
+    });
   } finally {
     await client.close();
   }

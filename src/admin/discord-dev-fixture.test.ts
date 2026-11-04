@@ -81,7 +81,7 @@ describe("offline Discord DEV fixture guards", () => {
   });
   it("rejects an unexpected or privileged database role before provisioning", async () => {
     const close = vi.fn().mockResolvedValue(undefined);
-    const query = vi.fn().mockResolvedValue({
+    const execute = vi.fn().mockResolvedValue({
       rows: [
         {
           database: "living_world_gateway_dev",
@@ -91,9 +91,16 @@ describe("offline Discord DEV fixture guards", () => {
         },
       ],
     });
-    const transaction = vi.fn();
+    const innerTransaction = vi.fn();
+    const transaction = vi.fn().mockImplementation(
+      async (
+        callback: (tx: {
+          execute: typeof execute;
+          transaction: typeof innerTransaction;
+        }) => Promise<unknown>,
+      ) => callback({ execute, transaction: innerTransaction }),
+    );
     const connect = vi.fn().mockReturnValue({
-      pool: { query },
       db: { transaction },
       close,
     });
@@ -104,7 +111,48 @@ describe("offline Discord DEV fixture guards", () => {
         connect as unknown as Parameters<typeof runDevFixtureCommand>[2],
       ),
     ).rejects.toThrow("database identity is not approved");
-    expect(transaction).not.toHaveBeenCalled();
+    expect(transaction).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledOnce();
+    expect(innerTransaction).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+
+  it("checks an approved role within the same transaction as provisioning", async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    const execute = vi.fn().mockResolvedValue({
+      rows: [
+        {
+          database: "living_world_gateway_dev",
+          db_role: "lw_gateway_dev",
+          superuser: false,
+          version: 170003,
+        },
+      ],
+    });
+    const innerTransaction = vi.fn().mockResolvedValue({
+      status: "would_create",
+      worldKey: devWorldKey,
+    });
+    const transaction = vi.fn().mockImplementation(
+      async (
+        callback: (tx: {
+          execute: typeof execute;
+          transaction: typeof innerTransaction;
+        }) => Promise<unknown>,
+      ) => callback({ execute, transaction: innerTransaction }),
+    );
+    const connect = vi.fn().mockReturnValue({ db: { transaction }, close });
+    await expect(
+      runDevFixtureCommand(
+        [],
+        valid,
+        connect as unknown as Parameters<typeof runDevFixtureCommand>[2],
+      ),
+    ).resolves.toEqual({ status: "would_create", worldKey: devWorldKey });
+    expect(transaction).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledOnce();
+    expect(innerTransaction).toHaveBeenCalledOnce();
     expect(close).toHaveBeenCalledOnce();
   });
 });
