@@ -15,7 +15,11 @@ services:
       - gateway_dev_data:/var/lib/postgresql/data
       - ./infra/gateway-dev/01-init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "psql -U postgres -d living_world_gateway_dev -Atqc 'select 1' >/dev/null 2>&1"]
+      test:
+        [
+          "CMD-SHELL",
+          "psql -U postgres -d living_world_gateway_dev -Atqc 'select 1' >/dev/null 2>&1",
+        ]
       interval: 5s
       timeout: 5s
       retries: 15
@@ -23,3 +27,4 @@ services:
 
 volumes:
   gateway_dev_data:
+

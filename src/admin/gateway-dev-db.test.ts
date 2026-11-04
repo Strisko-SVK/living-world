@@ -52,37 +52,55 @@ describe("isolated DEV database setup safety", () => {
   it("requires exactly the expected loopback endpoint and disabled modes", () => {
     expect(() => validateGatewayDevDatabaseEnv(valid)).not.toThrow();
     for (const override of [
-      { DATABASE_URL: valid.DATABASE_URL.replace("127.0.0.1", "remote.example.com") },
+      {
+        DATABASE_URL: valid.DATABASE_URL.replace(
+          "127.0.0.1",
+          "remote.example.com",
+        ),
+      },
       { DATABASE_URL: valid.DATABASE_URL.replace("55432", "5432") },
-      { DATABASE_URL: valid.DATABASE_URL.replace("living_world_gateway_dev", "living_world") },
-      { DATABASE_URL: valid.DATABASE_URL.replace("lw_gateway_dev", "postgres") },
+      {
+        DATABASE_URL: valid.DATABASE_URL.replace(
+          "living_world_gateway_dev",
+          "living_world",
+        ),
+      },
+      {
+        DATABASE_URL: valid.DATABASE_URL.replace("lw_gateway_dev", "postgres"),
+      },
       { DATABASE_URL: valid.DATABASE_URL.replace(rolePassword, "different") },
       { DISCORD_ENABLED: "true" },
       { DISCORD_OUTBOUND_ENABLED: "true" },
       { LLM_PROVIDER: "openai" },
       { NODE_ENV: "production" },
     ]) {
-      expect(() => validateGatewayDevDatabaseEnv({ ...valid, ...override })).toThrow();
+      expect(() =>
+        validateGatewayDevDatabaseEnv({ ...valid, ...override }),
+      ).toThrow();
     }
   });
 
   it("rejects privileged database roles before migrations", async () => {
     const close = vi.fn().mockResolvedValue(undefined);
     const execute = vi.fn().mockResolvedValue({
-      rows: [{
-        database: "living_world_gateway_dev",
-        db_role: "lw_gateway_dev",
-        db_owner: "lw_gateway_dev",
-        version: 170008,
-        superuser: false,
-        createdb: true,
-        createrole: false,
-      }],
+      rows: [
+        {
+          database: "living_world_gateway_dev",
+          db_role: "lw_gateway_dev",
+          db_owner: "lw_gateway_dev",
+          version: 170008,
+          superuser: false,
+          createdb: true,
+          createrole: false,
+        },
+      ],
     });
-    const transaction = vi.fn().mockImplementation(
-      async (callback: (tx: { execute: typeof execute }) => Promise<void>) =>
-        callback({ execute }),
-    );
+    const transaction = vi
+      .fn()
+      .mockImplementation(
+        async (callback: (tx: { execute: typeof execute }) => Promise<void>) =>
+          callback({ execute }),
+      );
     const connect = vi.fn().mockReturnValue({ db: { transaction }, close });
     await expect(
       verifyGatewayDevDatabase(
@@ -94,3 +112,4 @@ describe("isolated DEV database setup safety", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 });
+

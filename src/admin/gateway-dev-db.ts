@@ -10,8 +10,14 @@ const dbName = "living_world_gateway_dev";
 const dbUser = "lw_gateway_dev";
 const dbPort = "55432";
 
-export function renderGatewayDevConfig(adminPassword: string, rolePassword: string): string {
-  if (!/^[a-f0-9]{48,}$/u.test(adminPassword) || !/^[a-f0-9]{48,}$/u.test(rolePassword))
+export function renderGatewayDevConfig(
+  adminPassword: string,
+  rolePassword: string,
+): string {
+  if (
+    !/^[a-f0-9]{48,}$/u.test(adminPassword) ||
+    !/^[a-f0-9]{48,}$/u.test(rolePassword)
+  )
     throw new Error("DEV passwords must be long hex strings.");
   return [
     "# Local-only secrets. Never copy to Git, Notion, chat or CI logs.",
@@ -46,13 +52,16 @@ export async function writeGatewayDevConfig(
   }
 }
 
-export function validateGatewayDevDatabaseEnv(environment: NodeJS.ProcessEnv): void {
+export function validateGatewayDevDatabaseEnv(
+  environment: NodeJS.ProcessEnv,
+): void {
   if (
     environment.NODE_ENV === "production" ||
     environment.DISCORD_ENABLED !== "false" ||
     environment.DISCORD_OUTBOUND_ENABLED !== "false" ||
     environment.LLM_PROVIDER !== "disabled"
-  ) throw new Error("DEV commands require Discord, outbound and LLM disabled.");
+  )
+    throw new Error("DEV commands require Discord, outbound and LLM disabled.");
   const rolePassword = environment.LW_GATEWAY_DEV_ROLE_PASSWORD;
   const adminPassword = environment.LW_GATEWAY_DEV_ADMIN_PASSWORD;
   if (!rolePassword || !adminPassword)
@@ -72,7 +81,8 @@ export function validateGatewayDevDatabaseEnv(environment: NodeJS.ProcessEnv): v
     decodeURIComponent(url.password) !== rolePassword ||
     url.search !== "" ||
     url.hash !== ""
-  ) throw new Error("DEV endpoint is not the dedicated local target.");
+  )
+    throw new Error("DEV endpoint is not the dedicated local target.");
 }
 
 export async function verifyGatewayDevDatabase(
@@ -104,7 +114,8 @@ export async function verifyGatewayDevDatabase(
         row.superuser !== false ||
         row.createdb !== false ||
         row.createrole !== false
-      ) throw new Error("DEV DB identity or privileges are not approved.");
+      )
+        throw new Error("DEV DB identity or privileges are not approved.");
     });
   } finally {
     await client.close();
@@ -113,10 +124,14 @@ export async function verifyGatewayDevDatabase(
 
 function runMigrations(environment: NodeJS.ProcessEnv): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["./node_modules/drizzle-kit/bin.cjs", "migrate"], {
-      stdio: "inherit",
-      env: environment,
-    });
+    const child = spawn(
+      process.execPath,
+      ["./node_modules/drizzle-kit/bin.cjs", "migrate"],
+      {
+        stdio: "inherit",
+        env: environment,
+      },
+    );
     child.once("error", reject);
     child.once("exit", (code, signal) => {
       if (code === 0) resolve();
@@ -129,20 +144,32 @@ async function main(args: readonly string[]): Promise<void> {
   if (args.length !== 1) throw new Error("Use init, check or migrate.");
   if (args[0] === "init") {
     await writeGatewayDevConfig();
-    console.info(`Created ${gatewayDevConfigPath}. Keep secrets private and fill route IDs locally.`);
+    console.info(
+      `Created ${gatewayDevConfigPath}. Keep secrets private and fill route IDs locally.`,
+    );
     return;
   }
   if (args[0] !== "check" && args[0] !== "migrate")
     throw new Error("Use init, check or migrate.");
   await verifyGatewayDevDatabase();
   if (args[0] === "migrate") await runMigrations(process.env);
-  console.info(args[0] === "migrate" ? "DEV migrations completed." : "DEV database identity verified.");
+  console.info(
+    args[0] === "migrate"
+      ? "DEV migrations completed."
+      : "DEV database identity verified.",
+  );
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   void main(process.argv.slice(2)).catch(() => {
     // Intentionally do not print secrets, connection strings, SQL or env dumps.
-    console.error("DEV DB command failed safely; check local Docker and credentials.");
+    console.error(
+      "DEV DB command failed safely; check local Docker and credentials.",
+    );
     process.exitCode = 1;
   });
 }
+
