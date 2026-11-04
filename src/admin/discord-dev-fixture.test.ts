@@ -8,7 +8,7 @@ import {
 
 const valid = {
   DATABASE_URL:
-    "postgresql://lw_gateway_dev:password@127.0.0.1:5432/living_world_gateway_dev",
+    "***127.0.0.1:5432/living_world_gateway_dev",
   DISCORD_ENABLED: "false",
   DISCORD_OUTBOUND_ENABLED: "false",
   LLM_PROVIDER: "disabled",
@@ -50,13 +50,13 @@ describe("offline Discord DEV fixture guards", () => {
 
   it("rejects non-isolated database endpoints, including remote hosts and other DBs", () => {
     for (const url of [
-      "postgresql://lw_gateway_dev:password@db.example.com/living_world_gateway_dev",
-      "postgresql://lw_gateway_dev:password@127.0.0.1/living_world",
-      "postgresql://lw_gateway_dev:password@127.0.0.1/living_world_gateway_dev?sslmode=require",
+      "***db.example.com/living_world_gateway_dev",
+      "***127.0.0.1/living_world",
+      "***127.0.0.1/living_world_gateway_dev?sslmode=require",
       "file:///tmp/living_world_gateway_dev",
-      "postgresql://postgres:password@127.0.0.1/living_world_gateway_dev",
+      "***127.0.0.1/living_world_gateway_dev",
       "postgresql://lw_gateway_dev@127.0.0.1/living_world_gateway_dev",
-      "postgresql://lw_gateway_dev:password@127.0.0.1/living_world_gateway_dev#fragment",
+      "***127.0.0.1/living_world_gateway_dev#fragment",
     ]) {
       expect(() =>
         validateDevFixtureEnvironment({ ...valid, DATABASE_URL: url }),
@@ -92,14 +92,16 @@ describe("offline Discord DEV fixture guards", () => {
       ],
     });
     const innerTransaction = vi.fn();
-    const transaction = vi.fn().mockImplementation(
-      async (
-        callback: (tx: {
-          execute: typeof execute;
-          transaction: typeof innerTransaction;
-        }) => Promise<unknown>,
-      ) => callback({ execute, transaction: innerTransaction }),
-    );
+    const transaction = vi
+      .fn()
+      .mockImplementation(
+        async (
+          callback: (tx: {
+            execute: typeof execute;
+            transaction: typeof innerTransaction;
+          }) => Promise<unknown>,
+        ) => callback({ execute, transaction: innerTransaction }),
+      );
     const connect = vi.fn().mockReturnValue({
       db: { transaction },
       close,
@@ -133,14 +135,16 @@ describe("offline Discord DEV fixture guards", () => {
       status: "would_create",
       worldKey: devWorldKey,
     });
-    const transaction = vi.fn().mockImplementation(
-      async (
-        callback: (tx: {
-          execute: typeof execute;
-          transaction: typeof innerTransaction;
-        }) => Promise<unknown>,
-      ) => callback({ execute, transaction: innerTransaction }),
-    );
+    const transaction = vi
+      .fn()
+      .mockImplementation(
+        async (
+          callback: (tx: {
+            execute: typeof execute;
+            transaction: typeof innerTransaction;
+          }) => Promise<unknown>,
+        ) => callback({ execute, transaction: innerTransaction }),
+      );
     const connect = vi.fn().mockReturnValue({ db: { transaction }, close });
     await expect(
       runDevFixtureCommand(
