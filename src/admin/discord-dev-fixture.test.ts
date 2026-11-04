@@ -117,7 +117,6 @@ describe("offline Discord DEV fixture guards", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-
   it("checks an approved role within the same transaction as provisioning", async () => {
     const close = vi.fn().mockResolvedValue(undefined);
     const execute = vi.fn().mockResolvedValue({
