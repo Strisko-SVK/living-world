@@ -12,7 +12,10 @@ import { mapDiscordUserToEntity } from "../domains/discord-mapping/discord-mappi
 import { runContextPolicyCommand } from "../admin/context-intake-policy.js";
 import { reconcilePilotPlayer } from "../admin/discord-pilot-player.js";
 import { reconcilePilotPolicy } from "../admin/discord-pilot-policy.js";
-import { pickPilotInboundMessage, verifyPilotInboundDatabase } from "../admin/discord-pilot-gateway.js";
+import {
+  pickPilotInboundMessage,
+  verifyPilotInboundDatabase,
+} from "../admin/discord-pilot-gateway.js";
 import {
   provisionDevFixture,
   type DevFixtureRoute,
@@ -949,7 +952,6 @@ describe("Step 13 guarded pilot-only scene policy and audit", () => {
   });
 });
 
-
 describe("Step 14 bounded inbound-only Gateway acceptance (offline real PG17)", () => {
   it("persists exactly one synthetic direct-mention event and verifies no delivery, response or original-world drift", async () => {
     const originalKey = worldKey();
@@ -966,13 +968,22 @@ describe("Step 14 bounded inbound-only Gateway acceptance (offline real PG17)", 
     const botId = "1234567890123456789";
     const userId = "1777777777777777777";
     const mapped = await reconcilePilotPlayer(database.db, {
-      worldKey: pilotKey, route: pilotRoute, userId, mode: "enroll",
+      worldKey: pilotKey,
+      route: pilotRoute,
+      userId,
+      mode: "enroll",
     });
-    expect(mapped).toMatchObject({ event: "pilot_player_enrolled", policy: "disabled" });
+    expect(mapped).toMatchObject({
+      event: "pilot_player_enrolled",
+      policy: "disabled",
+    });
     if (!("mappingId" in mapped)) throw new Error("Pilot mapping missing");
     const policy = await reconcilePilotPolicy(database.db, {
-      worldKey: pilotKey, route: pilotRoute,
-      mode: "enable", confirmedContextId: pilot.contextId, testUserId: userId,
+      worldKey: pilotKey,
+      route: pilotRoute,
+      mode: "enable",
+      confirmedContextId: pilot.contextId,
+      testUserId: userId,
     });
     expect(policy).toMatchObject({ policy: "mapped_players" });
     if (!("auditId" in policy)) throw new Error("Pilot policy audit missing");
@@ -986,7 +997,10 @@ describe("Step 14 bounded inbound-only Gateway acceptance (offline real PG17)", 
       originalWorldId: original.worldId!,
     };
     const config = {
-      scope, botId, playerId: userId, token: "offline-no-real-token",
+      scope,
+      botId,
+      playerId: userId,
+      token: "offline-no-real-token",
       guildId: pilotRoute.guildId,
       parentId: pilotRoute.channelId,
       threadId: pilotRoute.threadId,
@@ -996,10 +1010,14 @@ describe("Step 14 bounded inbound-only Gateway acceptance (offline real PG17)", 
     const sourceMessageId = "1888888888888888888";
     const text = "<@" + botId + "> [Sentinel] Report readiness.";
     const fake = {
-      partial: false, author: { id: userId, bot: false },
-      webhookId: null, system: false,
-      id: sourceMessageId, guildId: pilotRoute.guildId,
-      channelId: pilotRoute.threadId, content: text,
+      partial: false,
+      author: { id: userId, bot: false },
+      webhookId: null,
+      system: false,
+      id: sourceMessageId,
+      guildId: pilotRoute.guildId,
+      channelId: pilotRoute.threadId,
+      content: text,
       type: MessageType.Default,
       channel: {
         type: ChannelType.PublicThread,
@@ -1012,17 +1030,35 @@ describe("Step 14 bounded inbound-only Gateway acceptance (offline real PG17)", 
     expect(normalized).not.toBeNull();
     const intake = createDiscordIntake(createDiscordPersistence(database.db));
     expect(await intake(normalized, botId)).toBe("accepted");
-    await verifyPilotInboundDatabase(database.db, config, "after", sourceMessageId);
+    await verifyPilotInboundDatabase(
+      database.db,
+      config,
+      "after",
+      sourceMessageId,
+    );
     expect(await intake(normalized, botId)).toBe("duplicate");
-    await verifyPilotInboundDatabase(database.db, config, "after", sourceMessageId);
+    await verifyPilotInboundDatabase(
+      database.db,
+      config,
+      "after",
+      sourceMessageId,
+    );
     await expect(
       verifyPilotInboundDatabase(database.db, config, "before"),
     ).rejects.toThrow("already used");
     await expect(
-      verifyPilotInboundDatabase(database.db, config, "after", "1999999999999999999"),
+      verifyPilotInboundDatabase(
+        database.db,
+        config,
+        "after",
+        "1999999999999999999",
+      ),
     ).rejects.toThrow("one inert");
     expect(await dbCounts(pilot.worldId!)).toMatchObject({
-      identities: 1, interactions: 1, deliveries: 0, presence: 0,
+      identities: 1,
+      interactions: 1,
+      deliveries: 0,
+      presence: 0,
     });
     expect(await dbCounts(original.worldId!)).toEqual(pristineCounts);
     expect(
@@ -1030,20 +1066,32 @@ describe("Step 14 bounded inbound-only Gateway acceptance (offline real PG17)", 
     ).toEqual({ ...original, status: "already_present" });
 
     const disabled = await reconcilePilotPolicy(database.db, {
-      worldKey: pilotKey, route: pilotRoute,
-      mode: "disable", confirmedContextId: pilot.contextId,
+      worldKey: pilotKey,
+      route: pilotRoute,
+      mode: "disable",
+      confirmedContextId: pilot.contextId,
     });
     expect(disabled).toMatchObject({
-      previousPolicy: "mapped_players", policy: "disabled",
+      previousPolicy: "mapped_players",
+      policy: "disabled",
     });
     await expect(
       verifyPilotInboundDatabase(database.db, config, "before"),
     ).rejects.toThrow("not approved");
-    expect(await intake({
-      ...normalized!, sourceMessageId: "1999999999999999999",
-    }, botId)).toBe("unauthorized");
+    expect(
+      await intake(
+        {
+          ...normalized!,
+          sourceMessageId: "1999999999999999999",
+        },
+        botId,
+      ),
+    ).toBe("unauthorized");
     expect(await dbCounts(pilot.worldId!)).toMatchObject({
-      identities: 1, interactions: 1, deliveries: 0, presence: 0,
+      identities: 1,
+      interactions: 1,
+      deliveries: 0,
+      presence: 0,
     });
   });
 });

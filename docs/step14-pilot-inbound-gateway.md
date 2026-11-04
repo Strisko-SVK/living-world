@@ -12,7 +12,7 @@ Discord's official [Gateway message-content documentation](https://docs.discord.
 
 - Existing private DEV guild: `1566911648701223053`
 - **Pilot-only parent:** `1567604837309350030`
-- **Pilot-only thread:** `1567605016603271208` (public thread inside the *private parent*)
+- **Pilot-only thread:** `1567605016603271208` (public thread inside the _private parent_)
 - Expected bot/application ID: `1566909036899868712`
 - Local synthetic world: `lw-dev-pilot-001` / `585b48b9-9160-4366-9312-455c39551302`
 - Pilot scene/context: `3608a56c-2597-4df9-b749-b37b7d7cdace`

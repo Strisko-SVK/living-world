@@ -1,5 +1,11 @@
 import { EventEmitter } from "node:events";
-import { ChannelType, Client, Events, MessageType, type Message } from "discord.js";
+import {
+  ChannelType,
+  Client,
+  Events,
+  MessageType,
+  type Message,
+} from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -21,7 +27,10 @@ const dbPassword = "b".repeat(64);
 const environment: NodeJS.ProcessEnv = {
   LW_GATEWAY_DEV_ADMIN_PASSWORD: "a".repeat(64),
   LW_GATEWAY_DEV_ROLE_PASSWORD: dbPassword,
-  DATABASE_URL: "postgresql://lw_gateway_dev:" + dbPassword + "@127.0.0.1:55432/living_world_gateway_dev",
+  DATABASE_URL:
+    "postgresql://lw_gateway_dev:" +
+    dbPassword +
+    "@127.0.0.1:55432/living_world_gateway_dev",
   DISCORD_ENABLED: "false",
   DISCORD_OUTBOUND_ENABLED: "false",
   LLM_PROVIDER: "disabled",
@@ -35,7 +44,13 @@ const environment: NodeJS.ProcessEnv = {
   DISCORD_TOKEN: token,
 };
 const config: PilotInboundConfig = {
-  guildId, parentId, threadId, botId, playerId, token, scope: pilotInboundScope,
+  guildId,
+  parentId,
+  threadId,
+  botId,
+  playerId,
+  token,
+  scope: pilotInboundScope,
 };
 
 function message(overrides: Record<string, unknown> = {}): Message {
@@ -89,7 +104,9 @@ describe("Step 14 inbound-only pilot offline guards", () => {
       { NODE_ENV: "production" },
       { DATABASE_URL: environment.DATABASE_URL?.replace("55432", "5432") },
     ]) {
-      expect(() => validatePilotInboundEnvironment({ ...environment, ...invalid })).toThrow();
+      expect(() =>
+        validatePilotInboundEnvironment({ ...environment, ...invalid }),
+      ).toThrow();
     }
   });
 
@@ -98,20 +115,34 @@ describe("Step 14 inbound-only pilot offline guards", () => {
     expect(parsePilotInboundArguments(["--preflight"])).toBe("preflight");
     const flags = [
       "--connect",
-      "--confirm-world", "lw-dev-pilot-001",
-      "--confirm-context", pilotInboundScope.contextId,
-      "--confirm-guild", guildId,
-      "--confirm-database", "living_world_gateway_dev",
-      "--inbound-only", "--one-message",
+      "--confirm-world",
+      "lw-dev-pilot-001",
+      "--confirm-context",
+      pilotInboundScope.contextId,
+      "--confirm-guild",
+      guildId,
+      "--confirm-database",
+      "living_world_gateway_dev",
+      "--inbound-only",
+      "--one-message",
     ];
     expect(parsePilotInboundArguments(flags)).toBe("connect");
     for (const wrong of [
       flags.slice(0, -1),
-      flags.map((part) => part === "lw-dev-pilot-001" ? "lw-dev-gateway-001" : part),
-      flags.map((part) => part === pilotInboundScope.contextId ? "3608a56c-2597-4df9-b749-b37b7d7cdacf" : part),
-      flags.map((part) => part === guildId ? "1655555555555555555" : part),
-      flags.map((part) => part === "living_world_gateway_dev" ? "production" : part),
-    ]) expect(() => parsePilotInboundArguments(wrong)).toThrow();
+      flags.map((part) =>
+        part === "lw-dev-pilot-001" ? "lw-dev-gateway-001" : part,
+      ),
+      flags.map((part) =>
+        part === pilotInboundScope.contextId
+          ? "3608a56c-2597-4df9-b749-b37b7d7cdacf"
+          : part,
+      ),
+      flags.map((part) => (part === guildId ? "1655555555555555555" : part)),
+      flags.map((part) =>
+        part === "living_world_gateway_dev" ? "production" : part,
+      ),
+    ])
+      expect(() => parsePilotInboundArguments(wrong)).toThrow();
   });
 
   it("rejects every other route, sender, message type or content before persistence", () => {
@@ -123,9 +154,14 @@ describe("Step 14 inbound-only pilot offline guards", () => {
       threadId,
       content: "<@" + botId + "> [Sentinel] Report readiness.",
     });
-    expect(pickPilotInboundMessage(message({
-      content: "<@!" + botId + "> [Sentinel] Report readiness.",
-    }), config)).not.toBeNull();
+    expect(
+      pickPilotInboundMessage(
+        message({
+          content: "<@!" + botId + "> [Sentinel] Report readiness.",
+        }),
+        config,
+      ),
+    ).not.toBeNull();
     for (const invalid of [
       { partial: true },
       { guildId: "1655555555555555555" },
@@ -135,15 +171,31 @@ describe("Step 14 inbound-only pilot offline guards", () => {
       { webhookId: "1888888888888888888" },
       { system: true },
       { type: MessageType.Reply },
-      { channel: { type: ChannelType.GuildText, isThread: () => false, parentId } },
-      { channel: { type: ChannelType.PublicThread, isThread: () => true, parentId: "1666666666666666666" } },
+      {
+        channel: {
+          type: ChannelType.GuildText,
+          isThread: () => false,
+          parentId,
+        },
+      },
+      {
+        channel: {
+          type: ChannelType.PublicThread,
+          isThread: () => true,
+          parentId: "1666666666666666666",
+        },
+      },
       { content: "" },
       { content: "Some private campaign message" },
       { content: "<@" + botId + "> [OtherNPC] Report readiness." },
-      { content: "<@" + botId + "> [Sentinel] Report readiness. Additional secret" },
+      {
+        content:
+          "<@" + botId + "> [Sentinel] Report readiness. Additional secret",
+      },
       { content: "[Sentinel] Report readiness." },
       { mentions: { users: new Map() } },
-    ]) expect(pickPilotInboundMessage(message(invalid), config)).toBeNull();
+    ])
+      expect(pickPilotInboundMessage(message(invalid), config)).toBeNull();
   });
 
   it("accepts exactly one eligible event with an offline fake Client, audits it and never sends", async () => {
@@ -154,11 +206,18 @@ describe("Step 14 inbound-only pilot offline guards", () => {
     const log = vi.spyOn(console, "info").mockImplementation(() => {});
     try {
       const running = connectOnePilotMessage(
-        config, intake, verify, client as unknown as Client, 500,
+        config,
+        intake,
+        verify,
+        client as unknown as Client,
+        500,
       );
       await Promise.resolve();
       client.emit(Events.ClientReady);
-      client.emit(Events.MessageCreate, message({ author: { id: "1999999999999999999", bot: false } }));
+      client.emit(
+        Events.MessageCreate,
+        message({ author: { id: "1999999999999999999", bot: false } }),
+      );
       client.emit(Events.MessageCreate, first);
       client.emit(Events.MessageCreate, first);
       await running;
@@ -168,8 +227,10 @@ describe("Step 14 inbound-only pilot offline guards", () => {
       expect(client.login).toHaveBeenCalledExactlyOnceWith(token);
       expect(client.destroy).toHaveBeenCalledOnce();
       expect(client.listenerCount(Events.MessageCreate)).toBe(0);
-      expect((first.channel as unknown as { send: ReturnType<typeof vi.fn> }).send).not.toHaveBeenCalled();
-      expect((first.reply as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+      expect(
+        (first.channel as unknown as { send: ReturnType<typeof vi.fn> }).send,
+      ).not.toHaveBeenCalled();
+      expect(first.reply as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
       expect(log.mock.calls.map((call) => call[0])).toEqual([
         JSON.stringify({ event: "pilot_gateway_ready" }),
         JSON.stringify({ event: "pilot_gateway_received" }),
@@ -189,7 +250,11 @@ describe("Step 14 inbound-only pilot offline guards", () => {
   it("stops safely on wrong bot identity, unexpected intake outcome and timeout", async () => {
     const wrongBot = fakeClient({ user: { id: "1666666666666666666" } });
     const wrong = connectOnePilotMessage(
-      config, vi.fn(), vi.fn(), wrongBot as unknown as Client, 500,
+      config,
+      vi.fn(),
+      vi.fn(),
+      wrongBot as unknown as Client,
+      500,
     );
     await Promise.resolve();
     wrongBot.emit(Events.ClientReady);
@@ -198,8 +263,11 @@ describe("Step 14 inbound-only pilot offline guards", () => {
 
     const rejectedClient = fakeClient();
     const rejected = connectOnePilotMessage(
-      config, vi.fn().mockResolvedValue("duplicate"), vi.fn(),
-      rejectedClient as unknown as Client, 500,
+      config,
+      vi.fn().mockResolvedValue("duplicate"),
+      vi.fn(),
+      rejectedClient as unknown as Client,
+      500,
     );
     await Promise.resolve();
     rejectedClient.emit(Events.ClientReady);
@@ -209,7 +277,11 @@ describe("Step 14 inbound-only pilot offline guards", () => {
 
     const quietClient = fakeClient();
     const quiet = connectOnePilotMessage(
-      config, vi.fn(), vi.fn(), quietClient as unknown as Client, 10,
+      config,
+      vi.fn(),
+      vi.fn(),
+      quietClient as unknown as Client,
+      10,
     );
     await expect(quiet).rejects.toThrow("expired");
     expect(quietClient.destroy).toHaveBeenCalledOnce();
