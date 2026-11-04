@@ -404,6 +404,7 @@ export async function runDevFixtureCommand(
       if (
         !row ||
         row.database !== devDbName ||
+        typeof row.version !== "number" ||
         row.version < 170000 ||
         row.version >= 180000 ||
         row.db_role !== "lw_gateway_dev" ||
