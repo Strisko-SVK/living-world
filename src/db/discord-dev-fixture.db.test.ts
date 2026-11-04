@@ -697,7 +697,6 @@ describe("Step 12 reversible pilot player enrollment (offline PostgreSQL)", () =
   });
 });
 
-
 describe("Step 12 pg transaction serial-query regression", () => {
   it("never overlaps pg client queries during pilot preview, enrollment or revocation", async () => {
     const key = worldKey();
