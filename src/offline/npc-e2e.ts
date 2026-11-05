@@ -33,7 +33,9 @@ export type OfflineWorkflowDependencies = {
   generate(scope: ResponseScope): Promise<ResponseResult>;
   // Must be the existing M2.10 dispatcher with injected fake transport in tests.
   // A successful return means a validated, durable fake ACK, not merely a send attempt.
-  deliver(scope: ResponseScope): Promise<"delivered" | "blocked" | "uncertain">;
+  deliver(scope: ResponseScope): Promise<
+    "delivered" | "blocked" | "retryable" | "failed" | "uncertain"
+  >;
 };
 
 export type OfflineWorkflowResult =
@@ -45,6 +47,8 @@ export type OfflineWorkflowResult =
   | "route_changed"
   | "delivered"
   | "delivery_blocked"
+  | "delivery_retryable"
+  | "delivery_failed"
   | "delivery_uncertain";
 
 export function createOfflineNpcWorkflow(deps: OfflineWorkflowDependencies) {
@@ -97,11 +101,18 @@ export function createOfflineNpcWorkflow(deps: OfflineWorkflowDependencies) {
 
       stage = "delivery";
       const delivery = await deps.deliver(scope);
-      return delivery === "delivered"
-        ? "delivered"
-        : delivery === "uncertain"
-          ? "delivery_uncertain"
-          : "delivery_blocked";
+      switch (delivery) {
+        case "delivered":
+          return "delivered";
+        case "retryable":
+          return "delivery_retryable";
+        case "failed":
+          return "delivery_failed";
+        case "uncertain":
+          return "delivery_uncertain";
+        default:
+          return "delivery_blocked";
+      }
     } catch {
       // No automatic retry, reconciliation or second send.
       // A generation error is not evidence that any delivery was attempted.
