@@ -80,7 +80,9 @@ describe("M2.12 offline NPC workflow", () => {
     f.generate.mockImplementationOnce(
       async () => ({ ok: false, error: "visibility_blocked" }) as never,
     );
-    expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe("response_blocked");
+    expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe(
+      "response_blocked",
+    );
     expect(f.deliver).not.toHaveBeenCalled();
   });
   it("fails closed when the original route changes before delivery", async () => {
@@ -104,19 +106,25 @@ describe("M2.12 offline NPC workflow", () => {
   it("classifies thrown generation errors as response failures, never delivery attempts", async () => {
     const f = fixture();
     f.generate.mockRejectedValueOnce(new Error("provider failed"));
-    expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe("response_blocked");
+    expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe(
+      "response_blocked",
+    );
     expect(f.deliver).not.toHaveBeenCalled();
   });
   it("does not retry an uncertain delivery", async () => {
     const f = fixture();
     f.deliver.mockImplementationOnce(async () => "uncertain" as never);
-    expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe("delivery_uncertain");
+    expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe(
+      "delivery_uncertain",
+    );
     expect(f.deliver).toHaveBeenCalledTimes(1);
   });
   it("does not attempt a second send after a transport exception", async () => {
     const f = fixture();
     f.deliver.mockRejectedValueOnce(new Error("lost ACK"));
-    expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe("delivery_uncertain");
+    expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe(
+      "delivery_uncertain",
+    );
     expect(f.deliver).toHaveBeenCalledTimes(1);
   });
 });
