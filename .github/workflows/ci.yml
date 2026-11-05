@@ -32,8 +32,8 @@ jobs:
 
       - name: Diagnostic formatting diff (temporary, read-only)
         run: |
-          pnpm exec prettier --write src/offline/npc-e2e.ts src/offline/npc-e2e.test.ts
-          git diff -- src/offline/npc-e2e.ts src/offline/npc-e2e.test.ts
+          pnpm exec prettier --write docs/m2.12-offline-npc-e2e.md
+          git diff -- docs/m2.12-offline-npc-e2e.md
       - name: Run quality gate
         run: pnpm quality:gate
 
