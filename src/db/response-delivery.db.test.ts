@@ -1461,7 +1461,8 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
       );
       expect(harness.transport.send).not.toHaveBeenCalled();
       expect(await target.outbox()).toBeUndefined();
-      if (change === "policy") expect((await target.read())?.responseText).toBeNull();
+      if (change === "policy")
+        expect((await target.read())?.responseText).toBeNull();
       else expect((await target.read())?.responseText).toBeTruthy();
     },
   );
