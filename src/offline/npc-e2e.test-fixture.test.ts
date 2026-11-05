@@ -23,8 +23,14 @@ describe("M2.12 fake-only harness gates", () => {
     }
   });
   it.each([
-    ["query host override", "postgresql://localhost/living_world_ci?host=192.0.2.44"],
-    ["query ssl override", "postgresql://localhost/living_world_ci?sslmode=require"],
+    [
+      "query host override",
+      "postgresql://localhost/living_world_ci?host=192.0.2.44",
+    ],
+    [
+      "query ssl override",
+      "postgresql://localhost/living_world_ci?sslmode=require",
+    ],
     ["unexpected protocol", "http://localhost/living_world_ci"],
   ])("refuses %s before accessing the DB", async (_case, url) => {
     const f = database("living_world_ci", "delivery-test-" + worldId);
