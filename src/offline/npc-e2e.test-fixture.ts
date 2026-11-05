@@ -25,6 +25,10 @@ export async function createOfflineNpcTestHarness(
   if (process.env.NODE_ENV !== "test" || !url)
     throw Error("Offline harness requires the test runner and isolated DB.");
   const parsed = new URL(url);
+  // The supplied pool must be bound to the same audited URL, not merely
+  // supplied beside a harmless-looking environment variable.
+  if (database.pool.options.connectionString !== url)
+    throw Error("Offline harness database pool does not match DATABASE_URL.");
   if (
     !["postgres:", "postgresql:"].includes(parsed.protocol) ||
     !["localhost", "127.0.0.1"].includes(parsed.hostname) ||
