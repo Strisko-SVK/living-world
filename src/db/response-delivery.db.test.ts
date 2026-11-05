@@ -1466,6 +1466,59 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
       else expect((await target.read())?.responseText).toBeTruthy();
     },
   );
+  it("does not replay a persisted response after a disabled route is restored", async () => {
+    const target = await fixture(false, true, "Ready.", false, true);
+    const harness = await createOfflineNpcTestHarness(database, target.world);
+    vi.mocked(harness.provider.generate).mockImplementationOnce(async () => {
+      await database.pool.query(
+        "update discord_context_mappings set status='inactive' where id=$1",
+        [target.mapping],
+      );
+      return {
+        text: JSON.stringify({ speech: "Do not send the delayed response." }),
+        completed: true,
+        usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+      };
+    });
+    expect(await harness.run(target.scope)).toBe("delivery_blocked");
+    expect((await target.read())?.status).toBe("responded");
+    expect(await target.outbox()).toBeUndefined();
+    await database.pool.query(
+      "update discord_context_mappings set status='active' where id=$1",
+      [target.mapping],
+    );
+    // Resuming the same route is not permission to re-enter the offline
+    // response coordinator with a previously persisted NPC reply.
+    expect(await harness.run(target.scope)).toBe("ineligible");
+    expect(harness.transport.send).not.toHaveBeenCalled();
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+    expect(await target.outbox()).toBeUndefined();
+    // This separate explicit operator path is still capable of preparing the
+    // old response. Review must decide whether persistent revocation fencing
+    // is needed; coordinator replay refusal alone cannot prevent it.
+    expect((await target.repository.preview(target.scope)).status).toBe(
+      "ready",
+    );
+  });
+  it("keeps an already blocked outbox terminal after route reactivation", async () => {
+    const target = await fixture();
+    expect((await target.repository.prepare(target.scope)).status).toBe(
+      "prepared",
+    );
+    await database.pool.query(
+      "update discord_context_mappings set status='inactive' where id=$1",
+      [target.mapping],
+    );
+    expect(await target.run(target.scope)).toEqual({ status: "not_claimed" });
+    expect((await target.outbox())?.status).toBe("blocked");
+    await database.pool.query(
+      "update discord_context_mappings set status='active' where id=$1",
+      [target.mapping],
+    );
+    expect(await target.run(target.scope)).toEqual({ status: "not_claimed" });
+    expect((await target.outbox())?.status).toBe("blocked");
+    expect(target.fake.send).not.toHaveBeenCalled();
+  });
   it("blocks generation and fake outbound when a previously valid presence is revoked", async () => {
     const target = await fixture(false, true, "Ready.", false, true);
     const provider = fakeProvider();
