@@ -48,6 +48,11 @@ import {
   revokeLocalPresence,
 } from "../communication/local.repository.js";
 import { createResponseStore } from "../response/response.repository.js";
+import { createNpcContextBuilder } from "../context/context.repository.js";
+import { createNpcResponseOrchestrator } from "../response/orchestrator.js";
+import { createTextGenerator } from "../llm/generation.js";
+import { enabledConfig, fakeBudget, fakeProvider } from "../llm/llm.test-fixture.js";
+import { createOfflineNpcWorkflow } from "../offline/npc-e2e.js";
 import { createDeliveryRepository } from "../delivery/delivery.repository.js";
 import { createDeliveryDispatcher } from "../delivery/dispatch.js";
 import {
@@ -70,6 +75,7 @@ async function fixture(
   thread = true,
   speech = "@everyone @here <@123> <@&456> The report remains uncertain.",
   numericRoute = false,
+  skipGeneration = false,
 ) {
   const world = (
     await createWorld(database.db, {
@@ -188,11 +194,13 @@ async function fixture(
       })
     ).status,
   ).toBe("prepared");
-  const local = (await getInteraction(database.db, world, npc, incoming.id))!;
-  const claimed = await generation.claim(scope, local);
-  if (!claimed?.responseClaimId) throw Error("No fake generation claim");
-  expect(await generation.dispatch(scope, claimed.responseClaimId)).toBe(true);
-  await generation.persist(scope, claimed.responseClaimId, speech);
+  if (!skipGeneration) {
+    const local = (await getInteraction(database.db, world, npc, incoming.id))!;
+    const claimed = await generation.claim(scope, local);
+    if (!claimed?.responseClaimId) throw Error("No fake generation claim");
+    expect(await generation.dispatch(scope, claimed.responseClaimId)).toBe(true);
+    await generation.persist(scope, claimed.responseClaimId, speech);
+  }
   let now = new Date("2030-01-01T00:00:00Z");
   const clock = () => new Date(now);
   const avatars = new Map<string, string>();
@@ -1392,4 +1400,55 @@ describe("M2.11 controlled outbound PostgreSQL path", () => {
       expect(await f.outbox()).toBeUndefined();
     },
   );
+});
+
+describe("M2.12 repository-backed offline NPC E2E", () => {
+  it("runs real M2.9 preparation, M2.7 generation fences and M2.10 fake ACK in the original scene", async () => {
+    const target = await fixture(false, true, "Ready.", false, true);
+    const provider = fakeProvider();
+    const budget = fakeBudget();
+    vi.mocked(provider.generate).mockResolvedValue({
+      text: JSON.stringify({ speech: "Ready. The route is confirmed." }),
+      completed: true,
+      usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+    });
+    const response = createNpcResponseOrchestrator({
+      read: (scope) =>
+        getInteraction(database.db, scope.worldId, scope.npcId, scope.interactionId),
+      build: createNpcContextBuilder(database.db),
+      store: generation,
+      generate: createTextGenerator(enabledConfig(), provider, budget),
+    });
+    const workflow = createOfflineNpcWorkflow({
+      read: (scope) =>
+        getInteraction(database.db, scope.worldId, scope.npcId, scope.interactionId),
+      generate: (scope) => response(scope.worldId, scope.npcId, scope.interactionId),
+      deliver: async (scope) => {
+        const prepared = await target.repository.prepare(scope);
+        if (prepared.status !== "prepared" && prepared.status !== "existing")
+          return "blocked";
+        const result = await target.run(scope);
+        return result.status === "delivered"
+          ? "delivered"
+          : result.status === "uncertain"
+            ? "uncertain"
+            : "blocked";
+      },
+    });
+    expect(await workflow(target.scope)).toBe("delivered");
+    const persisted = await target.read();
+    expect(persisted?.status).toBe("responded");
+    expect(persisted?.responseMessageId).toBe("fake:verified-ack");
+    expect((await target.outbox())?.status).toBe("delivered");
+    expect(target.fake.sent).toHaveLength(1);
+    expect(target.fake.sent[0]?.payload.destination).toEqual({
+      provider: "discord",
+      guildId: target.guild,
+      channelId: target.channel,
+      threadId: target.threadId,
+    });
+    expect(await workflow(target.scope)).toBe("ineligible");
+    expect(target.fake.send).toHaveBeenCalledTimes(1);
+    expect(provider.generate).toHaveBeenCalledTimes(1);
+  });
 });
