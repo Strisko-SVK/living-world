@@ -48,6 +48,16 @@ import {
   revokeLocalPresence,
 } from "../communication/local.repository.js";
 import { createResponseStore } from "../response/response.repository.js";
+import { createNpcContextBuilder } from "../context/context.repository.js";
+import { createNpcResponseOrchestrator } from "../response/orchestrator.js";
+import { createTextGenerator } from "../llm/generation.js";
+import {
+  enabledConfig,
+  fakeBudget,
+  fakeProvider,
+} from "../llm/llm.test-fixture.js";
+import { createOfflineNpcWorkflow } from "../offline/npc-e2e.js";
+import { createOfflineNpcTestHarness } from "../offline/npc-e2e.test-fixture.js";
 import { createDeliveryRepository } from "../delivery/delivery.repository.js";
 import { createDeliveryDispatcher } from "../delivery/dispatch.js";
 import {
@@ -70,6 +80,7 @@ async function fixture(
   thread = true,
   speech = "@everyone @here <@123> <@&456> The report remains uncertain.",
   numericRoute = false,
+  skipGeneration = false,
 ) {
   const world = (
     await createWorld(database.db, {
@@ -188,11 +199,15 @@ async function fixture(
       })
     ).status,
   ).toBe("prepared");
-  const local = (await getInteraction(database.db, world, npc, incoming.id))!;
-  const claimed = await generation.claim(scope, local);
-  if (!claimed?.responseClaimId) throw Error("No fake generation claim");
-  expect(await generation.dispatch(scope, claimed.responseClaimId)).toBe(true);
-  await generation.persist(scope, claimed.responseClaimId, speech);
+  if (!skipGeneration) {
+    const local = (await getInteraction(database.db, world, npc, incoming.id))!;
+    const claimed = await generation.claim(scope, local);
+    if (!claimed?.responseClaimId) throw Error("No fake generation claim");
+    expect(await generation.dispatch(scope, claimed.responseClaimId)).toBe(
+      true,
+    );
+    await generation.persist(scope, claimed.responseClaimId, speech);
+  }
   let now = new Date("2030-01-01T00:00:00Z");
   const clock = () => new Date(now);
   const avatars = new Map<string, string>();
@@ -1392,4 +1407,329 @@ describe("M2.11 controlled outbound PostgreSQL path", () => {
       expect(await f.outbox()).toBeUndefined();
     },
   );
+});
+
+describe("M2.12 repository-backed offline NPC E2E", () => {
+  it("runs real M2.9 preparation, M2.7 generation fences and M2.10 fake ACK in the original scene", async () => {
+    const target = await fixture(false, true, "Ready.", false, true);
+    const harness = await createOfflineNpcTestHarness(database, target.world);
+    vi.mocked(harness.provider.generate).mockResolvedValue({
+      text: JSON.stringify({ speech: "Ready. The route is confirmed." }),
+      completed: true,
+      usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+    });
+    expect(await harness.run(target.scope)).toBe("delivered");
+    const persisted = await target.read();
+    expect(persisted?.status).toBe("responded");
+    expect(persisted?.responseMessageId).toBe("fake:verified-ack");
+    expect((await target.outbox())?.status).toBe("delivered");
+    expect(harness.transport.sent).toHaveLength(1);
+    expect(harness.transport.sent[0]?.payload.destination).toEqual({
+      provider: "discord",
+      guildId: target.guild,
+      channelId: target.channel,
+      threadId: target.threadId,
+    });
+    expect(await harness.run(target.scope)).toBe("ineligible");
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+  });
+  it.each(["policy", "route"] as const)(
+    "does not persist or fake-send after %s is revoked during generation",
+    async (change) => {
+      const target = await fixture(false, true, "Ready.", false, true);
+      const harness = await createOfflineNpcTestHarness(database, target.world);
+      vi.mocked(harness.provider.generate).mockImplementationOnce(async () => {
+        if (change === "policy")
+          await database.pool.query(
+            "update interaction_contexts set npc_intake_policy='disabled' where id=$1",
+            [target.scene],
+          );
+        else
+          await database.pool.query(
+            "update discord_context_mappings set status='inactive' where id=$1",
+            [target.mapping],
+          );
+        return {
+          text: JSON.stringify({ speech: "Revoked speech must not leave." }),
+          completed: true,
+          usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+        };
+      });
+      expect(await harness.run(target.scope)).toBe(
+        change === "policy" ? "response_blocked" : "delivery_blocked",
+      );
+      expect(harness.transport.send).not.toHaveBeenCalled();
+      expect(await target.outbox()).toBeUndefined();
+      if (change === "policy")
+        expect((await target.read())?.responseText).toBeNull();
+      else expect((await target.read())?.responseText).toBeTruthy();
+    },
+  );
+  it.each([
+    ["retryable", true, "delivery_retryable"],
+    ["terminal", false, "delivery_failed"],
+  ] as const)(
+    "preserves %s fake transport result in coordinator diagnostics",
+    async (_name, retryable, expected) => {
+      const target = await fixture(false, true, "Ready.", false, true);
+      const harness = await createOfflineNpcTestHarness(database, target.world);
+      vi.mocked(harness.provider.generate).mockResolvedValue({
+        text: JSON.stringify({ speech: "Delivery outcome diagnostic." }),
+        completed: true,
+        usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+      });
+      vi.mocked(harness.transport.send).mockResolvedValueOnce({
+        kind: "not_sent",
+        retryable,
+        retryAfterMs: 1000,
+      });
+      expect(await harness.run(target.scope)).toBe(expected);
+      expect((await target.outbox())?.status).toBe(
+        retryable ? "retryable" : "failed",
+      );
+      expect(harness.transport.send).toHaveBeenCalledTimes(1);
+      expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+    },
+  );
+  it("serializes competing offline workflows to one persisted response and one fake send", async () => {
+    const target = await fixture(false, true, "Ready.", false, true);
+    const harness = await createOfflineNpcTestHarness(database, target.world);
+    vi.mocked(harness.provider.generate).mockResolvedValue({
+      text: JSON.stringify({ speech: "Only one NPC answer." }),
+      completed: true,
+      usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+    });
+    const outcomes = await Promise.all(
+      Array.from({ length: 8 }, () => harness.run(target.scope)),
+    );
+    expect(outcomes.filter((result) => result === "delivered")).toHaveLength(1);
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+    expect((await target.outbox())?.status).toBe("delivered");
+    expect((await target.read())?.responseMessageId).toBe("fake:verified-ack");
+  });
+  it("does not replay a persisted response after a disabled route is restored", async () => {
+    const target = await fixture(false, true, "Ready.", false, true);
+    const harness = await createOfflineNpcTestHarness(database, target.world);
+    vi.mocked(harness.provider.generate).mockImplementationOnce(async () => {
+      await database.pool.query(
+        "update discord_context_mappings set status='inactive' where id=$1",
+        [target.mapping],
+      );
+      return {
+        text: JSON.stringify({ speech: "Do not send the delayed response." }),
+        completed: true,
+        usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+      };
+    });
+    expect(await harness.run(target.scope)).toBe("delivery_blocked");
+    expect((await target.read())?.status).toBe("responded");
+    expect(await target.outbox()).toBeUndefined();
+    await database.pool.query(
+      "update discord_context_mappings set status='active' where id=$1",
+      [target.mapping],
+    );
+    // Resuming the same route is not permission to re-enter the offline
+    // response coordinator with a previously persisted NPC reply.
+    expect(await harness.run(target.scope)).toBe("ineligible");
+    expect(harness.transport.send).not.toHaveBeenCalled();
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+    expect(await target.outbox()).toBeUndefined();
+    // This separate explicit operator path is still capable of preparing the
+    // old response. Review must decide whether persistent revocation fencing
+    // is needed; coordinator replay refusal alone cannot prevent it.
+    expect((await target.repository.preview(target.scope)).status).toBe(
+      "ready",
+    );
+  });
+  it("documents the explicit-operator stale response risk after route restoration", async () => {
+    const target = await fixture(false, true, "Ready.", false, true);
+    const harness = await createOfflineNpcTestHarness(database, target.world);
+    vi.mocked(harness.provider.generate).mockImplementationOnce(async () => {
+      await database.pool.query(
+        "update discord_context_mappings set status='inactive' where id=$1",
+        [target.mapping],
+      );
+      return {
+        text: JSON.stringify({ speech: "This response predates restoration." }),
+        completed: true,
+        usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+      };
+    });
+    expect(await harness.run(target.scope)).toBe("delivery_blocked");
+    expect(harness.transport.send).not.toHaveBeenCalled();
+    await database.pool.query(
+      "update discord_context_mappings set status='active' where id=$1",
+      [target.mapping],
+    );
+    expect((await target.repository.preview(target.scope)).status).toBe(
+      "ready",
+    );
+    // Intentionally demonstrates a policy gap: direct operator delivery does
+    // not know that the route had been revoked after the source event.
+    expect((await target.repository.prepare(target.scope)).status).toBe(
+      "prepared",
+    );
+    expect(await target.run(target.scope)).toEqual({ status: "delivered" });
+    expect(target.fake.send).toHaveBeenCalledTimes(1);
+    expect(harness.transport.send).not.toHaveBeenCalled();
+    expect((await target.outbox())?.status).toBe("delivered");
+  });
+  it("keeps an already blocked outbox terminal after route reactivation", async () => {
+    const target = await fixture();
+    expect((await target.repository.prepare(target.scope)).status).toBe(
+      "prepared",
+    );
+    await database.pool.query(
+      "update discord_context_mappings set status='inactive' where id=$1",
+      [target.mapping],
+    );
+    expect(await target.run(target.scope)).toEqual({ status: "not_claimed" });
+    expect((await target.outbox())?.status).toBe("blocked");
+    await database.pool.query(
+      "update discord_context_mappings set status='active' where id=$1",
+      [target.mapping],
+    );
+    expect(await target.run(target.scope)).toEqual({ status: "not_claimed" });
+    expect((await target.outbox())?.status).toBe("blocked");
+    expect(target.fake.send).not.toHaveBeenCalled();
+  });
+  it("blocks generation and fake outbound when a previously valid presence is revoked", async () => {
+    const target = await fixture(false, true, "Ready.", false, true);
+    const provider = fakeProvider();
+    const budget = fakeBudget();
+    expect(
+      await revokeLocalPresence(
+        database.db,
+        {
+          worldId: target.world,
+          npcId: target.npc,
+          contextId: target.scene,
+        },
+        target.grant.id,
+      ),
+    ).toMatchObject({ status: "revoked" });
+    const response = createNpcResponseOrchestrator({
+      read: (scope) =>
+        getInteraction(
+          database.db,
+          scope.worldId,
+          scope.npcId,
+          scope.interactionId,
+        ),
+      build: createNpcContextBuilder(database.db),
+      store: generation,
+      generate: createTextGenerator(enabledConfig(), provider, budget),
+    });
+    const deliver = vi.fn(async () => "delivered" as const);
+    const workflow = createOfflineNpcWorkflow({
+      read: (scope) =>
+        getInteraction(
+          database.db,
+          scope.worldId,
+          scope.npcId,
+          scope.interactionId,
+        ),
+      generate: (scope) =>
+        response(scope.worldId, scope.npcId, scope.interactionId),
+      deliver,
+    });
+    expect(await workflow(target.scope)).toBe("response_blocked");
+    expect(provider.generate).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
+    expect(await target.outbox()).toBeUndefined();
+  });
+  it("does not revive an old NPC interaction after DM revokes and regrants presence", async () => {
+    const target = await fixture(false, true, "Ready.", false, true);
+    const harness = await createOfflineNpcTestHarness(database, target.world);
+    vi.mocked(harness.provider.generate).mockImplementationOnce(async () => {
+      expect(
+        await revokeLocalPresence(
+          database.db,
+          {
+            worldId: target.world,
+            npcId: target.npc,
+            contextId: target.scene,
+          },
+          target.grant.id,
+        ),
+      ).toMatchObject({ status: "revoked" });
+      return {
+        text: JSON.stringify({ speech: "Old speech must be discarded." }),
+        completed: true,
+        usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+      };
+    });
+    expect(await harness.run(target.scope)).toBe("response_blocked");
+    const regrant = await grantLocalPresence(database.db, {
+      worldId: target.world,
+      npcId: target.npc,
+      contextId: target.scene,
+    });
+    expect(regrant.status).toBe("granted");
+    expect(await harness.run(target.scope)).toBe("ineligible");
+    expect((await target.repository.preview(target.scope)).status).toBe(
+      "blocked",
+    );
+    expect((await target.repository.prepare(target.scope)).status).toBe(
+      "blocked",
+    );
+    expect(await target.outbox()).toBeUndefined();
+    expect(harness.transport.send).not.toHaveBeenCalled();
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+  });
+  it("rejects a generated response when DM revokes presence during fake provider execution", async () => {
+    const target = await fixture(false, true, "Ready.", false, true);
+    const provider = fakeProvider();
+    const budget = fakeBudget();
+    vi.mocked(provider.generate).mockImplementationOnce(async () => {
+      expect(
+        await revokeLocalPresence(
+          database.db,
+          {
+            worldId: target.world,
+            npcId: target.npc,
+            contextId: target.scene,
+          },
+          target.grant.id,
+        ),
+      ).toMatchObject({ status: "revoked" });
+      return {
+        text: JSON.stringify({ speech: "This must not be delivered." }),
+        completed: true,
+        usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+      };
+    });
+    const response = createNpcResponseOrchestrator({
+      read: (scope) =>
+        getInteraction(
+          database.db,
+          scope.worldId,
+          scope.npcId,
+          scope.interactionId,
+        ),
+      build: createNpcContextBuilder(database.db),
+      store: generation,
+      generate: createTextGenerator(enabledConfig(), provider, budget),
+    });
+    const deliver = vi.fn(async () => "delivered" as const);
+    const workflow = createOfflineNpcWorkflow({
+      read: (scope) =>
+        getInteraction(
+          database.db,
+          scope.worldId,
+          scope.npcId,
+          scope.interactionId,
+        ),
+      generate: (scope) =>
+        response(scope.worldId, scope.npcId, scope.interactionId),
+      deliver,
+    });
+    expect(await workflow(target.scope)).toBe("response_blocked");
+    expect(provider.generate).toHaveBeenCalledTimes(1);
+    expect(deliver).not.toHaveBeenCalled();
+    expect(await target.outbox()).toBeUndefined();
+    expect((await target.read())?.responseText).toBeNull();
+  });
 });
