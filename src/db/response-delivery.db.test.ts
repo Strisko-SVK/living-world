@@ -1456,10 +1456,13 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
           usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
         };
       });
-      expect(await harness.run(target.scope)).toBe("response_blocked");
+      expect(await harness.run(target.scope)).toBe(
+        change === "policy" ? "response_blocked" : "delivery_blocked",
+      );
       expect(harness.transport.send).not.toHaveBeenCalled();
       expect(await target.outbox()).toBeUndefined();
-      expect((await target.read())?.responseText).toBeNull();
+      if (change === "policy") expect((await target.read())?.responseText).toBeNull();
+      else expect((await target.read())?.responseText).toBeTruthy();
     },
   );
   it("blocks generation and fake outbound when a previously valid presence is revoked", async () => {
