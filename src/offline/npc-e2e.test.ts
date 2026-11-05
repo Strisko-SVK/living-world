@@ -55,7 +55,9 @@ describe("M2.12 offline NPC workflow", () => {
     const f = fixture();
     vi.stubEnv("NODE_ENV", "production");
     try {
-      expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe("offline_only");
+      expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe(
+        "offline_only",
+      );
       expect(f.read).not.toHaveBeenCalled();
       expect(f.generate).not.toHaveBeenCalled();
       expect(f.deliver).not.toHaveBeenCalled();
