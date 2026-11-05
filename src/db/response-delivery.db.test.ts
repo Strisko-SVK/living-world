@@ -1468,4 +1468,49 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
     expect(target.fake.send).toHaveBeenCalledTimes(1);
     expect(provider.generate).toHaveBeenCalledTimes(1);
   });
+  it("blocks generation and fake outbound when a previously valid presence is revoked", async () => {
+    const target = await fixture(false, true, "Ready.", false, true);
+    const provider = fakeProvider();
+    const budget = fakeBudget();
+    expect(
+      await revokeLocalPresence(
+        database.db,
+        {
+          worldId: target.world,
+          npcId: target.npc,
+          contextId: target.scene,
+        },
+        target.grant.id,
+      ),
+    ).toMatchObject({ status: "revoked" });
+    const response = createNpcResponseOrchestrator({
+      read: (scope) =>
+        getInteraction(
+          database.db,
+          scope.worldId,
+          scope.npcId,
+          scope.interactionId,
+        ),
+      build: createNpcContextBuilder(database.db),
+      store: generation,
+      generate: createTextGenerator(enabledConfig(), provider, budget),
+    });
+    const deliver = vi.fn(async () => "delivered" as const);
+    const workflow = createOfflineNpcWorkflow({
+      read: (scope) =>
+        getInteraction(
+          database.db,
+          scope.worldId,
+          scope.npcId,
+          scope.interactionId,
+        ),
+      generate: (scope) =>
+        response(scope.worldId, scope.npcId, scope.interactionId),
+      deliver,
+    });
+    expect(await workflow(target.scope)).toBe("response_blocked");
+    expect(provider.generate).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
+    expect(await target.outbox()).toBeUndefined();
+  });
 });
