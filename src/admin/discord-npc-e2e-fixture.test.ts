@@ -25,61 +25,67 @@ const valid: NodeJS.ProcessEnv = {
 };
 
 describe("M2.13A isolated NPC E2E DEV fixture", () => {
-  it("permits only a fresh parent/thread in the same private DEV guild", () => {
-    expect(validateNpcE2eFixtureEnvironment(valid)).toEqual({
+  it("permits only a fresh parent/thread in the private DEV guild", () => {
+    const expected = {
       guildId: valid.LW_DEV_GUILD_ID,
       channelId: valid.LW_NPC_E2E_PARENT_CHANNEL_ID,
       threadId: valid.LW_NPC_E2E_THREAD_ID,
-    });
+    };
+    expect(validateNpcE2eFixtureEnvironment(valid)).toEqual(expected);
     expect(
       validateNpcE2eFixtureEnvironment({
         ...valid,
         LW_NPC_E2E_GUILD_ID: valid.LW_DEV_GUILD_ID,
       }),
-    ).toEqual({
-      guildId: valid.LW_DEV_GUILD_ID,
-      channelId: valid.LW_NPC_E2E_PARENT_CHANNEL_ID,
-      threadId: valid.LW_NPC_E2E_THREAD_ID,
-    });
+    ).toEqual(expected);
   });
 
-  it.each([
-    ["original parent", { LW_NPC_E2E_PARENT_CHANNEL_ID: valid.LW_DEV_PARENT_CHANNEL_ID }],
-    ["original thread", { LW_NPC_E2E_THREAD_ID: valid.LW_DEV_THREAD_ID }],
-    ["pilot parent", { LW_NPC_E2E_PARENT_CHANNEL_ID: valid.LW_PILOT_PARENT_CHANNEL_ID }],
-    ["pilot thread", { LW_NPC_E2E_THREAD_ID: valid.LW_PILOT_THREAD_ID }],
-    ["crossed parent", { LW_NPC_E2E_THREAD_ID: valid.LW_DEV_PARENT_CHANNEL_ID }],
-    ["crossed pilot", { LW_NPC_E2E_PARENT_CHANNEL_ID: valid.LW_PILOT_THREAD_ID }],
-    ["same route IDs", { LW_NPC_E2E_THREAD_ID: valid.LW_NPC_E2E_PARENT_CHANNEL_ID }],
-    ["guild collision", { LW_NPC_E2E_PARENT_CHANNEL_ID: valid.LW_DEV_GUILD_ID }],
-    ["other guild", { LW_NPC_E2E_GUILD_ID: "1966911648701223053" }],
-    ["missing parent", { LW_NPC_E2E_PARENT_CHANNEL_ID: undefined }],
-    ["missing thread", { LW_NPC_E2E_THREAD_ID: undefined }],
-    ["invalid channel", { LW_NPC_E2E_PARENT_CHANNEL_ID: "123" }],
-    ["unknown consumed pilot", { LW_PILOT_THREAD_ID: undefined }],
-  ])("denies %s before DB access", (_case, changes) => {
-    expect(() =>
-      validateNpcE2eFixtureEnvironment({ ...valid, ...changes }),
-    ).toThrow();
+  it("rejects legacy routes, reused IDs, wrong guild and missing IDs", () => {
+    const changes = [
+      { LW_NPC_E2E_PARENT_CHANNEL_ID: valid.LW_DEV_PARENT_CHANNEL_ID },
+      { LW_NPC_E2E_THREAD_ID: valid.LW_DEV_THREAD_ID },
+      { LW_NPC_E2E_PARENT_CHANNEL_ID: valid.LW_PILOT_PARENT_CHANNEL_ID },
+      { LW_NPC_E2E_THREAD_ID: valid.LW_PILOT_THREAD_ID },
+      { LW_NPC_E2E_THREAD_ID: valid.LW_DEV_PARENT_CHANNEL_ID },
+      { LW_NPC_E2E_PARENT_CHANNEL_ID: valid.LW_PILOT_THREAD_ID },
+      { LW_NPC_E2E_THREAD_ID: valid.LW_NPC_E2E_PARENT_CHANNEL_ID },
+      { LW_NPC_E2E_PARENT_CHANNEL_ID: valid.LW_DEV_GUILD_ID },
+      { LW_NPC_E2E_GUILD_ID: "1966911648701223053" },
+      { LW_NPC_E2E_PARENT_CHANNEL_ID: undefined },
+      { LW_NPC_E2E_THREAD_ID: undefined },
+      { LW_NPC_E2E_PARENT_CHANNEL_ID: "123" },
+      { LW_PILOT_THREAD_ID: undefined },
+    ];
+    for (const change of changes) {
+      expect(() =>
+        validateNpcE2eFixtureEnvironment({ ...valid, ...change }),
+      ).toThrow();
+    }
   });
 
-  it.each([
-    ["enabled inbound", { DISCORD_ENABLED: "true" }],
-    ["enabled outbound", { DISCORD_OUTBOUND_ENABLED: "true" }],
-    ["paid provider", { LLM_PROVIDER: "openai" }],
-    ["production mode", { NODE_ENV: "production" }],
-    ["wrong database", { DATABASE_URL: valid.DATABASE_URL?.replace("gateway_dev", "prod") }],
-    ["wrong DB port", { DATABASE_URL: valid.DATABASE_URL?.replace("55432", "5432") }],
-    ["wrong DB role", { LW_GATEWAY_DEV_ROLE_PASSWORD: "wrong" }],
-    ["remote database", { DATABASE_URL: "postgresql://lw_gateway_dev:x@192.0.2.1:55432/living_world_gateway_dev" }],
-    ["URL override", { DATABASE_URL: valid.DATABASE_URL + "?host=192.0.2.1" }],
-  ])("fails closed on %s", (_case, changes) => {
-    expect(() =>
-      validateNpcE2eFixtureEnvironment({ ...valid, ...changes }),
-    ).toThrow();
+  it("rejects live network, paid generation and unsafe DB configuration", () => {
+    const changes = [
+      { DISCORD_ENABLED: "true" },
+      { DISCORD_OUTBOUND_ENABLED: "true" },
+      { LLM_PROVIDER: "openai" },
+      { NODE_ENV: "production" },
+      { DATABASE_URL: valid.DATABASE_URL?.replace("gateway_dev", "prod") },
+      { DATABASE_URL: valid.DATABASE_URL?.replace("55432", "5432") },
+      { LW_GATEWAY_DEV_ROLE_PASSWORD: "wrong" },
+      {
+        DATABASE_URL:
+          "postgresql://lw_gateway_dev:x@192.0.2.1:55432/living_world_gateway_dev",
+      },
+      { DATABASE_URL: valid.DATABASE_URL + "?host=192.0.2.1" },
+    ];
+    for (const change of changes) {
+      expect(() =>
+        validateNpcE2eFixtureEnvironment({ ...valid, ...change }),
+      ).toThrow();
+    }
   });
 
-  it("defaults to preview, with explicit world and database apply confirmations", () => {
+  it("defaults to preview and requires exact apply confirmations", () => {
     expect(parseNpcE2eFixtureArguments([])).toBe(false);
     expect(parseNpcE2eFixtureArguments(["--preview"])).toBe(false);
     expect(
@@ -95,34 +101,49 @@ describe("M2.13A isolated NPC E2E DEV fixture", () => {
       ["--apply"],
       ["--connect"],
       ["--delete"],
-      ["--apply", "--confirm-world", "lw-dev-pilot-001", "--confirm-database", "living_world_gateway_dev"],
-      ["--apply", "--confirm-world", npcE2eWorldKey, "--confirm-database", "living_world_prod"],
+      [
+        "--apply",
+        "--confirm-world",
+        "lw-dev-pilot-001",
+        "--confirm-database",
+        "living_world_gateway_dev",
+      ],
+      [
+        "--apply",
+        "--confirm-world",
+        npcE2eWorldKey,
+        "--confirm-database",
+        "living_world_prod",
+      ],
     ]) {
       expect(() => parseNpcE2eFixtureArguments(args)).toThrow();
     }
   });
 
-  it("preflights the database identity in the provisioning transaction", async () => {
+  it("checks identity in the provisioning transaction", async () => {
     const close = vi.fn().mockResolvedValue(undefined);
     const execute = vi
       .fn()
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({
-        rows: [{
-          database: "living_world_gateway_dev",
-          db_role: "lw_gateway_dev",
-          version: 170011,
-          superuser: false,
-        }],
+        rows: [
+          {
+            database: "living_world_gateway_dev",
+            db_role: "lw_gateway_dev",
+            version: 170011,
+            superuser: false,
+          },
+        ],
       });
     const innerTransaction = vi.fn().mockResolvedValue({
       status: "would_create",
       worldKey: npcE2eWorldKey,
     });
-    const transaction = vi.fn().mockImplementation(
-      async (fn: (tx: unknown) => Promise<unknown>) =>
+    const transaction = vi
+      .fn()
+      .mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({ execute, transaction: innerTransaction }),
-    );
+      );
     const connect = vi.fn().mockReturnValue({ db: { transaction }, close });
     await expect(
       runNpcE2eFixtureCommand(
@@ -137,21 +158,27 @@ describe("M2.13A isolated NPC E2E DEV fixture", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("rejects privileged PostgreSQL sessions before provisioning", async () => {
+  it("denies privileged database sessions before provisioning", async () => {
     const close = vi.fn().mockResolvedValue(undefined);
-    const execute = vi.fn()
+    const execute = vi
+      .fn()
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{
-        database: "living_world_gateway_dev",
-        db_role: "postgres",
-        version: 170011,
-        superuser: true,
-      }] });
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            database: "living_world_gateway_dev",
+            db_role: "postgres",
+            version: 170011,
+            superuser: true,
+          },
+        ],
+      });
     const innerTransaction = vi.fn();
-    const transaction = vi.fn().mockImplementation(
-      async (fn: (tx: unknown) => Promise<unknown>) =>
+    const transaction = vi
+      .fn()
+      .mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({ execute, transaction: innerTransaction }),
-    );
+      );
     const connect = vi.fn().mockReturnValue({ db: { transaction }, close });
     await expect(
       runNpcE2eFixtureCommand(
@@ -164,7 +191,7 @@ describe("M2.13A isolated NPC E2E DEV fixture", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("refuses unsafe environment before connecting", async () => {
+  it("rejects unsafe environment without connecting", async () => {
     const connect = vi.fn();
     await expect(
       runNpcE2eFixtureCommand(
