@@ -11,12 +11,18 @@ const npcId = "22222222-2222-4222-8222-222222222222";
 const interactionId = "33333333-3333-4333-8333-333333333333";
 const scope: ResponseScope = { worldId, npcId, interactionId };
 const row: OfflineInteraction = {
-  worldId, npcId, id: interactionId,
+  worldId,
+  npcId,
+  id: interactionId,
   contextId: "44444444-4444-4444-8444-444444444444",
   status: "received",
   communicationMode: "local",
   sourceProvider: "discord",
-  sourceGuildId: "123", sourceChannelId: "456", sourceMappingId: "555",
+  sourceGuildId: "123",
+  sourceChannelId: "456",
+  sourceMappingId: "555",
+  sourceThreadId: "777",
+  sourceMessageId: "888",
 };
 function fixture(overrides: Partial<OfflineInteraction> = {}) {
   let current = { ...row, ...overrides };
@@ -33,7 +39,15 @@ function fixture(overrides: Partial<OfflineInteraction> = {}) {
   });
   const deliver = vi.fn(async () => "delivered" as const);
   const deps: OfflineWorkflowDependencies = { read, generate, deliver };
-  return { deps, read, generate, deliver, setRow: (next: OfflineInteraction) => { current = next; } };
+  return {
+    deps,
+    read,
+    generate,
+    deliver,
+    setRow: (next: OfflineInteraction) => {
+      current = next;
+    },
+  };
 }
 describe("M2.12 offline NPC workflow", () => {
   it("chains an eligible fake-generated response to fake delivery once", async () => {
@@ -50,7 +64,9 @@ describe("M2.12 offline NPC workflow", () => {
   });
   it("rejects invalid UUID before accessing dependencies", async () => {
     const f = fixture();
-    expect(await createOfflineNpcWorkflow(f.deps)({ ...scope, worldId: "bad" })).toBe("invalid_scope");
+    expect(
+      await createOfflineNpcWorkflow(f.deps)({ ...scope, worldId: "bad" }),
+    ).toBe("invalid_scope");
     expect(f.read).not.toHaveBeenCalled();
   });
   it("does not generate or deliver a consumed interaction on replay", async () => {
@@ -61,7 +77,9 @@ describe("M2.12 offline NPC workflow", () => {
   });
   it("never delivers if the response pipeline blocks", async () => {
     const f = fixture();
-    f.generate.mockImplementationOnce(async () => ({ ok: false, error: "visibility_blocked" } as never));
+    f.generate.mockImplementationOnce(
+      async () => ({ ok: false, error: "visibility_blocked" }) as never,
+    );
     expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe("response_blocked");
     expect(f.deliver).not.toHaveBeenCalled();
   });
@@ -72,6 +90,21 @@ describe("M2.12 offline NPC workflow", () => {
       return { ok: true, status: "responded" } as never;
     });
     expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe("route_changed");
+    expect(f.deliver).not.toHaveBeenCalled();
+  });
+  it("blocks delivery on source message or thread substitution", async () => {
+    const f = fixture();
+    f.generate.mockImplementationOnce(async () => {
+      f.setRow({ ...row, status: "responded", sourceThreadId: "999" });
+      return { ok: true, status: "responded" } as never;
+    });
+    expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe("route_changed");
+    expect(f.deliver).not.toHaveBeenCalled();
+  });
+  it("classifies thrown generation errors as response failures, never delivery attempts", async () => {
+    const f = fixture();
+    f.generate.mockRejectedValueOnce(new Error("provider failed"));
+    expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe("response_blocked");
     expect(f.deliver).not.toHaveBeenCalled();
   });
   it("does not retry an uncertain delivery", async () => {
