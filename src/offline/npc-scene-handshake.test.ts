@@ -54,10 +54,7 @@ describe("M2.13B offline scene handshake", () => {
     expect(deps.intake).toHaveBeenCalledExactlyOnceWith(request);
     expect(deps.received).toHaveBeenCalledExactlyOnceWith(request);
     expect(deps.presence).toHaveBeenCalledExactlyOnceWith(interaction);
-    expect(deps.prepare).toHaveBeenCalledExactlyOnceWith(
-      interaction,
-      evidenceId,
-    );
+    expect(deps.prepare).toHaveBeenCalledExactlyOnceWith(interaction, evidenceId);
     expect(deps.respond).toHaveBeenCalledExactlyOnceWith(interaction);
   });
 
@@ -128,9 +125,7 @@ describe("M2.13B offline scene handshake", () => {
     ];
     for (const mutation of mutations) {
       const { deps, run } = fixture();
-      vi.mocked(deps.received).mockResolvedValue([
-        { ...interaction, ...mutation },
-      ]);
+      vi.mocked(deps.received).mockResolvedValue([{ ...interaction, ...mutation }]);
       expect(await run(request)).toBe("invalid_binding");
       expect(deps.presence).not.toHaveBeenCalled();
       expect(deps.respond).not.toHaveBeenCalled();
