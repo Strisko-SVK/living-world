@@ -60,7 +60,9 @@ describe("M2.12 fake-only harness gates", () => {
     const f = database("living_world_ci", "delivery-test-" + worldId);
     vi.stubEnv("DATABASE_URL", "postgresql://localhost/living_world_ci");
     Object.defineProperty(f.instance.pool, "options", {
-      value: { connectionString: "postgresql://db.example.com/living_world_ci" },
+      value: {
+        connectionString: "postgresql://db.example.com/living_world_ci",
+      },
     });
     try {
       await expect(
