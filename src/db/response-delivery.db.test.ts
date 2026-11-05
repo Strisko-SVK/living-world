@@ -83,7 +83,10 @@ async function fixture(
   numericRoute = false,
   skipGeneration = false,
   skipPreparation = false,
+  deferIntake = false,
 ) {
+  if (deferIntake && (!skipPreparation || !skipGeneration))
+    throw Error("Deferred intake requires deferred prepare/generation");
   const world = (
     await createWorld(database.db, {
       key: "delivery-test-" + randomUUID(),
@@ -181,13 +184,15 @@ async function fixture(
     mentionedUserIds: ["123"],
   };
   const intake = createDiscordIntake(createDiscordPersistence(database.db));
-  expect(await intake(message, "123")).toBe("accepted");
-  const {
-    rows: [incoming],
-  } = await database.pool.query(
-    "select id from interactions where world_id=$1",
-    [world],
-  );
+  if (!deferIntake) expect(await intake(message, "123")).toBe("accepted");
+  const incoming = deferIntake
+    ? { id: randomUUID() }
+    : (
+        await database.pool.query(
+          "select id from interactions where world_id=$1",
+          [world],
+        )
+      ).rows[0];
   const scope: DeliveryScope = {
     worldId: world,
     npcId: npc,
