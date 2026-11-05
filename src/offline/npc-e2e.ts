@@ -24,6 +24,7 @@ export type OfflineInteraction = {
   sourceMappingId: string | null;
   sourceThreadId: string | null;
   sourceMessageId: string | null;
+  localPresenceId: string | null;
 };
 
 export type OfflineWorkflowDependencies = {
@@ -58,6 +59,7 @@ export function createOfflineNpcWorkflow(deps: OfflineWorkflowDependencies) {
         before.id !== scope.interactionId ||
         before.status !== "received" ||
         before.communicationMode !== "local" ||
+        !before.localPresenceId ||
         before.sourceProvider !== "discord" ||
         !before.sourceGuildId ||
         !before.sourceChannelId ||
@@ -77,6 +79,9 @@ export function createOfflineNpcWorkflow(deps: OfflineWorkflowDependencies) {
         after.npcId !== before.npcId ||
         after.id !== before.id ||
         after.contextId !== before.contextId ||
+        after.communicationMode !== before.communicationMode ||
+        after.sourceProvider !== before.sourceProvider ||
+        after.localPresenceId !== before.localPresenceId ||
         after.sourceGuildId !== before.sourceGuildId ||
         after.sourceChannelId !== before.sourceChannelId ||
         after.sourceMappingId !== before.sourceMappingId ||
