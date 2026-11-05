@@ -1746,10 +1746,9 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
 
 describe("M2.13B real-PG offline scene handshake", () => {
   async function setup() {
-    // Real M2.8 intake already persists an authenticated, fresh synthetic
-    // event in fixture(). The handshake's intake port is a replay-free stub;
-    // the remaining DB read, M2.9 prepare and M2.12 pipeline are real.
-    const target = await fixture(false, true, "Ready.", true, true, true);
+    // No received interaction exists until the coordinator calls the real
+    // M2.8 intake. Only synthetic worlds/events and fake delivery are used.
+    const target = await fixture(false, true, "Ready.", true, true, true, true);
     const harness = await createOfflineNpcTestHarness(database, target.world);
     vi.mocked(harness.provider.generate).mockResolvedValue({
       text: JSON.stringify({ speech: "The Sentinel has arrived." }),
@@ -1765,14 +1764,36 @@ describe("M2.13B real-PG offline scene handshake", () => {
       threadId: target.threadId,
       authorId: target.message.authorId,
     };
-    const intake = vi.fn(async () => "accepted");
+    const actualIntake = createDiscordIntake(
+      createDiscordPersistence(database.db),
+    );
+    const intake = vi.fn(async () => actualIntake(target.message, "123"));
+    const read = async () => {
+      const rows = await database.pool.query(
+        "select id, npc_id from interactions where world_id=$1 and source_message_id=$2",
+        [target.world, input.sourceMessageId],
+      );
+      if (rows.rows.length !== 1) return null;
+      return getInteraction(
+        database.db,
+        target.world,
+        rows.rows[0].npc_id,
+        rows.rows[0].id,
+      );
+    };
     const run = createOfflineSceneHandshake({
       intake,
       received: async () => {
-        const row = await target.read();
+        const row = await read();
         return row ? [row] : [];
       },
-      presence: async () => target.grant.id,
+      presence: async (interaction) => {
+        const rows = await database.pool.query(
+          "select id from local_presence where world_id=$1 and npc_id=$2 and context_id=$3 and revoked_at is null",
+          [interaction.worldId, interaction.npcId, interaction.contextId],
+        );
+        return rows.rows.length === 1 ? rows.rows[0].id : null;
+      },
       prepare: async (interaction, evidenceId) =>
         (
           await prepareLocalInteraction(database.db, {
@@ -1790,16 +1811,16 @@ describe("M2.13B real-PG offline scene handshake", () => {
           interactionId: interaction.id,
         }),
     });
-    return { target, harness, input, intake, run };
+    return { target, harness, input, intake, read, run };
   }
 
-  it("prepares one real scene interaction and fake-delivers exactly once", async () => {
-    const { target, harness, input, intake, run } = await setup();
-    expect((await target.read())?.communicationMode).toBe("unknown");
+  it("persists real intake only during handshake then fake-delivers once", async () => {
+    const { target, harness, input, intake, read, run } = await setup();
+    expect(await read()).toBeNull();
     expect(await run(input)).toBe("delivered");
     expect(intake).toHaveBeenCalledTimes(1);
-    expect((await target.read())?.communicationMode).toBe("local");
-    expect((await target.read())?.responseMessageId).toBe("fake:verified-ack");
+    expect((await read())?.communicationMode).toBe("local");
+    expect((await read())?.responseMessageId).toBe("fake:verified-ack");
     expect(harness.transport.send).toHaveBeenCalledTimes(1);
     expect(harness.provider.generate).toHaveBeenCalledTimes(1);
     expect(harness.transport.sent[0]?.payload.destination).toEqual({
@@ -1808,13 +1829,12 @@ describe("M2.13B real-PG offline scene handshake", () => {
       channelId: target.channel,
       threadId: target.threadId,
     });
-    // Even an incorrectly repeated accepted signal cannot speak twice.
-    expect(await run(input)).toBe("invalid_binding");
+    expect(await run(input)).toBe("duplicate");
     expect(harness.transport.send).toHaveBeenCalledTimes(1);
   });
 
-  it("blocks a prepared reply after DM revokes NPC presence", async () => {
-    const { target, harness, input, run } = await setup();
+  it("blocks response when DM revoked presence before real intake", async () => {
+    const { target, harness, input, run, read } = await setup();
     expect(
       await revokeLocalPresence(
         database.db,
@@ -1826,9 +1846,21 @@ describe("M2.13B real-PG offline scene handshake", () => {
         target.grant.id,
       ),
     ).toMatchObject({ status: "revoked" });
-    expect(await run(input)).toBe("presence_denied");
+    expect(await run(input)).toBe("no_presence");
+    expect((await read())?.status).toBe("received");
     expect(harness.provider.generate).not.toHaveBeenCalled();
     expect(harness.transport.send).not.toHaveBeenCalled();
-    expect(await target.outbox()).toBeUndefined();
+  });
+
+  it("denies an unmapped player at real intake without DB interaction", async () => {
+    const { target, harness, input, run, read } = await setup();
+    await database.pool.query(
+      "update discord_identities set status='inactive' where world_id=$1",
+      [target.world],
+    );
+    expect(await run(input)).toBe("intake_denied");
+    expect(await read()).toBeNull();
+    expect(harness.provider.generate).not.toHaveBeenCalled();
+    expect(harness.transport.send).not.toHaveBeenCalled();
   });
 });
