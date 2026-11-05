@@ -1513,4 +1513,57 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
     expect(deliver).not.toHaveBeenCalled();
     expect(await target.outbox()).toBeUndefined();
   });
+  it("rejects a generated response when DM revokes presence during fake provider execution", async () => {
+    const target = await fixture(false, true, "Ready.", false, true);
+    const provider = fakeProvider();
+    const budget = fakeBudget();
+    vi.mocked(provider.generate).mockImplementationOnce(async () => {
+      expect(
+        await revokeLocalPresence(
+          database.db,
+          {
+            worldId: target.world,
+            npcId: target.npc,
+            contextId: target.scene,
+          },
+          target.grant.id,
+        ),
+      ).toMatchObject({ status: "revoked" });
+      return {
+        text: JSON.stringify({ speech: "This must not be delivered." }),
+        completed: true,
+        usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+      };
+    });
+    const response = createNpcResponseOrchestrator({
+      read: (scope) =>
+        getInteraction(
+          database.db,
+          scope.worldId,
+          scope.npcId,
+          scope.interactionId,
+        ),
+      build: createNpcContextBuilder(database.db),
+      store: generation,
+      generate: createTextGenerator(enabledConfig(), provider, budget),
+    });
+    const deliver = vi.fn(async () => "delivered" as const);
+    const workflow = createOfflineNpcWorkflow({
+      read: (scope) =>
+        getInteraction(
+          database.db,
+          scope.worldId,
+          scope.npcId,
+          scope.interactionId,
+        ),
+      generate: (scope) =>
+        response(scope.worldId, scope.npcId, scope.interactionId),
+      deliver,
+    });
+    expect(await workflow(target.scope)).toBe("response_blocked");
+    expect(provider.generate).toHaveBeenCalledTimes(1);
+    expect(deliver).not.toHaveBeenCalled();
+    expect(await target.outbox()).toBeUndefined();
+    expect((await target.read())?.responseText).toBeNull();
+  });
 });
