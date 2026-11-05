@@ -11,7 +11,10 @@ const requestSchema = z
     sourceMessageId: z.string().regex(/^\d{17,20}$/u),
     guildId: z.string().regex(/^\d{17,20}$/u),
     channelId: z.string().regex(/^\d{17,20}$/u),
-    threadId: z.string().regex(/^\d{17,20}$/u).nullable(),
+    threadId: z
+      .string()
+      .regex(/^\d{17,20}$/u)
+      .nullable(),
     authorId: z.string().regex(/^\d{17,20}$/u),
   })
   .strict();
