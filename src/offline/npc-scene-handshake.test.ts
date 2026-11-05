@@ -177,7 +177,7 @@ describe("M2.13B offline scene handshake", () => {
     vi.mocked(deps.respond).mockRejectedValue(
       Error("private DB or provider details"),
     );
-    expect(await run(request)).toBe("presence_denied");
+    expect(await run(request)).toBe("workflow_uncertain");
     expect(deps.respond).toHaveBeenCalledTimes(1);
   });
 });
