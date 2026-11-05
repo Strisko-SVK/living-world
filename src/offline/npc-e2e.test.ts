@@ -51,6 +51,18 @@ function fixture(overrides: Partial<OfflineInteraction> = {}) {
   };
 }
 describe("M2.12 offline NPC workflow", () => {
+  it("cannot execute the offline coordinator in production mode", async () => {
+    const f = fixture();
+    vi.stubEnv("NODE_ENV", "production");
+    try {
+      expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe("offline_only");
+      expect(f.read).not.toHaveBeenCalled();
+      expect(f.generate).not.toHaveBeenCalled();
+      expect(f.deliver).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it("chains an eligible fake-generated response to fake delivery once", async () => {
     const f = fixture();
     expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe("delivered");
