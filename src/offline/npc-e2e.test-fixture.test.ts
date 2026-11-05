@@ -59,10 +59,7 @@ describe("M2.12 fake-only harness gates", () => {
   it("refuses a pool whose real connection configuration differs from the validated URL", async () => {
     const f = database("living_world_ci", "delivery-test-" + worldId);
     vi.stubEnv("DATABASE_URL", "postgresql://localhost/living_world_ci");
-    const pool = f.instance.pool as unknown as {
-      options: { connectionString: string };
-    };
-    Object.defineProperty(pool, "options", {
+    Object.defineProperty(f.instance.pool, "options", {
       value: { connectionString: "postgresql://db.example.com/living_world_ci" },
     });
     try {
