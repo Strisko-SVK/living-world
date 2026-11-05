@@ -1614,6 +1614,45 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
     expect(deliver).not.toHaveBeenCalled();
     expect(await target.outbox()).toBeUndefined();
   });
+  it("does not revive an old NPC interaction after DM revokes and regrants presence", async () => {
+    const target = await fixture(false, true, "Ready.", false, true);
+    const harness = await createOfflineNpcTestHarness(database, target.world);
+    vi.mocked(harness.provider.generate).mockImplementationOnce(async () => {
+      expect(
+        await revokeLocalPresence(
+          database.db,
+          {
+            worldId: target.world,
+            npcId: target.npc,
+            contextId: target.scene,
+          },
+          target.grant.id,
+        ),
+      ).toMatchObject({ status: "revoked" });
+      return {
+        text: JSON.stringify({ speech: "Old speech must be discarded." }),
+        completed: true,
+        usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+      };
+    });
+    expect(await harness.run(target.scope)).toBe("response_blocked");
+    const regrant = await grantLocalPresence(database.db, {
+      worldId: target.world,
+      npcId: target.npc,
+      contextId: target.scene,
+    });
+    expect(regrant.status).toBe("granted");
+    expect(await harness.run(target.scope)).toBe("ineligible");
+    expect((await target.repository.preview(target.scope)).status).toBe(
+      "blocked",
+    );
+    expect((await target.repository.prepare(target.scope)).status).toBe(
+      "blocked",
+    );
+    expect(await target.outbox()).toBeUndefined();
+    expect(harness.transport.send).not.toHaveBeenCalled();
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+  });
   it("rejects a generated response when DM revokes presence during fake provider execution", async () => {
     const target = await fixture(false, true, "Ready.", false, true);
     const provider = fakeProvider();
