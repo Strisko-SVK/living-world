@@ -33,9 +33,9 @@ export type OfflineWorkflowDependencies = {
   generate(scope: ResponseScope): Promise<ResponseResult>;
   // Must be the existing M2.10 dispatcher with injected fake transport in tests.
   // A successful return means a validated, durable fake ACK, not merely a send attempt.
-  deliver(scope: ResponseScope): Promise<
-    "delivered" | "blocked" | "retryable" | "failed" | "uncertain"
-  >;
+  deliver(
+    scope: ResponseScope,
+  ): Promise<"delivered" | "blocked" | "retryable" | "failed" | "uncertain">;
 };
 
 export type OfflineWorkflowResult =
