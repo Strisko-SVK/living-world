@@ -26,7 +26,10 @@ export async function createOfflineNpcTestHarness(
     throw Error("Offline harness requires the test runner and isolated DB.");
   const parsed = new URL(url);
   if (
+    !["postgres:", "postgresql:"].includes(parsed.protocol) ||
     !["localhost", "127.0.0.1"].includes(parsed.hostname) ||
+    !!parsed.search ||
+    !!parsed.hash ||
     !["/living_world_ci", "/living_world_test"].includes(parsed.pathname) ||
     process.env.DISCORD_ENABLED === "true" ||
     process.env.LLM_PROVIDER === "openai"
@@ -78,11 +81,18 @@ export async function createOfflineNpcTestHarness(
       if (prepared.status !== "prepared" && prepared.status !== "existing")
         return "blocked";
       const result = await dispatch(scope);
-      return result.status === "delivered"
-        ? "delivered"
-        : result.status === "uncertain"
-          ? "uncertain"
-          : "blocked";
+      switch (result.status) {
+        case "delivered":
+          return "delivered";
+        case "retryable":
+          return "retryable";
+        case "failed":
+          return "failed";
+        case "uncertain":
+          return "uncertain";
+        default:
+          return "blocked";
+      }
     },
   });
   return {
