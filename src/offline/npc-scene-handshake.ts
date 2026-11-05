@@ -43,10 +43,7 @@ export type SceneHandshakeDependencies = {
   // Trusted DB operator evidence only; never create it from the message.
   presence(interaction: SceneInteraction): Promise<string | null>;
   // Existing M2.9 transaction must revalidate evidence, source-time and policy.
-  prepare(
-    interaction: SceneInteraction,
-    evidenceId: string,
-  ): Promise<string>;
+  prepare(interaction: SceneInteraction, evidenceId: string): Promise<string>;
   // Existing M2.12 fake-only harness rechecks routing before fake delivery.
   respond(interaction: SceneInteraction): Promise<OfflineWorkflowResult>;
 };
