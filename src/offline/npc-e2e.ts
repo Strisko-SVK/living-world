@@ -22,6 +22,8 @@ export type OfflineInteraction = {
   sourceGuildId: string | null;
   sourceChannelId: string | null;
   sourceMappingId: string | null;
+  sourceThreadId: string | null;
+  sourceMessageId: string | null;
 };
 
 export type OfflineWorkflowDependencies = {
@@ -46,6 +48,7 @@ export type OfflineWorkflowResult =
 export function createOfflineNpcWorkflow(deps: OfflineWorkflowDependencies) {
   return async (scope: ResponseScope): Promise<OfflineWorkflowResult> => {
     if (!scopeSchema.safeParse(scope).success) return "invalid_scope";
+    let stage: "generation" | "delivery" = "generation";
     try {
       const before = await deps.read(scope);
       if (!before) return "not_found";
@@ -76,10 +79,13 @@ export function createOfflineNpcWorkflow(deps: OfflineWorkflowDependencies) {
         after.sourceGuildId !== before.sourceGuildId ||
         after.sourceChannelId !== before.sourceChannelId ||
         after.sourceMappingId !== before.sourceMappingId ||
+        after.sourceThreadId !== before.sourceThreadId ||
+        after.sourceMessageId !== before.sourceMessageId ||
         after.status !== "responded"
       )
         return "route_changed";
 
+      stage = "delivery";
       const delivery = await deps.deliver(scope);
       return delivery === "delivered"
         ? "delivered"
@@ -88,7 +94,8 @@ export function createOfflineNpcWorkflow(deps: OfflineWorkflowDependencies) {
           : "delivery_blocked";
     } catch {
       // No automatic retry, reconciliation or second send.
-      return "delivery_uncertain";
+      // A generation error is not evidence that any delivery was attempted.
+      return stage === "delivery" ? "delivery_uncertain" : "response_blocked";
     }
   };
 }
