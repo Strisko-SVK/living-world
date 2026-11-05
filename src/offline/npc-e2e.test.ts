@@ -23,6 +23,7 @@ const row: OfflineInteraction = {
   sourceMappingId: "555",
   sourceThreadId: "777",
   sourceMessageId: "888",
+  localPresenceId: "66666666-6666-4666-8666-666666666666",
 };
 function fixture(overrides: Partial<OfflineInteraction> = {}) {
   let current = { ...row, ...overrides };
@@ -101,6 +102,25 @@ describe("M2.12 offline NPC workflow", () => {
       return { ok: true, status: "responded" } as never;
     });
     expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe("route_changed");
+    expect(f.deliver).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["presence", { localPresenceId: "77777777-7777-4777-8777-777777777777" }],
+    ["communication", { communicationMode: "remote" }],
+    ["provider", { sourceProvider: "other" }],
+  ])("blocks %s substitution between generation and delivery", async (_name, change) => {
+    const f = fixture();
+    f.generate.mockImplementationOnce(async () => {
+      f.setRow({ ...row, status: "responded", ...change });
+      return { ok: true, status: "responded" } as never;
+    });
+    expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe("route_changed");
+    expect(f.deliver).not.toHaveBeenCalled();
+  });
+  it("refuses a local interaction without durable presence evidence", async () => {
+    const f = fixture({ localPresenceId: null });
+    expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe("ineligible");
+    expect(f.generate).not.toHaveBeenCalled();
     expect(f.deliver).not.toHaveBeenCalled();
   });
   it("classifies thrown generation errors as response failures, never delivery attempts", async () => {
