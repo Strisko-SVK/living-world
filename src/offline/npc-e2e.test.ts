@@ -150,6 +150,19 @@ describe("M2.12 offline NPC workflow", () => {
     );
     expect(f.deliver).not.toHaveBeenCalled();
   });
+  it.each([
+    ["retryable", "delivery_retryable"],
+    ["failed", "delivery_failed"],
+    ["blocked", "delivery_blocked"],
+  ] as const)(
+    "reports %s fake delivery as %s without retrying",
+    async (deliveryStatus, expected) => {
+      const f = fixture();
+      f.deliver.mockResolvedValueOnce(deliveryStatus as never);
+      expect(await createOfflineNpcWorkflow(f.deps)(scope)).toBe(expected);
+      expect(f.deliver).toHaveBeenCalledTimes(1);
+    },
+  );
   it("does not retry an uncertain delivery", async () => {
     const f = fixture();
     f.deliver.mockImplementationOnce(async () => "uncertain" as never);
