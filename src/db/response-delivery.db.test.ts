@@ -1537,7 +1537,9 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
       "update discord_context_mappings set status='active' where id=$1",
       [target.mapping],
     );
-    expect((await target.repository.preview(target.scope)).status).toBe("ready");
+    expect((await target.repository.preview(target.scope)).status).toBe(
+      "ready",
+    );
     // Intentionally demonstrates a policy gap: direct operator delivery does
     // not know that the route had been revoked after the source event.
     expect((await target.repository.prepare(target.scope)).status).toBe(
