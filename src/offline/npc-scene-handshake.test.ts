@@ -48,17 +48,20 @@ function fixture() {
 }
 
 describe("M2.13B offline scene handshake", () => {
-  it("routes exactly one authenticated event through DB presence and fake response", async () => {
+  it("coordinates one authorized event and one fake response", async () => {
     const { deps, run } = fixture();
     expect(await run(request)).toBe("delivered");
     expect(deps.intake).toHaveBeenCalledExactlyOnceWith(request);
     expect(deps.received).toHaveBeenCalledExactlyOnceWith(request);
     expect(deps.presence).toHaveBeenCalledExactlyOnceWith(interaction);
-    expect(deps.prepare).toHaveBeenCalledExactlyOnceWith(interaction, evidenceId);
+    expect(deps.prepare).toHaveBeenCalledExactlyOnceWith(
+      interaction,
+      evidenceId,
+    );
     expect(deps.respond).toHaveBeenCalledExactlyOnceWith(interaction);
   });
 
-  it("fails closed before intake on invalid IDs or extra user claims", async () => {
+  it("rejects invalid IDs and asserted DM privileges", async () => {
     const { deps, run } = fixture();
     const inputs = [
       { ...request, worldId: "not-uuid" },
@@ -80,7 +83,7 @@ describe("M2.13B offline scene handshake", () => {
     "invalid_trigger",
     "event_conflict",
     "error",
-  ])("rejects denied intake outcome %s without preparing speech", async (result) => {
+  ])("denies intake outcome %s", async (result) => {
     const { deps, run } = fixture();
     vi.mocked(deps.intake).mockResolvedValue(result);
     expect(await run(request)).toBe("intake_denied");
@@ -106,7 +109,7 @@ describe("M2.13B offline scene handshake", () => {
     expect(deps.presence).not.toHaveBeenCalled();
   });
 
-  it("rejects cross-scene, cross-world and modified source bindings", async () => {
+  it("rejects modified source and scene bindings", async () => {
     const mutations: Partial<SceneInteraction>[] = [
       { worldId: "88888888-8888-4888-8888-888888888888" },
       { contextId: "88888888-8888-4888-8888-888888888888" },
@@ -125,14 +128,16 @@ describe("M2.13B offline scene handshake", () => {
     ];
     for (const mutation of mutations) {
       const { deps, run } = fixture();
-      vi.mocked(deps.received).mockResolvedValue([{ ...interaction, ...mutation }]);
+      vi.mocked(deps.received).mockResolvedValue([
+        { ...interaction, ...mutation },
+      ]);
       expect(await run(request)).toBe("invalid_binding");
       expect(deps.presence).not.toHaveBeenCalled();
       expect(deps.respond).not.toHaveBeenCalled();
     }
   });
 
-  it("does not invent NPC presence from a player's Discord message", async () => {
+  it("never invents NPC presence from player text", async () => {
     const { deps, run } = fixture();
     vi.mocked(deps.presence).mockResolvedValue(null);
     expect(await run(request)).toBe("no_presence");
@@ -140,14 +145,14 @@ describe("M2.13B offline scene handshake", () => {
     expect(deps.respond).not.toHaveBeenCalled();
   });
 
-  it("requires database confirmation of presence evidence and policy", async () => {
+  it("requires DB presence and policy confirmation", async () => {
     const { deps, run } = fixture();
     vi.mocked(deps.prepare).mockResolvedValue("blocked");
     expect(await run(request)).toBe("presence_denied");
     expect(deps.respond).not.toHaveBeenCalled();
   });
 
-  it("does not automatically replay after a changed presence grant", async () => {
+  it("never replays after presence changes", async () => {
     const { deps, run } = fixture();
     vi.mocked(deps.prepare).mockResolvedValue("already_prepared");
     expect(await run(request)).toBe("presence_denied");
@@ -160,7 +165,7 @@ describe("M2.13B offline scene handshake", () => {
     "delivery_blocked",
     "delivery_uncertain",
     "delivery_retryable",
-  ] as const)("propagates fake workflow outcome %s without retry", async (status) => {
+  ] as const)("propagates outcome %s", async (status) => {
     const { deps, run } = fixture();
     vi.mocked(deps.respond).mockResolvedValue(status);
     expect(await run(request)).toBe(status);
