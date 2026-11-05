@@ -57,6 +57,7 @@ import {
   fakeProvider,
 } from "../llm/llm.test-fixture.js";
 import { createOfflineNpcWorkflow } from "../offline/npc-e2e.js";
+import { createOfflineSceneHandshake } from "../offline/npc-scene-handshake.js";
 import { createOfflineNpcTestHarness } from "../offline/npc-e2e.test-fixture.js";
 import { createDeliveryRepository } from "../delivery/delivery.repository.js";
 import { createDeliveryDispatcher } from "../delivery/dispatch.js";
@@ -81,6 +82,7 @@ async function fixture(
   speech = "@everyone @here <@123> <@&456> The report remains uncertain.",
   numericRoute = false,
   skipGeneration = false,
+  skipPreparation = false,
 ) {
   const world = (
     await createWorld(database.db, {
@@ -130,6 +132,7 @@ async function fixture(
         ? identifier()
         : "thread-" + identifier()
       : null;
+  const author = numericRoute ? identifier() : "author";
   const mapping = (
     await mapDiscordContext(database.db, world, {
       contextId: scene,
@@ -145,7 +148,7 @@ async function fixture(
   );
   await addEntityAlias(database.db, world, npc, { alias: "Pelo" });
   await mapDiscordUserToEntity(database.db, world, {
-    discordUserId: "author",
+    discordUserId: author,
     entityId: pc,
     mappingType: "player_character",
   });
@@ -173,7 +176,7 @@ async function fixture(
     guildId: guild,
     channelId: channel,
     threadId,
-    authorId: "author",
+    authorId: author,
     content: "<@123> [Pelo] Check the manifest.",
     mentionedUserIds: ["123"],
   };
@@ -190,15 +193,17 @@ async function fixture(
     npcId: npc,
     interactionId: incoming.id,
   };
-  expect(
-    (
-      await prepareLocalInteraction(database.db, {
-        ...scope,
-        contextId: scene,
-        evidenceId: grant.evidence.id,
-      })
-    ).status,
-  ).toBe("prepared");
+  if (!skipPreparation) {
+    expect(
+      (
+        await prepareLocalInteraction(database.db, {
+          ...scope,
+          contextId: scene,
+          evidenceId: grant.evidence.id,
+        })
+      ).status,
+    ).toBe("prepared");
+  }
   if (!skipGeneration) {
     const local = (await getInteraction(database.db, world, npc, incoming.id))!;
     const claimed = await generation.claim(scope, local);
