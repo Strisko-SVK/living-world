@@ -7,7 +7,19 @@ function database(databaseName: string, key: string | null) {
   const query = vi.fn().mockResolvedValue({
     rows: [{ database_name: databaseName, world_key: key }],
   });
-  return { instance: { pool: { query } } as unknown as DatabaseClient, query };
+  return {
+    instance: {
+      pool: {
+        query,
+        options: {
+          get connectionString() {
+            return process.env.DATABASE_URL;
+          },
+        },
+      },
+    } as unknown as DatabaseClient,
+    query,
+  };
 }
 describe("M2.12 fake-only harness gates", () => {
   it("refuses remote PostgreSQL before access", async () => {
@@ -39,6 +51,24 @@ describe("M2.12 fake-only harness gates", () => {
       await expect(
         createOfflineNpcTestHarness(f.instance, worldId),
       ).rejects.toThrow("unsafe database");
+      expect(f.query).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it("refuses a pool whose real connection configuration differs from the validated URL", async () => {
+    const f = database("living_world_ci", "delivery-test-" + worldId);
+    vi.stubEnv("DATABASE_URL", "postgresql://localhost/living_world_ci");
+    const pool = f.instance.pool as unknown as {
+      options: { connectionString: string };
+    };
+    Object.defineProperty(pool, "options", {
+      value: { connectionString: "postgresql://db.example.com/living_world_ci" },
+    });
+    try {
+      await expect(
+        createOfflineNpcTestHarness(f.instance, worldId),
+      ).rejects.toThrow("does not match DATABASE_URL");
       expect(f.query).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllEnvs();
