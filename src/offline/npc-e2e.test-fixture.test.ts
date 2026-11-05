@@ -23,6 +23,22 @@ describe("M2.12 fake-only harness gates", () => {
     }
   });
   it.each([
+    ["query host override", "postgresql://localhost/living_world_ci?host=192.0.2.44"],
+    ["query ssl override", "postgresql://localhost/living_world_ci?sslmode=require"],
+    ["unexpected protocol", "http://localhost/living_world_ci"],
+  ])("refuses %s before accessing the DB", async (_case, url) => {
+    const f = database("living_world_ci", "delivery-test-" + worldId);
+    vi.stubEnv("DATABASE_URL", url);
+    try {
+      await expect(
+        createOfflineNpcTestHarness(f.instance, worldId),
+      ).rejects.toThrow("unsafe database");
+      expect(f.query).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it.each([
     ["wrong database", "living_world_prod", "delivery-test-" + worldId],
     ["wrong world", "living_world_ci", "lw-dev-pilot-001"],
     ["missing world", "living_world_ci", null],
