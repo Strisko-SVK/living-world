@@ -1477,9 +1477,7 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
     const outcomes = await Promise.all(
       Array.from({ length: 8 }, () => harness.run(target.scope)),
     );
-    expect(outcomes.filter((result) => result === "delivered")).toHaveLength(
-      1,
-    );
+    expect(outcomes.filter((result) => result === "delivered")).toHaveLength(1);
     expect(harness.provider.generate).toHaveBeenCalledTimes(1);
     expect(harness.transport.send).toHaveBeenCalledTimes(1);
     expect((await target.outbox())?.status).toBe("delivered");
