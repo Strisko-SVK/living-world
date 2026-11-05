@@ -1833,6 +1833,18 @@ describe("M2.13B real-PG offline scene handshake", () => {
     expect(harness.transport.send).toHaveBeenCalledTimes(1);
   });
 
+  it("serializes eight competing real-intake handlers to one fake ACK", async () => {
+    const { harness, input, run, read } = await setup();
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => run(input)),
+    );
+    expect(results.filter((status) => status === "delivered")).toHaveLength(1);
+    expect(results.filter((status) => status === "duplicate")).toHaveLength(7);
+    expect((await read())?.responseMessageId).toBe("fake:verified-ack");
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+  });
+
   it("blocks response when DM revoked presence before real intake", async () => {
     const { target, harness, input, run, read } = await setup();
     expect(
