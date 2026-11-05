@@ -67,7 +67,8 @@ export function createOfflineNpcWorkflow(deps: OfflineWorkflowDependencies) {
 
       const result = await deps.generate(scope);
       // Never treat an already-recorded response as permission to send again.
-      if (!result.ok || result.status !== "responded") return "response_blocked";
+      if (!result.ok || result.status !== "responded")
+        return "response_blocked";
 
       const after = await deps.read(scope);
       if (
