@@ -30,10 +30,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Temporary formatter inspection
-        run: |
-          pnpm exec prettier --write src/offline/npc-e2e.test.ts
-          git diff -- src/offline/npc-e2e.test.ts
       - name: Run quality gate
         run: pnpm quality:gate
 
