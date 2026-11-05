@@ -1434,6 +1434,34 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
     expect(harness.transport.send).toHaveBeenCalledTimes(1);
     expect(harness.provider.generate).toHaveBeenCalledTimes(1);
   });
+  it.each(["policy", "route"] as const)(
+    "does not persist or fake-send after %s is revoked during generation",
+    async (change) => {
+      const target = await fixture(false, true, "Ready.", false, true);
+      const harness = await createOfflineNpcTestHarness(database, target.world);
+      vi.mocked(harness.provider.generate).mockImplementationOnce(async () => {
+        if (change === "policy")
+          await database.pool.query(
+            "update interaction_contexts set npc_intake_policy='disabled' where id=$1",
+            [target.scene],
+          );
+        else
+          await database.pool.query(
+            "update discord_context_mappings set status='inactive' where id=$1",
+            [target.mapping],
+          );
+        return {
+          text: JSON.stringify({ speech: "Revoked speech must not leave." }),
+          completed: true,
+          usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+        };
+      });
+      expect(await harness.run(target.scope)).toBe("response_blocked");
+      expect(harness.transport.send).not.toHaveBeenCalled();
+      expect(await target.outbox()).toBeUndefined();
+      expect((await target.read())?.responseText).toBeNull();
+    },
+  );
   it("blocks generation and fake outbound when a previously valid presence is revoked", async () => {
     const target = await fixture(false, true, "Ready.", false, true);
     const provider = fakeProvider();
