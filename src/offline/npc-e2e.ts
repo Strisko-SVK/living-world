@@ -38,6 +38,7 @@ export type OfflineWorkflowDependencies = {
 
 export type OfflineWorkflowResult =
   | "invalid_scope"
+  | "offline_only"
   | "not_found"
   | "ineligible"
   | "response_blocked"
@@ -48,6 +49,9 @@ export type OfflineWorkflowResult =
 
 export function createOfflineNpcWorkflow(deps: OfflineWorkflowDependencies) {
   return async (scope: ResponseScope): Promise<OfflineWorkflowResult> => {
+    // Defense in depth only: the future composition root must also enforce fake
+    // provider/transport and a disposable database before invoking this port.
+    if (process.env.NODE_ENV !== "test") return "offline_only";
     if (!scopeSchema.safeParse(scope).success) return "invalid_scope";
     let stage: "generation" | "delivery" = "generation";
     try {
