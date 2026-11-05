@@ -1738,3 +1738,92 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
     expect((await target.read())?.responseText).toBeNull();
   });
 });
+
+describe("M2.13B real-PG offline scene handshake", () => {
+  async function setup() {
+    // Real M2.8 intake already persists an authenticated, fresh synthetic
+    // event in fixture(). The handshake's intake port is a replay-free stub;
+    // the remaining DB read, M2.9 prepare and M2.12 pipeline are real.
+    const target = await fixture(false, true, "Ready.", true, true, true);
+    const harness = await createOfflineNpcTestHarness(database, target.world);
+    vi.mocked(harness.provider.generate).mockResolvedValue({
+      text: JSON.stringify({ speech: "The Sentinel has arrived." }),
+      completed: true,
+      usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+    });
+    const input = {
+      worldId: target.world,
+      contextId: target.scene,
+      sourceMessageId: target.message.sourceMessageId,
+      guildId: target.guild,
+      channelId: target.channel,
+      threadId: target.threadId,
+      authorId: target.message.authorId,
+    };
+    const intake = vi.fn(async () => "accepted");
+    const run = createOfflineSceneHandshake({
+      intake,
+      received: async () => {
+        const row = await target.read();
+        return row ? [row] : [];
+      },
+      presence: async () => target.grant.id,
+      prepare: async (interaction, evidenceId) =>
+        (
+          await prepareLocalInteraction(database.db, {
+            worldId: interaction.worldId,
+            npcId: interaction.npcId,
+            contextId: interaction.contextId,
+            interactionId: interaction.id,
+            evidenceId,
+          })
+        ).status,
+      respond: (interaction) =>
+        harness.run({
+          worldId: interaction.worldId,
+          npcId: interaction.npcId,
+          interactionId: interaction.id,
+        }),
+    });
+    return { target, harness, input, intake, run };
+  }
+
+  it("prepares one real scene interaction and fake-delivers exactly once", async () => {
+    const { target, harness, input, intake, run } = await setup();
+    expect((await target.read())?.communicationMode).toBe("unknown");
+    expect(await run(input)).toBe("delivered");
+    expect(intake).toHaveBeenCalledTimes(1);
+    expect((await target.read())?.communicationMode).toBe("local");
+    expect((await target.read())?.responseMessageId).toBe("fake:verified-ack");
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+    expect(harness.transport.sent[0]?.payload.destination).toEqual({
+      provider: "discord",
+      guildId: target.guild,
+      channelId: target.channel,
+      threadId: target.threadId,
+    });
+    // Even an incorrectly repeated accepted signal cannot speak twice.
+    expect(await run(input)).toBe("invalid_binding");
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks a prepared reply after DM revokes NPC presence", async () => {
+    const { target, harness, input, run } = await setup();
+    expect(
+      await revokeLocalPresence(
+        database.db,
+        {
+          worldId: target.world,
+          npcId: target.npc,
+          contextId: target.scene,
+        },
+        target.grant.id,
+      ),
+    ).toMatchObject({ status: "revoked" });
+    expect(await run(input)).toBe("presence_denied");
+    expect(harness.provider.generate).not.toHaveBeenCalled();
+    expect(harness.transport.send).not.toHaveBeenCalled();
+    expect(await target.outbox()).toBeUndefined();
+  });
+});
