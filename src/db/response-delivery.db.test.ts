@@ -57,6 +57,7 @@ import {
   fakeProvider,
 } from "../llm/llm.test-fixture.js";
 import { createOfflineNpcWorkflow } from "../offline/npc-e2e.js";
+import { createOfflineNpcTestHarness } from "../offline/npc-e2e.test-fixture.js";
 import { createDeliveryRepository } from "../delivery/delivery.repository.js";
 import { createDeliveryDispatcher } from "../delivery/dispatch.js";
 import {
@@ -1411,62 +1412,27 @@ describe("M2.11 controlled outbound PostgreSQL path", () => {
 describe("M2.12 repository-backed offline NPC E2E", () => {
   it("runs real M2.9 preparation, M2.7 generation fences and M2.10 fake ACK in the original scene", async () => {
     const target = await fixture(false, true, "Ready.", false, true);
-    const provider = fakeProvider();
-    const budget = fakeBudget();
-    vi.mocked(provider.generate).mockResolvedValue({
+    const harness = await createOfflineNpcTestHarness(database, target.world);
+    vi.mocked(harness.provider.generate).mockResolvedValue({
       text: JSON.stringify({ speech: "Ready. The route is confirmed." }),
       completed: true,
       usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
     });
-    const response = createNpcResponseOrchestrator({
-      read: (scope) =>
-        getInteraction(
-          database.db,
-          scope.worldId,
-          scope.npcId,
-          scope.interactionId,
-        ),
-      build: createNpcContextBuilder(database.db),
-      store: generation,
-      generate: createTextGenerator(enabledConfig(), provider, budget),
-    });
-    const workflow = createOfflineNpcWorkflow({
-      read: (scope) =>
-        getInteraction(
-          database.db,
-          scope.worldId,
-          scope.npcId,
-          scope.interactionId,
-        ),
-      generate: (scope) =>
-        response(scope.worldId, scope.npcId, scope.interactionId),
-      deliver: async (scope) => {
-        const prepared = await target.repository.prepare(scope);
-        if (prepared.status !== "prepared" && prepared.status !== "existing")
-          return "blocked";
-        const result = await target.run(scope);
-        return result.status === "delivered"
-          ? "delivered"
-          : result.status === "uncertain"
-            ? "uncertain"
-            : "blocked";
-      },
-    });
-    expect(await workflow(target.scope)).toBe("delivered");
+    expect(await harness.run(target.scope)).toBe("delivered");
     const persisted = await target.read();
     expect(persisted?.status).toBe("responded");
     expect(persisted?.responseMessageId).toBe("fake:verified-ack");
     expect((await target.outbox())?.status).toBe("delivered");
-    expect(target.fake.sent).toHaveLength(1);
-    expect(target.fake.sent[0]?.payload.destination).toEqual({
+    expect(harness.transport.sent).toHaveLength(1);
+    expect(harness.transport.sent[0]?.payload.destination).toEqual({
       provider: "discord",
       guildId: target.guild,
       channelId: target.channel,
       threadId: target.threadId,
     });
-    expect(await workflow(target.scope)).toBe("ineligible");
-    expect(target.fake.send).toHaveBeenCalledTimes(1);
-    expect(provider.generate).toHaveBeenCalledTimes(1);
+    expect(await harness.run(target.scope)).toBe("ineligible");
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
   });
   it("blocks generation and fake outbound when a previously valid presence is revoked", async () => {
     const target = await fixture(false, true, "Ready.", false, true);
