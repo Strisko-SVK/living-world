@@ -4,7 +4,11 @@ import { createNpcContextBuilder } from "../context/context.repository.js";
 import { createResponseStore } from "../response/response.repository.js";
 import { createNpcResponseOrchestrator } from "../response/orchestrator.js";
 import { createTextGenerator } from "../llm/generation.js";
-import { enabledConfig, fakeBudget, fakeProvider } from "../llm/llm.test-fixture.js";
+import {
+  enabledConfig,
+  fakeBudget,
+  fakeProvider,
+} from "../llm/llm.test-fixture.js";
 import { createDeliveryRepository } from "../delivery/delivery.repository.js";
 import { createDeliveryDispatcher } from "../delivery/dispatch.js";
 import { fakeDeliveryTransport } from "../delivery/delivery.test-fixture.js";
@@ -39,7 +43,9 @@ export async function createOfflineNpcTestHarness(
   );
   if (
     rows.length !== 1 ||
-    !["living_world_ci", "living_world_test"].includes(rows[0]!.database_name) ||
+    !["living_world_ci", "living_world_test"].includes(
+      rows[0]!.database_name,
+    ) ||
     !/^delivery-test-[0-9a-f-]{36}$/.test(rows[0]!.world_key ?? "")
   )
     throw Error("Offline harness requires a disposable synthetic world.");
