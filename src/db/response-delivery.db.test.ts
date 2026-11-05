@@ -1466,6 +1466,25 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
       else expect((await target.read())?.responseText).toBeTruthy();
     },
   );
+  it("serializes competing offline workflows to one persisted response and one fake send", async () => {
+    const target = await fixture(false, true, "Ready.", false, true);
+    const harness = await createOfflineNpcTestHarness(database, target.world);
+    vi.mocked(harness.provider.generate).mockResolvedValue({
+      text: JSON.stringify({ speech: "Only one NPC answer." }),
+      completed: true,
+      usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+    });
+    const outcomes = await Promise.all(
+      Array.from({ length: 8 }, () => harness.run(target.scope)),
+    );
+    expect(outcomes.filter((result) => result === "delivered")).toHaveLength(
+      1,
+    );
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+    expect((await target.outbox())?.status).toBe("delivered");
+    expect((await target.read())?.responseMessageId).toBe("fake:verified-ack");
+  });
   it("does not replay a persisted response after a disabled route is restored", async () => {
     const target = await fixture(false, true, "Ready.", false, true);
     const harness = await createOfflineNpcTestHarness(database, target.world);
