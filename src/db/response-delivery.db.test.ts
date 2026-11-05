@@ -1517,6 +1517,35 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
       "ready",
     );
   });
+  it("documents the explicit-operator stale response risk after route restoration", async () => {
+    const target = await fixture(false, true, "Ready.", false, true);
+    const harness = await createOfflineNpcTestHarness(database, target.world);
+    vi.mocked(harness.provider.generate).mockImplementationOnce(async () => {
+      await database.pool.query(
+        "update discord_context_mappings set status='inactive' where id=$1",
+        [target.mapping],
+      );
+      return {
+        text: JSON.stringify({ speech: "This response predates restoration." }),
+        completed: true,
+        usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+      };
+    });
+    expect(await harness.run(target.scope)).toBe("delivery_blocked");
+    expect(harness.transport.send).not.toHaveBeenCalled();
+    await database.pool.query(
+      "update discord_context_mappings set status='active' where id=$1",
+      [target.mapping],
+    );
+    expect((await target.repository.preview(target.scope)).status).toBe("ready");
+    // Intentionally demonstrates a policy gap: direct operator delivery does
+    // not know that the route had been revoked after the source event.
+    expect((await target.repository.prepare(target.scope)).status).toBe("prepared");
+    expect(await target.run(target.scope)).toEqual({ status: "delivered" });
+    expect(target.fake.send).toHaveBeenCalledTimes(1);
+    expect(harness.transport.send).not.toHaveBeenCalled();
+    expect((await target.outbox())?.status).toBe("delivered");
+  });
   it("keeps an already blocked outbox terminal after route reactivation", async () => {
     const target = await fixture();
     expect((await target.repository.prepare(target.scope)).status).toBe(
