@@ -30,6 +30,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Temporary exact formatter diff
+        run: |
+          pnpm exec prettier --write src/db/response-delivery.db.test.ts docs/m2.12-offline-npc-e2e.md
+          git diff -- src/db/response-delivery.db.test.ts docs/m2.12-offline-npc-e2e.md
       - name: Run quality gate
         run: pnpm quality:gate
 
