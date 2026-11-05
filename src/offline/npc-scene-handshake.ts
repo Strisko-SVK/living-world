@@ -60,6 +60,7 @@ export type SceneHandshakeResult =
   | "invalid_binding"
   | "no_presence"
   | "presence_denied"
+  | "workflow_uncertain"
   | OfflineWorkflowResult;
 
 // This is a test-only entrypoint, not an HTTP endpoint or a live Gateway hook.
@@ -72,6 +73,7 @@ export function createOfflineSceneHandshake(deps: SceneHandshakeDependencies) {
     const parsed = requestSchema.safeParse(input);
     if (!parsed.success) return "invalid_request";
     const request = parsed.data;
+    let responseStarted = false;
     try {
       const intake = await deps.intake(request);
       if (intake === "duplicate") return "duplicate";
@@ -105,11 +107,12 @@ export function createOfflineSceneHandshake(deps: SceneHandshakeDependencies) {
         return "no_presence";
       const prepared = await deps.prepare(interaction, evidenceId);
       if (prepared !== "prepared") return "presence_denied";
+      responseStarted = true;
       return await deps.respond(interaction);
     } catch {
-      // Never retry automatically: an exception after intake can mean a
-      // persisted received event or an uncertain fake-delivery outcome.
-      return "presence_denied";
+      // No automatic retry: an exception after response begins might mean
+      // an uncertain fake acknowledgement rather than a safe preflight denial.
+      return responseStarted ? "workflow_uncertain" : "presence_denied";
     }
   };
 }
