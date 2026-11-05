@@ -51,7 +51,11 @@ import { createResponseStore } from "../response/response.repository.js";
 import { createNpcContextBuilder } from "../context/context.repository.js";
 import { createNpcResponseOrchestrator } from "../response/orchestrator.js";
 import { createTextGenerator } from "../llm/generation.js";
-import { enabledConfig, fakeBudget, fakeProvider } from "../llm/llm.test-fixture.js";
+import {
+  enabledConfig,
+  fakeBudget,
+  fakeProvider,
+} from "../llm/llm.test-fixture.js";
 import { createOfflineNpcWorkflow } from "../offline/npc-e2e.js";
 import { createDeliveryRepository } from "../delivery/delivery.repository.js";
 import { createDeliveryDispatcher } from "../delivery/dispatch.js";
@@ -198,7 +202,9 @@ async function fixture(
     const local = (await getInteraction(database.db, world, npc, incoming.id))!;
     const claimed = await generation.claim(scope, local);
     if (!claimed?.responseClaimId) throw Error("No fake generation claim");
-    expect(await generation.dispatch(scope, claimed.responseClaimId)).toBe(true);
+    expect(await generation.dispatch(scope, claimed.responseClaimId)).toBe(
+      true,
+    );
     await generation.persist(scope, claimed.responseClaimId, speech);
   }
   let now = new Date("2030-01-01T00:00:00Z");
@@ -1414,15 +1420,26 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
     });
     const response = createNpcResponseOrchestrator({
       read: (scope) =>
-        getInteraction(database.db, scope.worldId, scope.npcId, scope.interactionId),
+        getInteraction(
+          database.db,
+          scope.worldId,
+          scope.npcId,
+          scope.interactionId,
+        ),
       build: createNpcContextBuilder(database.db),
       store: generation,
       generate: createTextGenerator(enabledConfig(), provider, budget),
     });
     const workflow = createOfflineNpcWorkflow({
       read: (scope) =>
-        getInteraction(database.db, scope.worldId, scope.npcId, scope.interactionId),
-      generate: (scope) => response(scope.worldId, scope.npcId, scope.interactionId),
+        getInteraction(
+          database.db,
+          scope.worldId,
+          scope.npcId,
+          scope.interactionId,
+        ),
+      generate: (scope) =>
+        response(scope.worldId, scope.npcId, scope.interactionId),
       deliver: async (scope) => {
         const prepared = await target.repository.prepare(scope);
         if (prepared.status !== "prepared" && prepared.status !== "existing")
