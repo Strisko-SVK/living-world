@@ -128,6 +128,12 @@ describe("M2.14B atomic NPC DEV activation on disposable PostgreSQL", () => {
           activateNpcE2e(tx, { route, ids, userId: humanId }),
         ).rejects.toThrow();
 
+        await expect(
+          disableNpcE2eIntake(tx, {
+            route,
+            ids: { ...ids, npcId: randomUUID() },
+          }),
+        ).rejects.toThrow("Emergency disable does not match");
         const disabled = await disableNpcE2eIntake(tx, { route, ids });
         expect(disabled).toMatchObject({
           event: "npc_e2e_intake_disabled",
