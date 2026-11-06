@@ -252,10 +252,7 @@ export async function inspectNpcE2eReadiness(
         : [];
     const states =
       npc.length === 1
-        ? await tx
-            .select()
-            .from(npcState)
-            .where(eq(npcState.npcId, npc[0]!.id))
+        ? await tx.select().from(npcState).where(eq(npcState.npcId, npc[0]!.id))
         : [];
     const state = states[0];
     const fixtureValid =
@@ -359,7 +356,9 @@ if (
     (result) => console.info(JSON.stringify(result)),
     () => {
       // No Discord IDs, human identities, tokens or SQL in operator errors.
-      console.error(JSON.stringify({ event: "npc_e2e_readiness_failed_safely" }));
+      console.error(
+        JSON.stringify({ event: "npc_e2e_readiness_failed_safely" }),
+      );
       process.exitCode = 1;
     },
   );
