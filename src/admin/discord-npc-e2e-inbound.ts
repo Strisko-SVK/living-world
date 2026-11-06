@@ -163,7 +163,7 @@ export async function verifyNpcE2eInboundDatabase(
     )
       throw new Error("Isolated owner DEV database identity is not approved.");
 
-    const found = await tx.select().from(worlds).where(eq(worlds.key, npcE2eWorldKey));
+    const found = await tx.select().from(worlds).where(eq(worlds.key, scope.worldKey));
     if (
       found.length !== 1 ||
       found[0]!.id !== scope.worldId ||
