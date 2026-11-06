@@ -97,9 +97,14 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           expectedVersion: 1,
         });
         expect(location?.version).toBe(2);
-        const grant = await grantLocalPresence(tx, { worldId, npcId, contextId });
+        const grant = await grantLocalPresence(tx, {
+          worldId,
+          npcId,
+          contextId,
+        });
         expect(grant.status).toBe("granted");
-        if (grant.status !== "granted") throw new Error("presence grant failed");
+        if (grant.status !== "granted")
+          throw new Error("presence grant failed");
         config.presenceId = grant.evidence.id;
         const policy = await reconcilePilotPolicy(tx, {
           worldKey: key,
