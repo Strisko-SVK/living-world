@@ -137,7 +137,9 @@ export type PilotInboundDiagnosticStage =
   | "gateway_interrupted"
   | "operator_interrupted";
 
-export type PilotInboundDiagnostic = (stage: PilotInboundDiagnosticStage) => void;
+export type PilotInboundDiagnostic = (
+  stage: PilotInboundDiagnosticStage,
+) => void;
 
 export function pickPilotInboundMessage(
   message: Message,
