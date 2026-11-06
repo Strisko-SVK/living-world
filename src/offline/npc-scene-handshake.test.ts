@@ -180,4 +180,57 @@ describe("M2.13B offline scene handshake", () => {
     expect(await run(request)).toBe("workflow_uncertain");
     expect(deps.respond).toHaveBeenCalledTimes(1);
   });
+  it("denies a stale source event even if NPC presence was granted later", async () => {
+    const { deps, run } = fixture();
+    // The real M2.9 prepare transaction owns source-time validation.
+    vi.mocked(deps.prepare).mockResolvedValue("source_before_presence");
+    expect(await run(request)).toBe("presence_denied");
+    expect(deps.respond).not.toHaveBeenCalled();
+  });
+
+  it("does not resurrect an old event after revoke and regrant", async () => {
+    const { deps, run } = fixture();
+    vi.mocked(deps.prepare).mockResolvedValue("presence_revoked_or_stale");
+    expect(await run(request)).toBe("presence_denied");
+    expect(deps.respond).not.toHaveBeenCalled();
+    expect(deps.prepare).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks a changed or disabled Discord destination without a second send", async () => {
+    for (const result of ["route_changed", "delivery_blocked"] as const) {
+      const { deps, run } = fixture();
+      vi.mocked(deps.respond).mockResolvedValue(result);
+      expect(await run(request)).toBe(result);
+      expect(deps.respond).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("preserves uncertain fake acknowledgement and never automatically resends", async () => {
+    const { deps, run } = fixture();
+    vi.mocked(deps.respond).mockResolvedValue("delivery_uncertain");
+    expect(await run(request)).toBe("delivery_uncertain");
+    expect(deps.respond).toHaveBeenCalledTimes(1);
+    expect(deps.intake).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a source thread substitution before presence or generation", async () => {
+    const { deps, run } = fixture();
+    const changedThread = { ...request, threadId: "1966914038158459090" };
+    expect(await run(changedThread)).toBe("invalid_binding");
+    expect(deps.presence).not.toHaveBeenCalled();
+    expect(deps.respond).not.toHaveBeenCalled();
+  });
+
+  it("never accepts asserted bot identity or DM authority from the caller", async () => {
+    const { deps, run } = fixture();
+    for (const untrusted of [
+      { ...request, botUserId: "1566909036899868712" },
+      { ...request, isDm: true },
+      { ...request, forceSummon: true },
+    ]) {
+      expect(await run(untrusted as SceneRequest)).toBe("invalid_request");
+    }
+    expect(deps.intake).not.toHaveBeenCalled();
+  });
+
 });
