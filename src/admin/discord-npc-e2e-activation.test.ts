@@ -122,6 +122,12 @@ describe("M2.14B isolated, operator-only NPC DEV activation", () => {
     expect(
       validateNpcE2eActivationEnvironment(env, "disable").userId,
     ).toBeUndefined();
+    expect(
+      validateNpcE2eActivationEnvironment(
+        { ...env, LW_NPC_E2E_TEST_USER_ID: "invalid" },
+        "disable",
+      ).route,
+    ).toBeDefined();
   });
 
   it("rejects wrong DB privileges before invoking activation or any writes", async () => {
