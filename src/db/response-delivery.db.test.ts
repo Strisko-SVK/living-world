@@ -1621,6 +1621,69 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
     expect(target.fake.send).not.toHaveBeenCalled();
   });
 
+  it("prevents direct SQL timestamp rewinds from restoring old replies", async () => {
+    const target = await fixture();
+    await database.pool.query(
+      "update discord_context_mappings set status='inactive' where id=$1",
+      [target.mapping],
+    );
+    await database.pool.query(
+      "update discord_context_mappings set status='active' where id=$1",
+      [target.mapping],
+    );
+    const before = await database.pool.query(
+      "select updated_at::text as revision from discord_context_mappings where id=$1",
+      [target.mapping],
+    );
+    // The former trigger let a metadata-only update rewind the route epoch.
+    await database.pool.query(
+      "update discord_context_mappings set updated_at='2000-01-01' where id=$1",
+      [target.mapping],
+    );
+    const after = await database.pool.query(
+      "select updated_at::text as revision from discord_context_mappings where id=$1",
+      [target.mapping],
+    );
+    expect(after.rows).toEqual(before.rows);
+    expect(await target.repository.preview(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
+    expect(await target.repository.prepare(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
+    expect(target.fake.send).not.toHaveBeenCalled();
+  });
+
+  it("advances route revisions across consecutive mapping changes", async () => {
+    const target = await fixture();
+    const timestamp = async () => {
+      const result = await database.pool.query(
+        "select extract(epoch from updated_at) * 1000000 as epoch_us from discord_context_mappings where id=$1",
+        [target.mapping],
+      );
+      return BigInt(result.rows[0].epoch_us);
+    };
+    const initial = await timestamp();
+    await database.pool.query(
+      "update discord_context_mappings set status='inactive' where id=$1",
+      [target.mapping],
+    );
+    const revoked = await timestamp();
+    await database.pool.query(
+      "update discord_context_mappings set status='active' where id=$1",
+      [target.mapping],
+    );
+    const restored = await timestamp();
+    expect(revoked).toBeGreaterThan(initial);
+    expect(restored).toBeGreaterThan(revoked);
+    expect(await target.repository.preview(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
+  });
+
   it("keeps an already blocked outbox terminal after route reactivation", async () => {
     const target = await fixture();
     expect((await target.repository.prepare(target.scope)).status).toBe(

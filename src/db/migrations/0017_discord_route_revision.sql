@@ -11,7 +11,14 @@ BEGIN
      IS DISTINCT FROM
      ROW(NEW.world_id, NEW.context_id, NEW.npc_id, NEW.guild_id,
          NEW.channel_id, NEW.thread_id, NEW.mapping_type, NEW.status) THEN
-    NEW.updated_at := clock_timestamp();
+    -- A route revision must increase, even across rapid consecutive changes.
+    NEW.updated_at := GREATEST(
+      clock_timestamp(),
+      OLD.updated_at + interval '1 microsecond'
+    );
+  ELSIF NEW.updated_at < OLD.updated_at THEN
+    -- Metadata-only writes cannot rewind a historical revocation epoch.
+    NEW.updated_at := OLD.updated_at;
   END IF;
   RETURN NEW;
 END $$;
