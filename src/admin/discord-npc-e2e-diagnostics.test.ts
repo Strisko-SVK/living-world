@@ -200,6 +200,41 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
     }
   });
 
+  it("reproduces the observed live failure without revealing any message fields", async () => {
+    const client = fakeClient();
+    const stages: PilotInboundDiagnosticStage[] = [];
+    const intake = vi.fn();
+    const audit = vi.fn();
+    const log = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const running = connectOnePilotMessage(
+        config,
+        intake,
+        audit,
+        client as unknown as Client,
+        10,
+        (stage) => stages.push(stage),
+      );
+      await Promise.resolve();
+      client.emit(Events.ClientReady);
+      client.emit(Events.MessageCreate, testMessage({ content: "" }));
+      await expect(running).rejects.toThrow("expired");
+      expect(stages).toEqual([
+        "target_thread_event_seen",
+        "normalization_content_unavailable",
+        "message_normalization_rejected",
+        "timeout_without_match",
+      ]);
+      expect(intake).not.toHaveBeenCalled();
+      expect(audit).not.toHaveBeenCalled();
+      expect(client.destroy).toHaveBeenCalledOnce();
+      expect(JSON.stringify(log.mock.calls)).not.toContain(token);
+      expect(JSON.stringify(stages)).not.toContain(humanId);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("distinguishes rejected intake from failed post-write audit", async () => {
     for (const reason of ["intake", "audit"] as const) {
       const client = fakeClient();
