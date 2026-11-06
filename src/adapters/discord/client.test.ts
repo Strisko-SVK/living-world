@@ -60,6 +60,70 @@ function setup(intake = vi.fn().mockResolvedValue(undefined)) {
 }
 
 describe("Discord transport normalization", () => {
+  it.each([
+    {
+      label: "empty content",
+      overrides: { content: "" },
+      reason: "content_unavailable",
+    },
+    {
+      label: "whitespace-only content",
+      overrides: { content: "  " },
+      reason: "content_unavailable",
+    },
+    {
+      label: "missing content",
+      overrides: { content: undefined },
+      reason: "content_unavailable",
+    },
+    {
+      label: "wrong content type",
+      overrides: { content: 42 },
+      reason: "content_unavailable",
+    },
+    {
+      label: "missing thread parent",
+      overrides: {
+        channel: {
+          type: ChannelType.PublicThread,
+          parentId: null,
+          isThread: () => true,
+        },
+      },
+      reason: "thread_parent_missing",
+    },
+    {
+      label: "malformed mention collection",
+      overrides: { mentions: null },
+      reason: "mentions_unavailable",
+    },
+    {
+      label: "invalid event ID",
+      overrides: { id: "bad id" },
+      reason: "source_message_id_invalid",
+    },
+    {
+      label: "oversized content",
+      overrides: { content: "x".repeat(20001) },
+      reason: "content_invalid",
+    },
+    {
+      label: "unsupported message kind",
+      overrides: { type: MessageType.ChannelPinnedMessage },
+      reason: "message_shape_rejected",
+    },
+  ])(
+    "reports only sanitized rejection reason for $label",
+    ({ overrides, reason }) => {
+      const diagnose = vi.fn();
+      expect(normalizeDiscordMessage(event(overrides), diagnose)).toBeNull();
+      expect(diagnose).toHaveBeenCalledExactlyOnceWith(reason);
+      const log = JSON.stringify(diagnose.mock.calls);
+      expect(log).not.toContain("bad id");
+      expect(log).not.toContain("x".repeat(20));
+      expect(log).not.toContain("Check the manifest.");
+    },
+  );
   it("extracts minimal input without SDK objects, attachments, reply metadata or timestamps", () => {
     expect(normalizeDiscordMessage(event())).toEqual({
       sourceMessageId: "00123",
