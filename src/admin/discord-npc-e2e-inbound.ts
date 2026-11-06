@@ -1,4 +1,5 @@
 import { pathToFileURL } from "node:url";
+import { Client, GatewayIntentBits } from "discord.js";
 import { and, eq, sql } from "drizzle-orm";
 
 import { createDiscordPersistence } from "../adapters/discord/persistence.js";
@@ -92,13 +93,36 @@ export function validateNpcE2eInboundEnvironment(
   };
 }
 
+export type NpcE2eInboundMode =
+  | "preflight"
+  | "preflight_message_content"
+  | "connect"
+  | "connect_message_content";
+
+// Explicit opt-in only. MESSAGE_CONTENT increases Discord data visible to
+// the SDK; never request it in the legacy pilot or regular runtime.
+export function npcE2eGatewayIntents(privileged: boolean): GatewayIntentBits[] {
+  const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
+  if (privileged) intents.push(GatewayIntentBits.MessageContent);
+  return intents;
+}
+
 export function parseNpcE2eInboundArguments(
   args: readonly string[],
-): "preflight" | "connect" {
+): NpcE2eInboundMode {
   if (args.length === 0 || (args.length === 1 && args[0] === "--preflight"))
     return "preflight";
   if (
-    args.length === 17 &&
+    args.length === 2 &&
+    args[0] === "--preflight" &&
+    args[1] === "--check-message-content-intent"
+  )
+    return "preflight_message_content";
+  const privileged =
+    args.length === 18 &&
+    args[17] === "--confirm-message-content-intent";
+  if (
+    (args.length === 17 || privileged) &&
     args[0] === "--connect" &&
     args[1] === "--confirm-world" &&
     args[2] === npcE2eWorldKey &&
@@ -117,10 +141,24 @@ export function parseNpcE2eInboundArguments(
     args[15] === "--inbound-only" &&
     args[16] === "--one-message"
   )
-    return "connect";
+    return privileged ? "connect_message_content" : "connect";
   throw new Error(
     "Live NPC E2E inbound requires all exact one-message confirmations.",
   );
+}
+
+export function requireNpcE2ePrivilegedGate(
+  mode: NpcE2eInboundMode,
+  env: NodeJS.ProcessEnv,
+): void {
+  if (
+    (mode === "connect_message_content" ||
+      mode === "preflight_message_content") &&
+    env.LW_NPC_E2E_PRIVILEGED_CONTENT_APPROVED !== "true"
+  )
+    throw new Error(
+      "Separate owner privileged-intent authorization is required.",
+    );
 }
 
 // Only SDK-authenticated snowflakes from this explicitly armed session can
@@ -376,6 +414,7 @@ export async function runNpcE2eInboundCommand(
   connect: typeof createDatabaseClient = createDatabaseClient,
 ): Promise<{ event: string }> {
   const mode = parseNpcE2eInboundArguments(args);
+  requireNpcE2ePrivilegedGate(mode, environment);
   const config = validateNpcE2eInboundEnvironment(environment);
   const route = {
     guildId: config.guildId,
@@ -394,8 +433,13 @@ export async function runNpcE2eInboundCommand(
         "NPC E2E must pass the read-only ready_for_inbound gate.",
       );
     await verifyNpcE2eInboundDatabase(client.db, config, "before");
-    if (mode === "preflight")
-      return { event: "npc_e2e_inbound_preflight_valid" };
+    if (mode === "preflight" || mode === "preflight_message_content")
+      return {
+        event:
+          mode === "preflight_message_content"
+            ? "npc_e2e_message_content_preflight_valid"
+            : "npc_e2e_inbound_preflight_valid",
+      };
 
     // Source time is derived ONLY from an actual discord.js Gateway Message ID.
     // A queued/replayed message from before arming cannot consume this pilot.
@@ -413,6 +457,16 @@ export async function runNpcE2eInboundCommand(
     };
     // Reuse Step 14's *tested transport only* with a fresh, independently
     // verified config. No Step 14 DB verifier, world, event or route is reused.
+    // Preserve the previously tested unprivileged transport by default.
+    // Only the isolated opt-in creates a client requesting MessageContent.
+    const privileged = mode === "connect_message_content";
+    const gatewayClient = privileged
+      ? new Client({ intents: npcE2eGatewayIntents(true) })
+      : undefined;
+    if (privileged)
+      console.info(
+        JSON.stringify({ event: "npc_e2e_privileged_intent_requested" }),
+      );
     await connectOnePilotMessage(
       config,
       async (message: IncomingMessage, botId: string) => {
@@ -427,7 +481,7 @@ export async function runNpcE2eInboundCommand(
           "after",
           sourceMessageId,
         ),
-      undefined,
+      gatewayClient,
       90_000,
       diagnose,
     );
