@@ -126,6 +126,9 @@ export type PilotInboundDiagnosticStage =
   | "thread_shape_rejected"
   | "sender_or_kind_rejected"
   | "message_normalization_rejected"
+  | "bot_mention_metadata_present"
+  | "bot_mention_metadata_absent"
+  | "bot_mention_metadata_unavailable"
   | `normalization_${DiscordNormalizationRejection}`
   | "mention_rejected"
   | "exact_text_rejected"
@@ -178,9 +181,21 @@ export function pickPilotInboundMessage(
     diagnose?.("sender_or_kind_rejected");
     return null;
   }
-  const normalized = normalizeDiscordMessage(message, (reason) =>
-    diagnose?.(`normalization_${reason}`),
-  );
+  const normalized = normalizeDiscordMessage(message, (reason) => {
+    // When content is withheld, the SDK mention collection is independent
+    // metadata. Classify the target bot mention without printing IDs or text.
+    if (reason === "content_unavailable") {
+      const users = message.mentions?.users;
+      diagnose?.(
+        !users || typeof users.has !== "function"
+          ? "bot_mention_metadata_unavailable"
+          : users.has(config.botId)
+            ? "bot_mention_metadata_present"
+            : "bot_mention_metadata_absent",
+      );
+    }
+    diagnose?.(`normalization_${reason}`);
+  });
   if (!normalized) {
     diagnose?.("message_normalization_rejected");
     return null;

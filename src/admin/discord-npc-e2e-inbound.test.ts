@@ -10,6 +10,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   isFreshNpcE2eSource,
   npcE2eInboundRoute,
+  npcE2eGatewayIntents,
+  requireNpcE2ePrivilegedGate,
   npcE2eInboundTarget,
   parseNpcE2eInboundArguments,
   runNpcE2eInboundCommand,
@@ -155,6 +157,28 @@ describe("M2.14C first Sentinel inbound-only Gateway safeguards", () => {
     expect(parseNpcE2eInboundArguments([])).toBe("preflight");
     expect(parseNpcE2eInboundArguments(["--preflight"])).toBe("preflight");
     expect(parseNpcE2eInboundArguments(flags)).toBe("connect");
+    expect(
+      parseNpcE2eInboundArguments([
+        "--preflight",
+        "--check-message-content-intent",
+      ]),
+    ).toBe("preflight_message_content");
+    expect(
+      parseNpcE2eInboundArguments([
+        ...flags,
+        "--confirm-message-content-intent",
+      ]),
+    ).toBe("connect_message_content");
+    expect(() =>
+      parseNpcE2eInboundArguments([...flags, "--privileged"]),
+    ).toThrow();
+    expect(() =>
+      parseNpcE2eInboundArguments([
+        ...flags,
+        "--confirm-message-content-intent",
+        "--extra",
+      ]),
+    ).toThrow();
     for (const bad of [
       ["--connect"],
       ["--send"],
@@ -174,6 +198,36 @@ describe("M2.14C first Sentinel inbound-only Gateway safeguards", () => {
       ),
     ])
       expect(() => parseNpcE2eInboundArguments(bad)).toThrow();
+  });
+
+  it("keeps privileged MessageContent disabled by default and double-gated", async () => {
+    expect(npcE2eGatewayIntents(false)).toEqual([1, 512]);
+    expect(npcE2eGatewayIntents(true)).toEqual([1, 512, 32768]);
+    expect(() =>
+      requireNpcE2ePrivilegedGate("connect", environment),
+    ).not.toThrow();
+    expect(() =>
+      requireNpcE2ePrivilegedGate("connect_message_content", environment),
+    ).toThrow();
+    expect(() =>
+      requireNpcE2ePrivilegedGate("preflight_message_content", environment),
+    ).toThrow();
+    const optedIn = {
+      ...environment,
+      LW_NPC_E2E_PRIVILEGED_CONTENT_APPROVED: "true",
+    };
+    expect(() =>
+      requireNpcE2ePrivilegedGate("connect_message_content", optedIn),
+    ).not.toThrow();
+    const dbConnect = vi.fn();
+    await expect(
+      runNpcE2eInboundCommand(
+        [...flags, "--confirm-message-content-intent"],
+        environment,
+        dbConnect as unknown as Parameters<typeof runNpcE2eInboundCommand>[2],
+      ),
+    ).rejects.toThrow("privileged-intent authorization");
+    expect(dbConnect).not.toHaveBeenCalled();
   });
 
   it("accepts only a new source event, not a replay or future-dated snowflake", () => {

@@ -140,6 +140,21 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
     ).toBeNull();
     expect(stages).toEqual([
       "target_thread_event_seen",
+      "bot_mention_metadata_present",
+      "normalization_content_unavailable",
+      "message_normalization_rejected",
+    ]);
+    stages.length = 0;
+    expect(
+      pickPilotInboundMessage(
+        testMessage({ content: "", mentions: { users: new Map() } }),
+        config,
+        observe,
+      ),
+    ).toBeNull();
+    expect(stages).toEqual([
+      "target_thread_event_seen",
+      "bot_mention_metadata_absent",
       "normalization_content_unavailable",
       "message_normalization_rejected",
     ]);
@@ -213,6 +228,7 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
       await expect(running).rejects.toThrow("expired");
       expect(stages).toEqual([
         "target_thread_event_seen",
+        "bot_mention_metadata_present",
         "normalization_content_unavailable",
         "message_normalization_rejected",
         "timeout_without_match",
