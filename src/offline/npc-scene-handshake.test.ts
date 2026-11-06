@@ -180,7 +180,8 @@ describe("M2.13B offline scene handshake", () => {
     expect(await run(request)).toBe("workflow_uncertain");
     expect(deps.respond).toHaveBeenCalledTimes(1);
   });
-  it("denies a stale source event even if NPC presence was granted later", async () => {
+
+  it("denies stale events after presence grant", async () => {
     const { deps, run } = fixture();
     // The real M2.9 prepare transaction owns source-time validation.
     vi.mocked(deps.prepare).mockResolvedValue("source_before_presence");
@@ -188,7 +189,7 @@ describe("M2.13B offline scene handshake", () => {
     expect(deps.respond).not.toHaveBeenCalled();
   });
 
-  it("does not resurrect an old event after revoke and regrant", async () => {
+  it("does not revive events after revoke and regrant", async () => {
     const { deps, run } = fixture();
     vi.mocked(deps.prepare).mockResolvedValue("presence_revoked_or_stale");
     expect(await run(request)).toBe("presence_denied");
@@ -196,7 +197,7 @@ describe("M2.13B offline scene handshake", () => {
     expect(deps.prepare).toHaveBeenCalledTimes(1);
   });
 
-  it("blocks a changed or disabled Discord destination without a second send", async () => {
+  it("blocks changed or disabled routes without resend", async () => {
     for (const result of ["route_changed", "delivery_blocked"] as const) {
       const { deps, run } = fixture();
       vi.mocked(deps.respond).mockResolvedValue(result);
@@ -205,7 +206,7 @@ describe("M2.13B offline scene handshake", () => {
     }
   });
 
-  it("preserves uncertain fake acknowledgement and never automatically resends", async () => {
+  it("does not resend uncertain fake delivery", async () => {
     const { deps, run } = fixture();
     vi.mocked(deps.respond).mockResolvedValue("delivery_uncertain");
     expect(await run(request)).toBe("delivery_uncertain");
@@ -213,7 +214,7 @@ describe("M2.13B offline scene handshake", () => {
     expect(deps.intake).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects a source thread substitution before presence or generation", async () => {
+  it("rejects source thread substitution", async () => {
     const { deps, run } = fixture();
     const changedThread = { ...request, threadId: "1966914038158459090" };
     expect(await run(changedThread)).toBe("invalid_binding");
@@ -221,7 +222,7 @@ describe("M2.13B offline scene handshake", () => {
     expect(deps.respond).not.toHaveBeenCalled();
   });
 
-  it("never accepts asserted bot identity or DM authority from the caller", async () => {
+  it("rejects caller-asserted bot or DM privileges", async () => {
     const { deps, run } = fixture();
     for (const untrusted of [
       { ...request, botUserId: "1566909036899868712" },
@@ -232,5 +233,4 @@ describe("M2.13B offline scene handshake", () => {
     }
     expect(deps.intake).not.toHaveBeenCalled();
   });
-
 });
