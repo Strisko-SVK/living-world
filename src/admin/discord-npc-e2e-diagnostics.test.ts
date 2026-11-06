@@ -229,7 +229,7 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
       expect(stages).toEqual([
         "target_thread_event_seen",
         "bot_mention_metadata_present",
-      "normalization_content_unavailable",
+        "normalization_content_unavailable",
         "message_normalization_rejected",
         "timeout_without_match",
       ]);
