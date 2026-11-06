@@ -3,6 +3,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { createDatabaseClient, type DatabaseClient } from "../db/client.js";
 import { worlds } from "../db/schema/worlds.js";
 import { entities } from "../db/schema/entities.js";
+import { entityAliases } from "../db/schema/entity-aliases.js";
+import { npcs } from "../db/schema/npcs.js";
 import { npcState } from "../db/schema/npc-state.js";
 import { interactionContexts } from "../db/schema/interaction-contexts.js";
 import { discordContextMappings } from "../db/schema/discord-context-mappings.js";
@@ -237,6 +239,17 @@ export async function inspectNpcE2eReadiness(
         row.canonicalName === "Gateway Test Character" &&
         row.status === "active",
     );
+    const npcRows =
+      npc.length === 1
+        ? await tx.select().from(npcs).where(eq(npcs.entityId, npc[0]!.id))
+        : [];
+    const aliases =
+      npc.length === 1
+        ? await tx
+            .select()
+            .from(entityAliases)
+            .where(eq(entityAliases.entityId, npc[0]!.id))
+        : [];
     const states =
       npc.length === 1
         ? await tx
@@ -261,7 +274,16 @@ export async function inspectNpcE2eReadiness(
       members.length === 3 &&
       npc.length === 1 &&
       players.length === 1 &&
-      states.length === 1;
+      states.length === 1 &&
+      npcRows.length === 1 &&
+      npcRows[0]!.lifecycleState === "active" &&
+      aliases.length === 1 &&
+      aliases[0]!.normalizedAlias === "sentinel" &&
+      ((state?.currentLocationId === null &&
+        state.locationCertainty === "unknown" &&
+        state.version === 1) ||
+        (state?.currentLocationId === scene.linkedLocationEntityId &&
+          state.locationCertainty === "certain"));
     const routeValid =
       reserved.length === 1 &&
       mappings.length === 1 &&
