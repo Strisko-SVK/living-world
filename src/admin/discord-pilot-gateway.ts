@@ -116,41 +116,93 @@ export function parsePilotInboundArguments(
   );
 }
 
+// Diagnostic signals are fixed categories only: no player IDs, content,
+// message IDs, channel IDs, token, exception messages or SQL are emitted.
+export type PilotInboundDiagnosticStage =
+  | "target_thread_event_seen"
+  | "thread_shape_rejected"
+  | "sender_or_kind_rejected"
+  | "message_normalization_rejected"
+  | "mention_rejected"
+  | "exact_text_rejected"
+  | "alias_rejected"
+  | "message_matched"
+  | "intake_accepted"
+  | "intake_rejected"
+  | "intake_failed"
+  | "post_write_audit_pass"
+  | "post_write_audit_failed"
+  | "timeout_without_match"
+  | "timeout_during_processing"
+  | "gateway_interrupted"
+  | "operator_interrupted";
+
+export type PilotInboundDiagnostic = (
+  stage: PilotInboundDiagnosticStage,
+) => void;
+
 export function pickPilotInboundMessage(
   message: Message,
   config: PilotInboundConfig,
+  diagnose?: PilotInboundDiagnostic,
 ): IncomingMessage | null {
-  // Scope-check before touching user-entered content or normalizing anything.
+  // Never inspect/log out-of-scope messages. Only record a fixed category for
+  // Gateway events with the expected guild and thread channel ID.
+  if (
+    message.guildId !== config.guildId ||
+    message.channelId !== config.threadId
+  )
+    return null;
+  diagnose?.("target_thread_event_seen");
+
+  if (
+    !message.channel.isThread() ||
+    message.channel.parentId !== config.parentId ||
+    message.channel.type !== ChannelType.PublicThread
+  ) {
+    diagnose?.("thread_shape_rejected");
+    return null;
+  }
   if (
     message.partial ||
     message.author.bot ||
     message.author.id !== config.playerId ||
     !!message.webhookId ||
     message.system ||
-    message.guildId !== config.guildId ||
-    message.channelId !== config.threadId ||
-    !message.channel.isThread() ||
-    message.channel.parentId !== config.parentId ||
-    message.channel.type !== ChannelType.PublicThread ||
     message.type !== MessageType.Default
-  )
+  ) {
+    diagnose?.("sender_or_kind_rejected");
     return null;
+  }
   const normalized = normalizeDiscordMessage(message);
+  if (!normalized) {
+    diagnose?.("message_normalization_rejected");
+    return null;
+  }
   if (
-    !normalized ||
     normalized.mentionedUserIds.length !== 1 ||
     normalized.mentionedUserIds[0] !== config.botId
-  )
+  ) {
+    diagnose?.("mention_rejected");
     return null;
+  }
   const targetText = "<@" + config.botId + "> [Sentinel] Report readiness.";
   const literalText = normalized.content.replace(/^<@!(\d+)>/u, "<@$1>");
-  if (literalText !== targetText) return null;
+  if (literalText !== targetText) {
+    diagnose?.("exact_text_rejected");
+    return null;
+  }
   const trigger = parseDiscordTrigger(
     normalized.content,
     config.botId,
     normalized.mentionedUserIds,
   );
-  return trigger?.alias === "sentinel" ? normalized : null;
+  if (trigger?.alias !== "sentinel") {
+    diagnose?.("alias_rejected");
+    return null;
+  }
+  diagnose?.("message_matched");
+  return normalized;
 }
 
 // Read-only, transactionally consistent inspection. This rejects a reused or
@@ -402,6 +454,7 @@ export async function connectOnePilotMessage(
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
   }),
   timeoutMs = 90_000,
+  diagnose?: PilotInboundDiagnostic,
 ): Promise<void> {
   let ready = false;
   let claimed = false;
@@ -412,11 +465,14 @@ export async function connectOnePilotMessage(
     complete = resolve;
     fail = reject;
   });
-  const timeout = setTimeout(
-    () => fail(new Error("The one-message pilot window expired.")),
-    timeoutMs,
-  );
-  const onSignal = () => fail(new Error("Pilot smoke interrupted."));
+  const timeout = setTimeout(() => {
+    diagnose?.(claimed ? "timeout_during_processing" : "timeout_without_match");
+    fail(new Error("The one-message pilot window expired."));
+  }, timeoutMs);
+  const onSignal = () => {
+    diagnose?.("operator_interrupted");
+    fail(new Error("Pilot smoke interrupted."));
+  };
   const onReady = () => {
     if (
       client.user?.id !== config.botId ||
@@ -430,15 +486,30 @@ export async function connectOnePilotMessage(
   };
   const onMessage = (message: Message) => {
     if (!ready || claimed) return;
-    const normalized = pickPilotInboundMessage(message, config);
+    const normalized = pickPilotInboundMessage(message, config, diagnose);
     if (!normalized) return;
     claimed = true; // Synchronous single-event latch before the first await.
     client.off(Events.MessageCreate, onMessage);
     const work = (async () => {
-      const outcome = await intake(normalized, config.botId);
-      if (outcome !== "accepted")
+      let outcome: string;
+      try {
+        outcome = await intake(normalized, config.botId);
+      } catch {
+        diagnose?.("intake_failed");
+        throw new Error("Pilot intake failed.");
+      }
+      if (outcome !== "accepted") {
+        diagnose?.("intake_rejected");
         throw new Error("The one authorized message was not accepted.");
-      await verifyAfter(normalized.sourceMessageId);
+      }
+      diagnose?.("intake_accepted");
+      try {
+        await verifyAfter(normalized.sourceMessageId);
+      } catch {
+        diagnose?.("post_write_audit_failed");
+        throw new Error("One-shot post-write audit failed.");
+      }
+      diagnose?.("post_write_audit_pass");
       console.info(JSON.stringify({ event: "pilot_gateway_received" }));
       console.info(JSON.stringify({ event: "pilot_gateway_audit_pass" }));
       complete();
@@ -452,7 +523,10 @@ export async function connectOnePilotMessage(
       })
       .finally(() => pending.delete(work));
   };
-  const onError = () => fail(new Error("Gateway transport failure."));
+  const onError = () => {
+    diagnose?.("gateway_interrupted");
+    fail(new Error("Gateway transport failure."));
+  };
   client.on(Events.ClientReady, onReady);
   client.on(Events.MessageCreate, onMessage);
   client.on(Events.Error, onError);
