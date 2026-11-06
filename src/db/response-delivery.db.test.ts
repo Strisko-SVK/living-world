@@ -1931,7 +1931,7 @@ describe("M2.13B real-PG offline scene handshake", () => {
         [target.mapping],
       );
       return {
-        text: JSON.stringify({ speech: "Do not send through a disabled route." }),
+        text: JSON.stringify({ speech: "Route disabled." }),
         completed: true,
         usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
       };
