@@ -1847,7 +1847,7 @@ describe("M2.13B real-PG offline scene handshake", () => {
     return { target, harness, input, intake, actualIntake, read, run, ports };
   }
 
-  it("binds a fake SDK Gateway event and client bot identity to real PG intake", async () => {
+  it("binds SDK event and client identity through real PG intake", async () => {
     const { target, harness, input, actualIntake, read, ports } = await setup();
     const persistence = createDiscordPersistence(database.db);
     const observed: string[] = [];

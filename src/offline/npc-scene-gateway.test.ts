@@ -16,6 +16,7 @@ const message: IncomingMessage = {
   mentionedUserIds: ["1566909036899868712"],
 };
 const botId = "1566909036899868712";
+const evidenceId = "66666666-6666-4666-8666-666666666666";
 const scope = {
   worldId: "11111111-1111-4111-8111-111111111111",
   contextId: "22222222-2222-4222-8222-222222222222",
@@ -41,7 +42,7 @@ function fixture() {
     resolveScene: vi.fn().mockResolvedValue(scope),
     intake: vi.fn().mockResolvedValue("accepted"),
     received: vi.fn().mockResolvedValue([interaction]),
-    presence: vi.fn().mockResolvedValue("66666666-6666-4666-8666-666666666666"),
+    presence: vi.fn().mockResolvedValue(evidenceId),
     prepare: vi.fn().mockResolvedValue("prepared"),
     respond: vi.fn().mockResolvedValue("delivered"),
   };
@@ -49,7 +50,7 @@ function fixture() {
 }
 
 describe("M2.13B offline authenticated-Gateway bridge", () => {
-  it("derives the request only from the normalized SDK message and resolved scene", async () => {
+  it("derives scene from normalized SDK input", async () => {
     const { ports, run } = fixture();
     expect(await run(message, botId)).toBe("delivered");
     expect(ports.resolveScene).toHaveBeenCalledExactlyOnceWith(message);
@@ -57,14 +58,14 @@ describe("M2.13B offline authenticated-Gateway bridge", () => {
     expect(ports.respond).toHaveBeenCalledExactlyOnceWith(interaction);
   });
 
-  it("rejects a spoofed bot mention without invoking DB intake", async () => {
+  it("rejects spoofed bot identity", async () => {
     const { ports, run } = fixture();
     expect(await run(message, "1666911648701223053")).toBe("intake_denied");
     expect(ports.resolveScene).not.toHaveBeenCalled();
     expect(ports.intake).not.toHaveBeenCalled();
   });
 
-  it("rejects a nonliteral or absent mention of the authenticated bot", async () => {
+  it("requires literal authenticated bot mention", async () => {
     const { ports, run } = fixture();
     expect(await run({ ...message, mentionedUserIds: [] }, botId)).toBe(
       "intake_denied",
@@ -78,7 +79,7 @@ describe("M2.13B offline authenticated-Gateway bridge", () => {
     expect(ports.intake).not.toHaveBeenCalled();
   });
 
-  it("ignores asserted world, context and DM flags", async () => {
+  it("ignores caller-asserted DM and scope", async () => {
     const { ports, run } = fixture();
     expect(
       await run(
@@ -90,7 +91,7 @@ describe("M2.13B offline authenticated-Gateway bridge", () => {
     expect(ports.resolveScene).toHaveBeenCalledWith(message);
   });
 
-  it("fails closed on ambiguous, invalid or failing scene lookups", async () => {
+  it("denies ambiguous or failing scene lookup", async () => {
     const { ports, run } = fixture();
     vi.mocked(ports.resolveScene).mockResolvedValue(null);
     expect(await run(message, botId)).toBe("intake_denied");
@@ -101,15 +102,14 @@ describe("M2.13B offline authenticated-Gateway bridge", () => {
     expect(ports.intake).not.toHaveBeenCalled();
   });
 
-  it("rejects malformed Discord event IDs before invoking intake", async () => {
+  it("rejects malformed source message", async () => {
     const { ports, run } = fixture();
-    expect(await run({ ...message, sourceMessageId: "not-discord-id" }, botId)).toBe(
-      "invalid_request",
-    );
+    const invalid = { ...message, sourceMessageId: "bad-id" };
+    expect(await run(invalid, botId)).toBe("invalid_request");
     expect(ports.intake).not.toHaveBeenCalled();
   });
 
-  it("does not bypass DB denial or try fake delivery twice", async () => {
+  it("denies failed intake without fake delivery", async () => {
     const { ports, run } = fixture();
     vi.mocked(ports.intake).mockResolvedValue("unauthorized");
     expect(await run(message, botId)).toBe("intake_denied");
