@@ -75,10 +75,18 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
     const stages: PilotInboundDiagnosticStage[] = [];
     const emit = (stage: PilotInboundDiagnosticStage) => stages.push(stage);
     expect(
-      pickPilotInboundMessage(testMessage({ channelId: parentId }), config, emit),
+      pickPilotInboundMessage(
+        testMessage({ channelId: parentId }),
+        config,
+        emit,
+      ),
     ).toBeNull();
     expect(
-      pickPilotInboundMessage(testMessage({ guildId: "1666666666666666666" }), config, emit),
+      pickPilotInboundMessage(
+        testMessage({ guildId: "1666666666666666666" }),
+        config,
+        emit,
+      ),
     ).toBeNull();
     expect(stages).toEqual([]);
 
@@ -139,7 +147,10 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
       );
       await Promise.resolve();
       client.emit(Events.ClientReady);
-      client.emit(Events.MessageCreate, testMessage({ content: "not a mention" }));
+      client.emit(
+        Events.MessageCreate,
+        testMessage({ content: "not a mention" }),
+      );
       await expect(running).rejects.toThrow("expired");
       expect(stages).toEqual([
         "target_thread_event_seen",
@@ -158,9 +169,9 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
     for (const reason of ["intake", "audit"] as const) {
       const client = fakeClient();
       const stages: PilotInboundDiagnosticStage[] = [];
-      const intake = vi.fn().mockResolvedValue(
-        reason === "intake" ? "unauthorized" : "accepted",
-      );
+      const intake = vi
+        .fn()
+        .mockResolvedValue(reason === "intake" ? "unauthorized" : "accepted");
       const audit = vi.fn().mockImplementation(async () => {
         if (reason === "audit") throw new Error("sensitive DB error");
       });
