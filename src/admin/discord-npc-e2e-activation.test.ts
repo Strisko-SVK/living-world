@@ -95,7 +95,12 @@ describe("M2.14B isolated, operator-only NPC DEV activation", () => {
       { LLM_PROVIDER: "openai" },
       { NODE_ENV: "production" },
       { DATABASE_URL: environment.DATABASE_URL?.replace("55432", "5432") },
-      { DATABASE_URL: environment.DATABASE_URL?.replace("127.0.0.1", "example.com") },
+      {
+        DATABASE_URL: environment.DATABASE_URL?.replace(
+          "127.0.0.1",
+          "example.com",
+        ),
+      },
       { LW_GATEWAY_DEV_ROLE_PASSWORD: "wrong" },
       { LW_NPC_E2E_PARENT_CHANNEL_ID: environment.LW_PILOT_PARENT_CHANNEL_ID },
       { LW_NPC_E2E_TEST_USER_ID: "1566909036899868712" },
@@ -114,28 +119,36 @@ describe("M2.14B isolated, operator-only NPC DEV activation", () => {
   it("allows emergency disable even without the private user identity", () => {
     const env = { ...environment };
     delete env.LW_NPC_E2E_TEST_USER_ID;
-    expect(validateNpcE2eActivationEnvironment(env, "disable").userId).toBeUndefined();
+    expect(
+      validateNpcE2eActivationEnvironment(env, "disable").userId,
+    ).toBeUndefined();
   });
 
   it("rejects wrong DB privileges before invoking activation or any writes", async () => {
-    const execute = vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
-      rows: [],
-    }).mockResolvedValueOnce({
-      rows: [
-        {
-          database: "living_world_gateway_dev",
-          db_role: "postgres",
-          version: 170011,
-          superuser: true,
-          createdb: true,
-          createrole: true,
-        },
-      ],
-    });
-    const transaction = vi.fn().mockImplementation(
-      (fn: (tx: { execute: typeof execute }) => Promise<unknown>) =>
-        fn({ execute }),
-    );
+    const execute = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            database: "living_world_gateway_dev",
+            db_role: "postgres",
+            version: 170011,
+            superuser: true,
+            createdb: true,
+            createrole: true,
+          },
+        ],
+      });
+    const transaction = vi
+      .fn()
+      .mockImplementation(
+        (fn: (tx: { execute: typeof execute }) => Promise<unknown>) =>
+          fn({ execute }),
+      );
     const close = vi.fn().mockResolvedValue(undefined);
     const connect = vi.fn().mockReturnValue({ db: { transaction }, close });
     await expect(
@@ -162,7 +175,9 @@ describe("M2.14B isolated, operator-only NPC DEV activation", () => {
         runNpcE2eActivationCommand(
           flags("activate"),
           { ...environment, ...bad },
-          connect as unknown as Parameters<typeof runNpcE2eActivationCommand>[2],
+          connect as unknown as Parameters<
+            typeof runNpcE2eActivationCommand
+          >[2],
         ),
       ).rejects.toThrow();
     await expect(
