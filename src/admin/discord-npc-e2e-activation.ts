@@ -36,8 +36,7 @@ const confirmedIdsSchema = z
 export type NpcE2eIds = z.infer<typeof confirmedIdsSchema>;
 export type ActivationMode = "preview" | "activate" | "disable";
 export type ActivationArguments =
-  | { mode: "preview" }
-  | { mode: "activate" | "disable"; ids: NpcE2eIds };
+  { mode: "preview" } | { mode: "activate" | "disable"; ids: NpcE2eIds };
 export type ActivationRequest = {
   route: DevFixtureRoute;
   ids: NpcE2eIds;
@@ -60,7 +59,9 @@ export function parseNpcE2eActivationArguments(
     args[9] !== "--confirm-database" ||
     args[10] !== expectedDatabase
   )
-    throw new Error("NPC E2E activation requires exact DEV world, UUIDs and database.");
+    throw new Error(
+      "NPC E2E activation requires exact DEV world, UUIDs and database.",
+    );
   return {
     mode: args[0] === "--activate" ? "activate" : "disable",
     ids: confirmedIdsSchema.parse({
@@ -126,7 +127,9 @@ export async function activateNpcE2e(
       baseline.contextId !== request.ids.contextId ||
       baseline.npcId !== request.ids.npcId
     )
-      throw new Error("Confirmed NPC E2E fixture IDs do not match pristine data.");
+      throw new Error(
+        "Confirmed NPC E2E fixture IDs do not match pristine data.",
+      );
 
     const trigger = await tx.execute(
       sql.raw(
@@ -139,7 +142,9 @@ export async function activateNpcE2e(
       ),
     );
     if (trigger.rows[0]?.installed !== true)
-      throw new Error("Migration 0017 route revision protection is not active.");
+      throw new Error(
+        "Migration 0017 route revision protection is not active.",
+      );
 
     const [scene] = await tx
       .select()
@@ -307,7 +312,9 @@ export async function runNpcE2eActivationCommand(
         role.createdb !== false ||
         role.createrole !== false
       )
-        throw new Error("NPC E2E activation requires the isolated DEV database.");
+        throw new Error(
+          "NPC E2E activation requires the isolated DEV database.",
+        );
 
       if (parsed.mode === "disable")
         return disableNpcE2eIntake(tx, { route, ids: parsed.ids });
@@ -327,7 +334,9 @@ if (
     (result) => console.info(JSON.stringify(result)),
     () => {
       // Never print personal Discord IDs, bot tokens, DB URLs or SQL.
-      console.error(JSON.stringify({ event: "npc_e2e_activation_failed_safely" }));
+      console.error(
+        JSON.stringify({ event: "npc_e2e_activation_failed_safely" }),
+      );
       process.exitCode = 1;
     },
   );
