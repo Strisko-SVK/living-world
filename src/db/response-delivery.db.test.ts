@@ -2018,6 +2018,77 @@ describe("M2.13B real-PG offline scene handshake", () => {
     expect(harness.transport.send).toHaveBeenCalledTimes(1);
   });
 
+  it("prints an isolated two-turn NPC rehearsal from real PG intake", async () => {
+    const { target, harness, input, run, read } = await setup();
+    const fakeSpeech = (speech: string) => ({
+      text: JSON.stringify({ speech }),
+      completed: true,
+      usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+    });
+    const turns: Array<{ role: "player" | "npc"; speech: string }> = [];
+
+    const firstSpeech = "The manifest is sealed in the old watchtower.";
+    vi.mocked(harness.provider.generate).mockResolvedValueOnce(
+      fakeSpeech(firstSpeech),
+    );
+    turns.push({ role: "player", speech: "Check the manifest." });
+    expect(await run(input)).toBe("delivered");
+    const first = await read();
+    expect(first?.responseMessageId).toBe("fake:verified-ack");
+    expect(first?.responseText).toContain(firstSpeech);
+    turns.push({ role: "npc", speech: firstSpeech });
+    const firstInteractionId = first!.id;
+
+    // Both fake turns use the same NPC, world, scene and original route.
+    // The second one is a fresh Discord event, never a retry of the first.
+    const { rows } = await database.pool.query(
+      "select floor(extract(epoch from clock_timestamp()) * 1000)::bigint::text as millis",
+    );
+    const sourceMillis = BigInt(rows[0].millis);
+    const snowflake = (sourceMillis - 1420070400000n) << 22n;
+    const secondEventId = String(snowflake + ++serial);
+    input.sourceMessageId = secondEventId;
+    target.message.sourceMessageId = secondEventId;
+    target.message.content = "<@123> [Pelo] Where is it?";
+
+    const secondSpeech = "Seek the iron chest beneath the eastern stair.";
+    vi.mocked(harness.provider.generate).mockResolvedValueOnce(
+      fakeSpeech(secondSpeech),
+    );
+    turns.push({ role: "player", speech: "Where is it?" });
+    expect(await run(input)).toBe("delivered");
+    const second = await read();
+    expect(second?.id).not.toBe(firstInteractionId);
+    expect(second?.responseMessageId).toBe("fake:verified-ack");
+    expect(second?.responseText).toContain(secondSpeech);
+    turns.push({ role: "npc", speech: secondSpeech });
+
+    expect(harness.provider.generate).toHaveBeenCalledTimes(2);
+    expect(harness.transport.send).toHaveBeenCalledTimes(2);
+    expect(
+      harness.transport.sent.every(
+        ({ payload }) =>
+          payload.destination.guildId === target.guild &&
+          payload.destination.channelId === target.channel &&
+          payload.destination.threadId === target.threadId,
+      ),
+    ).toBe(true);
+    expect(await run(input)).toBe("duplicate");
+    expect(harness.transport.send).toHaveBeenCalledTimes(2);
+
+    // This is an observable demo transcript, not live Discord or real AI.
+    console.info(
+      JSON.stringify({
+        event: "npc_offline_rehearsal",
+        simulated: true,
+        realDiscordMessages: 0,
+        realLlmCalls: 0,
+        isolatedWorld: true,
+        turns,
+      }),
+    );
+  });
+
   it("serializes eight competing real-intake handlers to one fake ACK", async () => {
     const { harness, input, run, read } = await setup();
     const results = await Promise.all(
