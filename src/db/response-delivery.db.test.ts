@@ -1660,7 +1660,7 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
     const target = await fixture();
     const timestamp = async () => {
       const result = await database.pool.query(
-        "select extract(epoch from updated_at) * 1000000 as epoch_us from discord_context_mappings where id=$1",
+        "select floor(extract(epoch from updated_at) * 1000000)::bigint::text as epoch_us from discord_context_mappings where id=$1",
         [target.mapping],
       );
       return BigInt(result.rows[0].epoch_us);
