@@ -69,7 +69,9 @@ export function validateNpcE2eInboundEnvironment(
     route.threadId !== npcE2eInboundRoute.threadId ||
     !userId
   )
-    throw new Error("NPC E2E inbound route or private test player is not approved.");
+    throw new Error(
+      "NPC E2E inbound route or private test player is not approved.",
+    );
   return {
     botId: bot.botId,
     token: bot.token,
@@ -115,7 +117,9 @@ export function parseNpcE2eInboundArguments(
     args[16] === "--one-message"
   )
     return "connect";
-  throw new Error("Live NPC E2E inbound requires all exact one-message confirmations.");
+  throw new Error(
+    "Live NPC E2E inbound requires all exact one-message confirmations.",
+  );
 }
 
 // Only SDK-authenticated snowflakes from this explicitly armed session can
@@ -178,7 +182,10 @@ export async function verifyNpcE2eInboundFacts(
   sourceMessageId?: string,
 ): Promise<void> {
   const scope = config.scope;
-  const found = await tx.select().from(worlds).where(eq(worlds.key, scope.worldKey));
+  const found = await tx
+    .select()
+    .from(worlds)
+    .where(eq(worlds.key, scope.worldKey));
   if (
     found.length !== 1 ||
     found[0]!.id !== scope.worldId ||
@@ -382,7 +389,9 @@ export async function runNpcE2eInboundCommand(
       config.playerId,
     );
     if (readiness.status !== "ready_for_inbound")
-      throw new Error("NPC E2E must pass the read-only ready_for_inbound gate.");
+      throw new Error(
+        "NPC E2E must pass the read-only ready_for_inbound gate.",
+      );
     await verifyNpcE2eInboundDatabase(client.db, config, "before");
     if (mode === "preflight")
       return { event: "npc_e2e_inbound_preflight_valid" };
