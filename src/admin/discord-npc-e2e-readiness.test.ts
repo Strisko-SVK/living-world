@@ -63,12 +63,12 @@ describe("M2.14 isolated NPC readiness, no writes and no live API", () => {
     expect(
       classifyNpcE2eReadiness({ ...clean, fixture: "missing", route: "valid" }),
     ).toBe("blocked");
-    expect(
-      classifyNpcE2eReadiness({ ...clean, route: "conflict" }),
-    ).toBe("blocked");
-    expect(
-      classifyNpcE2eReadiness({ ...clean, routeRevision: false }),
-    ).toBe("migration_required");
+    expect(classifyNpcE2eReadiness({ ...clean, route: "conflict" })).toBe(
+      "blocked",
+    );
+    expect(classifyNpcE2eReadiness({ ...clean, routeRevision: false })).toBe(
+      "migration_required",
+    );
     const ready: ReadinessFacts = {
       ...clean,
       policy: "mapped_players",
@@ -92,15 +92,15 @@ describe("M2.14 isolated NPC readiness, no writes and no live API", () => {
       expect(classifyNpcE2eReadiness({ ...ready, ...changed })).not.toBe(
         "ready_for_inbound",
       );
-    expect(
-      classifyNpcE2eReadiness({ ...ready, interactions: 1 }),
-    ).toBe("already_used");
-    expect(
-      classifyNpcE2eReadiness({ ...ready, deliveries: 1 }),
-    ).toBe("already_used");
-    expect(
-      classifyNpcE2eReadiness({ ...ready, presenceRecords: 2 }),
-    ).toBe("blocked");
+    expect(classifyNpcE2eReadiness({ ...ready, interactions: 1 })).toBe(
+      "already_used",
+    );
+    expect(classifyNpcE2eReadiness({ ...ready, deliveries: 1 })).toBe(
+      "already_used",
+    );
+    expect(classifyNpcE2eReadiness({ ...ready, presenceRecords: 2 })).toBe(
+      "blocked",
+    );
   });
 
   it("rejects unsafe environments and forged player identifiers without a DB connection", async () => {
@@ -133,10 +133,11 @@ describe("M2.14 isolated NPC readiness, no writes and no live API", () => {
       statements.push(text);
       return { rows: [] };
     });
-    const transaction = vi.fn().mockImplementation(
-      async (fn: (tx: unknown) => Promise<unknown>) =>
+    const transaction = vi
+      .fn()
+      .mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({ execute }),
-    );
+      );
     const close = vi.fn().mockResolvedValue(undefined);
     const connect = vi.fn().mockReturnValue({ db: { transaction }, close });
     await expect(
