@@ -32,7 +32,7 @@ export type DiscordNormalizationDiagnostic = (
   reason: DiscordNormalizationRejection,
 ) => void;
 
-function schemaRejection(field: string | number | undefined): DiscordNormalizationRejection {
+function schemaRejection(field: unknown): DiscordNormalizationRejection {
   switch (field) {
     case "sourceMessageId":
       return "source_message_id_invalid";
