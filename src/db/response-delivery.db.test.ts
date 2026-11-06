@@ -12,6 +12,8 @@ import {
 } from "../adapters/discord-outbound/outbound.test-fixture.js";
 import { sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
+import { ChannelType, Events, MessageType, type Message } from "discord.js";
 import {
   afterAll,
   afterEach,
@@ -41,6 +43,7 @@ import {
   mapDiscordUserToEntity,
 } from "../domains/discord-mapping/discord-mapping.repository.js";
 import { createDiscordPersistence } from "../adapters/discord/persistence.js";
+import { createDiscordAdapter } from "../adapters/discord/client.js";
 import { createDiscordIntake } from "../intake/discord-intake.js";
 import {
   grantLocalPresence,
@@ -57,6 +60,13 @@ import {
   fakeProvider,
 } from "../llm/llm.test-fixture.js";
 import { createOfflineNpcWorkflow } from "../offline/npc-e2e.js";
+import {
+  createOfflineSceneHandshake,
+  type SceneHandshakeDependencies,
+} from "../offline/npc-scene-handshake.js";
+import { createOfflineGatewaySceneBridge } from "../offline/npc-scene-gateway.js";
+import { readNpcSummonFacts } from "../communication/summon-facts.repository.js";
+import { evaluatePlayerSummon } from "../communication/summon-availability.js";
 import { createOfflineNpcTestHarness } from "../offline/npc-e2e.test-fixture.js";
 import { createDeliveryRepository } from "../delivery/delivery.repository.js";
 import { createDeliveryDispatcher } from "../delivery/dispatch.js";
@@ -81,7 +91,11 @@ async function fixture(
   speech = "@everyone @here <@123> <@&456> The report remains uncertain.",
   numericRoute = false,
   skipGeneration = false,
+  skipPreparation = false,
+  deferIntake = false,
 ) {
+  if (deferIntake && (!skipPreparation || !skipGeneration))
+    throw Error("Deferred intake requires deferred prepare/generation");
   const world = (
     await createWorld(database.db, {
       key: "delivery-test-" + randomUUID(),
@@ -130,6 +144,7 @@ async function fixture(
         ? identifier()
         : "thread-" + identifier()
       : null;
+  const author = numericRoute ? identifier() : "author";
   const mapping = (
     await mapDiscordContext(database.db, world, {
       contextId: scene,
@@ -145,7 +160,7 @@ async function fixture(
   );
   await addEntityAlias(database.db, world, npc, { alias: "Pelo" });
   await mapDiscordUserToEntity(database.db, world, {
-    discordUserId: "author",
+    discordUserId: author,
     entityId: pc,
     mappingType: "player_character",
   });
@@ -173,32 +188,36 @@ async function fixture(
     guildId: guild,
     channelId: channel,
     threadId,
-    authorId: "author",
+    authorId: author,
     content: "<@123> [Pelo] Check the manifest.",
     mentionedUserIds: ["123"],
   };
   const intake = createDiscordIntake(createDiscordPersistence(database.db));
-  expect(await intake(message, "123")).toBe("accepted");
-  const {
-    rows: [incoming],
-  } = await database.pool.query(
-    "select id from interactions where world_id=$1",
-    [world],
-  );
+  if (!deferIntake) expect(await intake(message, "123")).toBe("accepted");
+  const incoming = deferIntake
+    ? { id: randomUUID() }
+    : (
+        await database.pool.query(
+          "select id from interactions where world_id=$1",
+          [world],
+        )
+      ).rows[0];
   const scope: DeliveryScope = {
     worldId: world,
     npcId: npc,
     interactionId: incoming.id,
   };
-  expect(
-    (
-      await prepareLocalInteraction(database.db, {
-        ...scope,
-        contextId: scene,
-        evidenceId: grant.evidence.id,
-      })
-    ).status,
-  ).toBe("prepared");
+  if (!skipPreparation) {
+    expect(
+      (
+        await prepareLocalInteraction(database.db, {
+          ...scope,
+          contextId: scene,
+          evidenceId: grant.evidence.id,
+        })
+      ).status,
+    ).toBe("prepared");
+  }
   if (!skipGeneration) {
     const local = (await getInteraction(database.db, world, npc, incoming.id))!;
     const claimed = await generation.claim(scope, local);
@@ -1536,14 +1555,13 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
     expect(harness.transport.send).not.toHaveBeenCalled();
     expect(harness.provider.generate).toHaveBeenCalledTimes(1);
     expect(await target.outbox()).toBeUndefined();
-    // This separate explicit operator path is still capable of preparing the
-    // old response. Review must decide whether persistent revocation fencing
-    // is needed; coordinator replay refusal alone cannot prevent it.
-    expect((await target.repository.preview(target.scope)).status).toBe(
-      "ready",
-    );
+    // Restoring a route cannot turn a revoked source into an operator send.
+    expect(await target.repository.preview(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
   });
-  it("documents the explicit-operator stale response risk after route restoration", async () => {
+  it("fences operator delivery after route revocation and restoration", async () => {
     const target = await fixture(false, true, "Ready.", false, true);
     const harness = await createOfflineNpcTestHarness(database, target.world);
     vi.mocked(harness.provider.generate).mockImplementationOnce(async () => {
@@ -1563,19 +1581,109 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
       "update discord_context_mappings set status='active' where id=$1",
       [target.mapping],
     );
-    expect((await target.repository.preview(target.scope)).status).toBe(
-      "ready",
-    );
-    // Intentionally demonstrates a policy gap: direct operator delivery does
-    // not know that the route had been revoked after the source event.
-    expect((await target.repository.prepare(target.scope)).status).toBe(
-      "prepared",
-    );
-    expect(await target.run(target.scope)).toEqual({ status: "delivered" });
-    expect(target.fake.send).toHaveBeenCalledTimes(1);
+    expect(await target.repository.preview(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
+    expect(await target.repository.prepare(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
+    expect(await target.run(target.scope)).toEqual({
+      status: "not_claimed",
+    });
+    expect(target.fake.send).not.toHaveBeenCalled();
     expect(harness.transport.send).not.toHaveBeenCalled();
-    expect((await target.outbox())?.status).toBe("delivered");
+    expect(await target.outbox()).toBeUndefined();
   });
+  it("fences a route remapped away and restored by direct SQL", async () => {
+    const target = await fixture();
+    const other = await createInteractionContext(database.db, target.world, {
+      contextType: "scene",
+      linkedLocationEntityId: target.place,
+    });
+    await database.pool.query(
+      "update discord_context_mappings set context_id=$1 where id=$2",
+      [other.id, target.mapping],
+    );
+    await database.pool.query(
+      "update discord_context_mappings set context_id=$1 where id=$2",
+      [target.scene, target.mapping],
+    );
+    expect(await target.repository.preview(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
+    expect(await target.repository.prepare(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
+    expect(target.fake.send).not.toHaveBeenCalled();
+  });
+
+  it("prevents direct SQL timestamp rewinds from restoring old replies", async () => {
+    const target = await fixture();
+    await database.pool.query(
+      "update discord_context_mappings set status='inactive' where id=$1",
+      [target.mapping],
+    );
+    await database.pool.query(
+      "update discord_context_mappings set status='active' where id=$1",
+      [target.mapping],
+    );
+    const before = await database.pool.query(
+      "select updated_at::text as revision from discord_context_mappings where id=$1",
+      [target.mapping],
+    );
+    // The former trigger let a metadata-only update rewind the route epoch.
+    await database.pool.query(
+      "update discord_context_mappings set updated_at='2000-01-01' where id=$1",
+      [target.mapping],
+    );
+    const after = await database.pool.query(
+      "select updated_at::text as revision from discord_context_mappings where id=$1",
+      [target.mapping],
+    );
+    expect(after.rows).toEqual(before.rows);
+    expect(await target.repository.preview(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
+    expect(await target.repository.prepare(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
+    expect(target.fake.send).not.toHaveBeenCalled();
+  });
+
+  it("advances route revisions across consecutive mapping changes", async () => {
+    const target = await fixture();
+    const timestamp = async () => {
+      const result = await database.pool.query(
+        "select floor(extract(epoch from updated_at) * 1000000)::bigint::text as epoch_us from discord_context_mappings where id=$1",
+        [target.mapping],
+      );
+      return BigInt(result.rows[0].epoch_us);
+    };
+    const initial = await timestamp();
+    await database.pool.query(
+      "update discord_context_mappings set status='inactive' where id=$1",
+      [target.mapping],
+    );
+    const revoked = await timestamp();
+    await database.pool.query(
+      "update discord_context_mappings set status='active' where id=$1",
+      [target.mapping],
+    );
+    const restored = await timestamp();
+    expect(revoked).toBeGreaterThan(initial);
+    expect(restored).toBeGreaterThan(revoked);
+    expect(await target.repository.preview(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
+  });
+
   it("keeps an already blocked outbox terminal after route reactivation", async () => {
     const target = await fixture();
     expect((await target.repository.prepare(target.scope)).status).toBe(
@@ -1731,5 +1839,471 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
     expect(deliver).not.toHaveBeenCalled();
     expect(await target.outbox()).toBeUndefined();
     expect((await target.read())?.responseText).toBeNull();
+  });
+});
+
+describe("M2.13B read-only player summon facts", () => {
+  it("does not infer availability from location alone", async () => {
+    const before = await database.pool.query(
+      "select version, availability_state from npc_state where npc_id=$1",
+      [f.npc],
+    );
+    const facts = await readNpcSummonFacts(database.db, {
+      worldId: f.world,
+      npcId: f.npc,
+      contextId: f.scene,
+    });
+    expect(facts).toMatchObject({
+      npcLocationId: f.place,
+      sceneLocationId: f.place,
+      locationCertainty: "certain",
+      activity: "unknown",
+      perception: "unknown",
+      otherScene: "unknown",
+    });
+    expect(evaluatePlayerSummon(facts)).toMatchObject({
+      status: "unknown",
+      reason: "activity_unknown",
+      mayGrantPresence: false,
+      maySendSpeech: false,
+    });
+    const after = await database.pool.query(
+      "select version, availability_state from npc_state where npc_id=$1",
+      [f.npc],
+    );
+    expect(after.rows).toEqual(before.rows);
+  });
+
+  it("does not silently teleport an NPC away from another location", async () => {
+    const other = await createEntity(database.db, f.world, {
+      entityType: "location",
+      canonicalName: "Different location",
+    });
+    await database.pool.query(
+      "update npc_state set current_location_id=$1, version=version+1 where npc_id=$2",
+      [other.id, f.npc],
+    );
+    const facts = await readNpcSummonFacts(database.db, {
+      worldId: f.world,
+      npcId: f.npc,
+      contextId: f.scene,
+    });
+    expect(facts?.npcLocationId).toBe(other.id);
+    expect(evaluatePlayerSummon(facts)).toMatchObject({
+      status: "not_available",
+      reason: "elsewhere",
+      mayGrantPresence: false,
+      maySendSpeech: false,
+    });
+    const location = await database.pool.query(
+      "select current_location_id from npc_state where npc_id=$1",
+      [f.npc],
+    );
+    expect(location.rows[0].current_location_id).toBe(other.id);
+  });
+
+  it("does not resolve foreign or unknown world/scene pairs", async () => {
+    const invalid = await readNpcSummonFacts(database.db, {
+      worldId: randomUUID(),
+      npcId: f.npc,
+      contextId: f.scene,
+    });
+    expect(invalid).toBeNull();
+    expect(
+      await readNpcSummonFacts(database.db, {
+        worldId: f.world,
+        npcId: f.npc,
+        contextId: randomUUID(),
+      }),
+    ).toBeNull();
+    expect(evaluatePlayerSummon(invalid)).toMatchObject({
+      status: "unknown",
+      reason: "invalid_facts",
+    });
+  });
+});
+
+describe("M2.13B real-PG offline scene handshake", () => {
+  async function setup() {
+    // No received interaction exists until the coordinator calls the real
+    // M2.8 intake. Only synthetic worlds/events and fake delivery are used.
+    const target = await fixture(false, true, "Ready.", true, true, true, true);
+    const harness = await createOfflineNpcTestHarness(database, target.world);
+    vi.mocked(harness.provider.generate).mockResolvedValue({
+      text: JSON.stringify({ speech: "The Sentinel has arrived." }),
+      completed: true,
+      usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+    });
+    const input = {
+      worldId: target.world,
+      contextId: target.scene,
+      sourceMessageId: target.message.sourceMessageId,
+      guildId: target.guild,
+      channelId: target.channel,
+      threadId: target.threadId,
+      authorId: target.message.authorId,
+    };
+    const actualIntake = createDiscordIntake(
+      createDiscordPersistence(database.db),
+    );
+    const intake = vi.fn(async () => actualIntake(target.message, "123"));
+    const read = async () => {
+      const rows = await database.pool.query(
+        "select id, npc_id from interactions where world_id=$1 and source_message_id=$2",
+        [target.world, input.sourceMessageId],
+      );
+      if (rows.rows.length !== 1) return null;
+      return getInteraction(
+        database.db,
+        target.world,
+        rows.rows[0].npc_id,
+        rows.rows[0].id,
+      );
+    };
+    const ports: Omit<SceneHandshakeDependencies, "intake"> = {
+      received: async () => {
+        const row = await read();
+        return row ? [row] : [];
+      },
+      presence: async (interaction) => {
+        const rows = await database.pool.query(
+          "select id from local_presence where world_id=$1 and npc_id=$2 and context_id=$3 and revoked_at is null",
+          [interaction.worldId, interaction.npcId, interaction.contextId],
+        );
+        return rows.rows.length === 1 ? rows.rows[0].id : null;
+      },
+      prepare: async (interaction, evidenceId) =>
+        (
+          await prepareLocalInteraction(database.db, {
+            worldId: interaction.worldId,
+            npcId: interaction.npcId,
+            contextId: interaction.contextId,
+            interactionId: interaction.id,
+            evidenceId,
+          })
+        ).status,
+      respond: (interaction) =>
+        harness.run({
+          worldId: interaction.worldId,
+          npcId: interaction.npcId,
+          interactionId: interaction.id,
+        }),
+    };
+    const run = createOfflineSceneHandshake({ intake, ...ports });
+    return { target, harness, input, intake, actualIntake, read, run, ports };
+  }
+
+  it("binds SDK event and client identity through real PG intake", async () => {
+    const { target, harness, input, actualIntake, read, ports } = await setup();
+    const persistence = createDiscordPersistence(database.db);
+    const observed: string[] = [];
+    const bridge = createOfflineGatewaySceneBridge({
+      ...ports,
+      resolveScene: async (message) => {
+        const worlds = await persistence.worldIds(message);
+        if (worlds.length !== 1) return null;
+        const scene = await persistence.context(worlds[0]!, message);
+        if (!scene || scene.status !== "active") return null;
+        return { worldId: scene.worldId, contextId: scene.id };
+      },
+      intake: actualIntake,
+    });
+    const client = Object.assign(new EventEmitter(), {
+      user: { id: "123" },
+      login: vi.fn().mockResolvedValue("offline-fixture"),
+      destroy: vi.fn().mockResolvedValue(undefined),
+    });
+    const config = {
+      enabled: true,
+      token: "offline-fixture",
+      intents: ["Guilds", "GuildMessages", "MessageContent"] as [
+        "Guilds",
+        "GuildMessages",
+        "MessageContent",
+      ],
+    };
+    const adapter = createDiscordAdapter(
+      config,
+      async (message, botId) => {
+        observed.push(await bridge(message, botId));
+      },
+      vi.fn(),
+      client as unknown as Parameters<typeof createDiscordAdapter>[3],
+    );
+    expect(await read()).toBeNull();
+    await adapter.start();
+    try {
+      const sdkMessage = {
+        id: input.sourceMessageId,
+        author: { id: target.message.authorId, bot: false },
+        partial: false,
+        webhookId: null,
+        system: false,
+        guildId: target.guild,
+        channelId: target.threadId,
+        type: MessageType.Default,
+        content: target.message.content,
+        channel: {
+          type: ChannelType.PublicThread,
+          parentId: target.channel,
+          isThread: () => true,
+        },
+        mentions: { users: new Map([["123", {}]]) },
+      } as unknown as Message;
+      client.emit(Events.MessageCreate, sdkMessage);
+    } finally {
+      await adapter.stop();
+    }
+    expect(observed).toEqual(["delivered"]);
+    expect((await read())?.responseMessageId).toBe("fake:verified-ack");
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+    expect(client.login).toHaveBeenCalledWith("offline-fixture");
+    expect(client.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists real intake only during handshake then fake-delivers once", async () => {
+    const { target, harness, input, intake, read, run } = await setup();
+    expect(await read()).toBeNull();
+    expect(await run(input)).toBe("delivered");
+    expect(intake).toHaveBeenCalledTimes(1);
+    expect((await read())?.communicationMode).toBe("local");
+    expect((await read())?.responseMessageId).toBe("fake:verified-ack");
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+    expect(harness.transport.sent[0]?.payload.destination).toEqual({
+      provider: "discord",
+      guildId: target.guild,
+      channelId: target.channel,
+      threadId: target.threadId,
+    });
+    expect(await run(input)).toBe("duplicate");
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("prints an isolated two-turn NPC rehearsal from real PG intake", async () => {
+    const { target, harness, input, run, read } = await setup();
+    const fakeSpeech = (speech: string) => ({
+      text: JSON.stringify({ speech }),
+      completed: true,
+      usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+    });
+    const turns: Array<{ role: "player" | "npc"; speech: string }> = [];
+
+    const firstSpeech = "The manifest is sealed in the old watchtower.";
+    vi.mocked(harness.provider.generate).mockResolvedValueOnce(
+      fakeSpeech(firstSpeech),
+    );
+    turns.push({ role: "player", speech: "Check the manifest." });
+    expect(await run(input)).toBe("delivered");
+    const first = await read();
+    expect(first?.responseMessageId).toBe("fake:verified-ack");
+    expect(first?.responseText).toContain(firstSpeech);
+    turns.push({ role: "npc", speech: firstSpeech });
+    const firstInteractionId = first!.id;
+
+    // Both fake turns use the same NPC, world, scene and original route.
+    // The second one is a fresh Discord event, never a retry of the first.
+    const { rows } = await database.pool.query(
+      "select floor(extract(epoch from clock_timestamp()) * 1000)::bigint::text as millis",
+    );
+    const sourceMillis = BigInt(rows[0].millis);
+    const snowflake = (sourceMillis - 1420070400000n) << 22n;
+    const secondEventId = String(snowflake + ++serial);
+    input.sourceMessageId = secondEventId;
+    target.message.sourceMessageId = secondEventId;
+    target.message.content = "<@123> [Pelo] Where is it?";
+
+    const secondSpeech = "Seek the iron chest beneath the eastern stair.";
+    vi.mocked(harness.provider.generate).mockResolvedValueOnce(
+      fakeSpeech(secondSpeech),
+    );
+    turns.push({ role: "player", speech: "Where is it?" });
+    expect(await run(input)).toBe("delivered");
+    const second = await read();
+    expect(second?.id).not.toBe(firstInteractionId);
+    expect(second?.responseMessageId).toBe("fake:verified-ack");
+    expect(second?.responseText).toContain(secondSpeech);
+    turns.push({ role: "npc", speech: secondSpeech });
+
+    expect(harness.provider.generate).toHaveBeenCalledTimes(2);
+    expect(harness.transport.send).toHaveBeenCalledTimes(2);
+    expect(
+      harness.transport.sent.every(
+        ({ payload }) =>
+          payload.destination.guildId === target.guild &&
+          payload.destination.channelId === target.channel &&
+          payload.destination.threadId === target.threadId,
+      ),
+    ).toBe(true);
+    expect(await run(input)).toBe("duplicate");
+    expect(harness.transport.send).toHaveBeenCalledTimes(2);
+
+    // This is an observable demo transcript, not live Discord or real AI.
+    console.info(
+      JSON.stringify({
+        event: "npc_offline_rehearsal",
+        simulated: true,
+        realDiscordMessages: 0,
+        realLlmCalls: 0,
+        isolatedWorld: true,
+        turns,
+      }),
+    );
+  });
+
+  it("serializes eight competing real-intake handlers to one fake ACK", async () => {
+    const { harness, input, run, read } = await setup();
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => run(input)),
+    );
+    expect(results.filter((status) => status === "delivered")).toHaveLength(1);
+    expect(results.filter((status) => status === "duplicate")).toHaveLength(7);
+    expect((await read())?.responseMessageId).toBe("fake:verified-ack");
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks response when DM revoked presence before real intake", async () => {
+    const { target, harness, input, run, read } = await setup();
+    expect(
+      await revokeLocalPresence(
+        database.db,
+        {
+          worldId: target.world,
+          npcId: target.npc,
+          contextId: target.scene,
+        },
+        target.grant.id,
+      ),
+    ).toMatchObject({ status: "revoked" });
+    expect(await run(input)).toBe("no_presence");
+    expect((await read())?.status).toBe("received");
+    expect(harness.provider.generate).not.toHaveBeenCalled();
+    expect(harness.transport.send).not.toHaveBeenCalled();
+  });
+
+  it("denies an unmapped player at real intake without DB interaction", async () => {
+    const { target, harness, input, run, read } = await setup();
+    await database.pool.query(
+      "update discord_identities set status='inactive' where world_id=$1",
+      [target.world],
+    );
+    expect(await run(input)).toBe("intake_denied");
+    expect(await read()).toBeNull();
+    expect(harness.provider.generate).not.toHaveBeenCalled();
+    expect(harness.transport.send).not.toHaveBeenCalled();
+  });
+
+  it("denies Discord events predating presence", async () => {
+    const { target, harness, input, run, read } = await setup();
+    const oldMillis = BigInt(target.grant.issuedAt.getTime() - 5_000);
+    const snowflake = (oldMillis - 1420070400000n) << 22n;
+    const oldId = String(snowflake + ++serial);
+    target.message.sourceMessageId = oldId;
+    input.sourceMessageId = oldId;
+    expect(await read()).toBeNull();
+    expect(await run(input)).toBe("presence_denied");
+    expect((await read())?.status).toBe("received");
+    expect(harness.provider.generate).not.toHaveBeenCalled();
+    expect(harness.transport.send).not.toHaveBeenCalled();
+  });
+
+  it("does not replay events after revoke and regrant", async () => {
+    const { target, harness, input, intake, run, read } = await setup();
+    const realIntake = vi.mocked(intake).getMockImplementation();
+    if (!realIntake) throw Error("Missing real intake adapter");
+    vi.mocked(intake).mockImplementationOnce(async () => {
+      const accepted = await realIntake();
+      expect(accepted).toBe("accepted");
+      expect(
+        await revokeLocalPresence(
+          database.db,
+          {
+            worldId: target.world,
+            npcId: target.npc,
+            contextId: target.scene,
+          },
+          target.grant.id,
+        ),
+      ).toMatchObject({ status: "revoked" });
+      expect(
+        await grantLocalPresence(database.db, {
+          worldId: target.world,
+          npcId: target.npc,
+          contextId: target.scene,
+        }),
+      ).toMatchObject({ status: "granted" });
+      return accepted;
+    });
+    expect(await run(input)).toBe("presence_denied");
+    expect((await read())?.status).toBe("received");
+    expect(harness.provider.generate).not.toHaveBeenCalled();
+    expect(harness.transport.send).not.toHaveBeenCalled();
+  });
+
+  it("blocks a route disabled during generation", async () => {
+    const { target, harness, input, run, read } = await setup();
+    vi.mocked(harness.provider.generate).mockImplementationOnce(async () => {
+      await database.pool.query(
+        "update discord_context_mappings set status='inactive' where id=$1",
+        [target.mapping],
+      );
+      return {
+        text: JSON.stringify({ speech: "Route disabled." }),
+        completed: true,
+        usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+      };
+    });
+    expect(await run(input)).toBe("delivery_blocked");
+    expect((await read())?.responseMessageId).toBeNull();
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+    expect(harness.transport.send).not.toHaveBeenCalled();
+  });
+
+  it("does not resend uncertain fake delivery", async () => {
+    const { harness, input, run, read } = await setup();
+    vi.mocked(harness.transport.send).mockResolvedValueOnce({
+      kind: "uncertain",
+    });
+    expect(await run(input)).toBe("delivery_uncertain");
+    expect((await read())?.responseMessageId).toBeNull();
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+    expect(await run(input)).toBe("duplicate");
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows a new source event after the route is restored", async () => {
+    const { target, harness, input, run } = await setup();
+    await database.pool.query(
+      "update discord_context_mappings set status='inactive' where id=$1",
+      [target.mapping],
+    );
+    await database.pool.query(
+      "update discord_context_mappings set status='active' where id=$1",
+      [target.mapping],
+    );
+    let sourceMillis = 0n;
+    await vi.waitFor(
+      async () => {
+        const result = await database.pool.query(
+          `select floor(extract(epoch from clock_timestamp()) * 1000)::bigint::text as now_ms,
+                  ceil(extract(epoch from updated_at) * 1000)::bigint::text as route_ms
+           from discord_context_mappings where id=$1`,
+          [target.mapping],
+        );
+        const now = BigInt(result.rows[0].now_ms);
+        expect(now).toBeGreaterThan(BigInt(result.rows[0].route_ms) + 2n);
+        sourceMillis = now - 1n;
+      },
+      { timeout: 1000, interval: 1 },
+    );
+    const snowflake = (sourceMillis - 1420070400000n) << 22n;
+    const eventId = String(snowflake + ++serial);
+    target.message.sourceMessageId = eventId;
+    input.sourceMessageId = eventId;
+    expect(await run(input)).toBe("delivered");
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
   });
 });

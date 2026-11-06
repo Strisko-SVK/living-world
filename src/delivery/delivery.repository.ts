@@ -16,6 +16,7 @@ import {
   validateLocalInteraction,
 } from "../communication/local.repository.js";
 import { resolveOriginalRoute } from "./routing.js";
+import { discordMessageCreatedAt } from "../intake/discord-snowflake.js";
 import {
   acknowledgementSchema,
   fingerprint,
@@ -171,22 +172,39 @@ export function createDeliveryRepository(
               .orderBy(worlds.id)
               .for("share")
           : [];
-        routeValid = resolveOriginalRoute(
-          s,
-          snapshot.contextId,
-          {
-            guildId: snapshot.sourceGuildId,
-            channelId: snapshot.sourceChannelId,
-            threadId: snapshot.sourceThreadId,
-            mappingId: snapshot.sourceMappingId,
-          },
-          routes.map((r) => ({
-            ...r,
-            worldActive: activeWorlds.some(
-              (w) => w.id === r.worldId && w.status === "active",
-            ),
-          })),
-        );
+        const sourceTime = discordMessageCreatedAt(snapshot.sourceMessageId);
+        // A restored mapping cannot retroactively authorize an old event.
+        // Compare database timestamps at microsecond precision: JS Date loses it.
+        const [revision] =
+          sourceTime === null
+            ? []
+            : await tx
+                .select({
+                  valid: sql<boolean>`${discordContextMappings.updatedAt} <= (
+                    select created_at from interactions where id=${snapshot.id}
+                  ) and ${discordContextMappings.updatedAt} <=
+                    timestamptz 'epoch' + ${sourceTime}::bigint * interval '1 millisecond'`,
+                })
+                .from(discordContextMappings)
+                .where(eq(discordContextMappings.id, snapshot.sourceMappingId));
+        routeValid =
+          revision?.valid === true &&
+          resolveOriginalRoute(
+            s,
+            snapshot.contextId,
+            {
+              guildId: snapshot.sourceGuildId,
+              channelId: snapshot.sourceChannelId,
+              threadId: snapshot.sourceThreadId,
+              mappingId: snapshot.sourceMappingId,
+            },
+            routes.map((r) => ({
+              ...r,
+              worldActive: activeWorlds.some(
+                (w) => w.id === r.worldId && w.status === "active",
+              ),
+            })),
+          );
       }
       await lockLocalContext(tx, snapshot);
       const [row] = await tx
