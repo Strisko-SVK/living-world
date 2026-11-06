@@ -3,6 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { createDatabaseClient, type DatabaseClient } from "../db/client.js";
+import { entities } from "../db/schema/entities.js";
 import { interactionContexts } from "../db/schema/interaction-contexts.js";
 import { worlds } from "../db/schema/worlds.js";
 import { grantLocalPresence } from "../communication/local.repository.js";
@@ -83,7 +84,7 @@ export function validateNpcE2eActivationEnvironment(
   const userId = environment.LW_NPC_E2E_TEST_USER_ID;
   if (mode === "activate" && (!userId || !snowflake.test(userId)))
     throw new Error("NPC E2E test human must be configured privately.");
-  if (userId !== undefined) {
+  if (mode === "activate" && userId !== undefined) {
     const reserved = [
       botId,
       route.guildId,
@@ -243,9 +244,17 @@ export async function disableNpcE2eIntake(
       .select()
       .from(interactionContexts)
       .where(eq(interactionContexts.worldId, request.ids.worldId));
+    const npcs = await tx
+      .select()
+      .from(entities)
+      .where(eq(entities.id, request.ids.npcId));
     if (
       found.length !== 1 ||
       found[0]!.id !== request.ids.worldId ||
+      npcs.length !== 1 ||
+      npcs[0]!.worldId !== request.ids.worldId ||
+      npcs[0]!.entityType !== "npc" ||
+      npcs[0]!.canonicalName !== "Sentinel-001" ||
       scenes.length !== 1 ||
       scenes[0]!.id !== request.ids.contextId ||
       scenes[0]!.externalGuildId !== request.route.guildId ||
