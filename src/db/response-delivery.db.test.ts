@@ -1980,6 +1980,7 @@ describe("M2.13B real-PG offline scene handshake", () => {
     expect(harness.transport.send).toHaveBeenCalledTimes(1);
     expect(harness.provider.generate).toHaveBeenCalledTimes(1);
   });
+
   it("allows a new source event after the route is restored", async () => {
     const { target, harness, input, run } = await setup();
     await database.pool.query(
@@ -2005,9 +2006,8 @@ describe("M2.13B real-PG offline scene handshake", () => {
       },
       { timeout: 1000, interval: 1 },
     );
-    const eventId = String(
-      ((sourceMillis - 1420070400000n) << 22n) + ++serial,
-    );
+    const snowflake = (sourceMillis - 1420070400000n) << 22n;
+    const eventId = String(snowflake + ++serial);
     target.message.sourceMessageId = eventId;
     input.sourceMessageId = eventId;
     expect(await run(input)).toBe("delivered");
