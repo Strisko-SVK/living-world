@@ -24,6 +24,7 @@ import { inspectNpcE2eReadiness } from "./discord-npc-e2e-readiness.js";
 import {
   connectOnePilotMessage,
   type PilotInboundConfig,
+  type PilotInboundDiagnostic,
 } from "./discord-pilot-gateway.js";
 import { validateGatewaySmokeConfig } from "./discord-gateway-smoke.js";
 
@@ -400,6 +401,14 @@ export async function runNpcE2eInboundCommand(
     // A queued/replayed message from before arming cannot consume this pilot.
     const armedAt = Date.now();
     const intake = createDiscordIntake(createDiscordPersistence(client.db));
+    const reported = new Set<string>();
+    const diagnose: PilotInboundDiagnostic = (stage) => {
+      // Only the fixed, vetted stage labels leave the process. Never print
+      // a Discord ID, user content, bot token, raw SQL or SDK exception.
+      if (reported.has(stage)) return;
+      reported.add(stage);
+      console.info(JSON.stringify({ event: "npc_e2e_inbound_diagnostic", stage }));
+    };
     // Reuse Step 14's *tested transport only* with a fresh, independently
     // verified config. No Step 14 DB verifier, world, event or route is reused.
     await connectOnePilotMessage(
@@ -416,6 +425,9 @@ export async function runNpcE2eInboundCommand(
           "after",
           sourceMessageId,
         ),
+      undefined,
+      90_000,
+      diagnose,
     );
     return { event: "npc_e2e_inbound_complete" };
   } finally {
