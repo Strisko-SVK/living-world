@@ -1546,14 +1546,13 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
     expect(harness.transport.send).not.toHaveBeenCalled();
     expect(harness.provider.generate).toHaveBeenCalledTimes(1);
     expect(await target.outbox()).toBeUndefined();
-    // This separate explicit operator path is still capable of preparing the
-    // old response. Review must decide whether persistent revocation fencing
-    // is needed; coordinator replay refusal alone cannot prevent it.
-    expect((await target.repository.preview(target.scope)).status).toBe(
-      "ready",
-    );
+    // Restoring a route cannot turn a revoked source into an operator send.
+    expect(await target.repository.preview(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
   });
-  it("documents the explicit-operator stale response risk after route restoration", async () => {
+  it("fences operator delivery after route revocation and restoration", async () => {
     const target = await fixture(false, true, "Ready.", false, true);
     const harness = await createOfflineNpcTestHarness(database, target.world);
     vi.mocked(harness.provider.generate).mockImplementationOnce(async () => {
@@ -1573,18 +1572,20 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
       "update discord_context_mappings set status='active' where id=$1",
       [target.mapping],
     );
-    expect((await target.repository.preview(target.scope)).status).toBe(
-      "ready",
-    );
-    // Intentionally demonstrates a policy gap: direct operator delivery does
-    // not know that the route had been revoked after the source event.
-    expect((await target.repository.prepare(target.scope)).status).toBe(
-      "prepared",
-    );
-    expect(await target.run(target.scope)).toEqual({ status: "delivered" });
-    expect(target.fake.send).toHaveBeenCalledTimes(1);
+    expect(await target.repository.preview(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
+    expect(await target.repository.prepare(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
+    expect(await target.run(target.scope)).toEqual({
+      status: "not_claimed",
+    });
+    expect(target.fake.send).not.toHaveBeenCalled();
     expect(harness.transport.send).not.toHaveBeenCalled();
-    expect((await target.outbox())?.status).toBe("delivered");
+    expect(await target.outbox()).toBeUndefined();
   });
   it("keeps an already blocked outbox terminal after route reactivation", async () => {
     const target = await fixture();
