@@ -30,15 +30,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Format probe on disposable runner
-        run: |
-          pnpm exec prettier --write docs/m2.14-dev-npc-pilot-readiness.md src/admin/discord-npc-e2e-readiness.ts src/admin/discord-npc-e2e-readiness.test.ts
-          for path in docs/m2.14-dev-npc-pilot-readiness.md src/admin/discord-npc-e2e-readiness.ts src/admin/discord-npc-e2e-readiness.test.ts; do
-            echo "FORMAT_BEGIN:$path"
-            base64 -w 0 "$path"
-            echo
-            echo "FORMAT_END:$path"
-          done
       - name: Run quality gate
         run: pnpm quality:gate
 
