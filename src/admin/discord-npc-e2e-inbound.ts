@@ -135,7 +135,6 @@ export async function verifyNpcE2eInboundDatabase(
   phase: "before" | "after",
   sourceMessageId?: string,
 ): Promise<void> {
-  const scope = config.scope;
   await db.transaction(async (tx) => {
     // PostgreSQL explicitly prevents writes throughout verification.
     await tx.execute(sql.raw("set transaction read only"));
@@ -163,189 +162,204 @@ export async function verifyNpcE2eInboundDatabase(
     )
       throw new Error("Isolated owner DEV database identity is not approved.");
 
-    const found = await tx.select().from(worlds).where(eq(worlds.key, scope.worldKey));
-    if (
-      found.length !== 1 ||
-      found[0]!.id !== scope.worldId ||
-      found[0]!.status !== "active" ||
-      found[0]!.systemType !== "test"
-    )
-      throw new Error("NPC E2E world scope is not approved.");
-
-    const scenes = await tx
-      .select()
-      .from(interactionContexts)
-      .where(eq(interactionContexts.worldId, scope.worldId));
-    const scene = scenes[0];
-    if (
-      scenes.length !== 1 ||
-      !scene ||
-      scene.id !== scope.contextId ||
-      scene.contextType !== "scene" ||
-      scene.status !== "active" ||
-      scene.npcIntakePolicy !== "mapped_players" ||
-      scene.externalProvider !== "discord" ||
-      scene.externalGuildId !== config.guildId ||
-      scene.externalChannelId !== config.parentId ||
-      scene.externalThreadId !== config.threadId ||
-      !scene.linkedLocationEntityId
-    )
-      throw new Error("NPC E2E mapped-player scene is not approved.");
-
-    const routes = await tx
-      .select()
-      .from(discordContextMappings)
-      .where(
-        and(
-          eq(discordContextMappings.guildId, config.guildId),
-          eq(discordContextMappings.channelId, config.parentId),
-        ),
-      );
-    const route = routes[0];
-    if (
-      routes.length !== 1 ||
-      !route ||
-      route.worldId !== scope.worldId ||
-      route.contextId !== scope.contextId ||
-      route.guildId !== config.guildId ||
-      route.channelId !== config.parentId ||
-      route.threadId !== config.threadId ||
-      route.mappingType !== "scene" ||
-      route.status !== "active" ||
-      route.npcId !== null
-    )
-      throw new Error("NPC E2E transport route is not isolated.");
-
-    const members = await tx
-      .select()
-      .from(entities)
-      .where(eq(entities.worldId, scope.worldId));
-    const players = members.filter(
-      (x) =>
-        x.entityType === "player_character" &&
-        x.canonicalName === "Gateway Test Character" &&
-        x.status === "active",
-    );
-    const npc = members.filter(
-      (x) =>
-        x.id === scope.npcId &&
-        x.entityType === "npc" &&
-        x.canonicalName === "Sentinel-001" &&
-        x.status === "active",
-    );
-    const identities = await tx
-      .select()
-      .from(discordIdentities)
-      .where(eq(discordIdentities.worldId, scope.worldId));
-    const human = identities[0];
-    if (
-      members.length !== 3 ||
-      npc.length !== 1 ||
-      players.length !== 1 ||
-      identities.length !== 1 ||
-      !human ||
-      human.id !== scope.playerMappingId ||
-      human.discordUserId !== config.playerId ||
-      human.entityId !== players[0]!.id ||
-      human.mappingType !== "player_character" ||
-      human.status !== "active"
-    )
-      throw new Error("NPC E2E owner test player or NPC identity differs.");
-
-    const states = await tx
-      .select()
-      .from(npcState)
-      .where(eq(npcState.npcId, scope.npcId));
-    const state = states[0];
-    const grants = await tx
-      .select()
-      .from(localPresence)
-      .where(eq(localPresence.worldId, scope.worldId));
-    const grant = grants[0];
-    if (
-      states.length !== 1 ||
-      !state ||
-      state.currentLocationId !== scene.linkedLocationEntityId ||
-      state.locationCertainty !== "certain" ||
-      grants.length !== 1 ||
-      !grant ||
-      grant.id !== config.presenceId ||
-      grant.revokedAt !== null ||
-      grant.worldId !== scope.worldId ||
-      grant.contextId !== scope.contextId ||
-      grant.npcId !== scope.npcId ||
-      grant.locationId !== scene.linkedLocationEntityId ||
-      grant.stateVersion !== state.version
-    )
-      throw new Error("Trusted Sentinel local presence is not valid.");
-
-    const audits = await tx
-      .select()
-      .from(contextIntakePolicyAudit)
-      .where(eq(contextIntakePolicyAudit.worldId, scope.worldId));
-    const audit = audits[0];
-    if (
-      audits.length !== 1 ||
-      !audit ||
-      audit.id !== scope.policyAuditId ||
-      audit.contextId !== scope.contextId ||
-      audit.previousPolicy !== "disabled" ||
-      audit.targetPolicy !== "mapped_players"
-    )
-      throw new Error("NPC E2E activation audit has unexpected history.");
-
-    const deliveries = await tx
-      .select()
-      .from(responseDeliveries)
-      .where(eq(responseDeliveries.worldId, scope.worldId));
-    const records = await tx
-      .select()
-      .from(interactions)
-      .where(eq(interactions.worldId, scope.worldId));
-    if (deliveries.length !== 0)
-      throw new Error("NPC E2E world unexpectedly contains outbound deliveries.");
-    if (phase === "before") {
-      if (records.length !== 0 || sourceMessageId)
-        throw new Error("NPC E2E one-shot inbound world has already been used.");
-      return;
-    }
-
-    const interaction = records[0];
-    const eventMs = discordMessageCreatedAt(sourceMessageId ?? null);
-    if (
-      !sourceMessageId ||
-      !eventMs ||
-      eventMs < grant.issuedAt.getTime() ||
-      eventMs < audit.createdAt.getTime() ||
-      eventMs < route.updatedAt.getTime() ||
-      records.length !== 1 ||
-      !interaction ||
-      interaction.contextId !== scope.contextId ||
-      interaction.npcId !== scope.npcId ||
-      interaction.speakerEntityId !== players[0]!.id ||
-      interaction.sourceProvider !== "discord" ||
-      interaction.sourceMessageId !== sourceMessageId ||
-      interaction.sourceGuildId !== config.guildId ||
-      interaction.sourceChannelId !== config.parentId ||
-      interaction.sourceThreadId !== config.threadId ||
-      interaction.sourceMappingId !== route.id ||
-      interaction.status !== "received" ||
-      interaction.communicationMode !== "unknown" ||
-      interaction.localPresenceId !== null ||
-      (interaction.requestText !== "<@" + config.botId + "> " + eventText &&
-        interaction.requestText !== "<@!" + config.botId + "> " + eventText) ||
-      interaction.responseText !== null ||
-      interaction.responseClaimId !== null ||
-      interaction.responseClaimedAt !== null ||
-      interaction.responseDispatchedAt !== null ||
-      interaction.responsePromptVersion !== null ||
-      interaction.responseGenerationOutcome !== null ||
-      interaction.responseMessageId !== null ||
-      interaction.respondedAt !== null ||
-      interaction.completedAt !== null
-    )
-      throw new Error("NPC E2E did not persist exactly one inert inbound event.");
+    await verifyNpcE2eInboundFacts(tx, config, phase, sourceMessageId);
   });
+}
+
+type Database = Omit<DatabaseClient["db"], "$client">;
+
+// The DB business facts are split from the read-only role guard to allow
+// rollback-only PostgreSQL integration tests using a synthetic world key.
+// The operator entrypoint ALWAYS calls the guarded verifier above.
+export async function verifyNpcE2eInboundFacts(
+  tx: Database,
+  config: NpcE2eInboundConfig,
+  phase: "before" | "after",
+  sourceMessageId?: string,
+): Promise<void> {
+  const scope = config.scope;
+  const found = await tx.select().from(worlds).where(eq(worlds.key, scope.worldKey));
+  if (
+    found.length !== 1 ||
+    found[0]!.id !== scope.worldId ||
+    found[0]!.status !== "active" ||
+    found[0]!.systemType !== "test"
+  )
+    throw new Error("NPC E2E world scope is not approved.");
+
+  const scenes = await tx
+    .select()
+    .from(interactionContexts)
+    .where(eq(interactionContexts.worldId, scope.worldId));
+  const scene = scenes[0];
+  if (
+    scenes.length !== 1 ||
+    !scene ||
+    scene.id !== scope.contextId ||
+    scene.contextType !== "scene" ||
+    scene.status !== "active" ||
+    scene.npcIntakePolicy !== "mapped_players" ||
+    scene.externalProvider !== "discord" ||
+    scene.externalGuildId !== config.guildId ||
+    scene.externalChannelId !== config.parentId ||
+    scene.externalThreadId !== config.threadId ||
+    !scene.linkedLocationEntityId
+  )
+    throw new Error("NPC E2E mapped-player scene is not approved.");
+
+  const routes = await tx
+    .select()
+    .from(discordContextMappings)
+    .where(
+      and(
+        eq(discordContextMappings.guildId, config.guildId),
+        eq(discordContextMappings.channelId, config.parentId),
+      ),
+    );
+  const route = routes[0];
+  if (
+    routes.length !== 1 ||
+    !route ||
+    route.worldId !== scope.worldId ||
+    route.contextId !== scope.contextId ||
+    route.guildId !== config.guildId ||
+    route.channelId !== config.parentId ||
+    route.threadId !== config.threadId ||
+    route.mappingType !== "scene" ||
+    route.status !== "active" ||
+    route.npcId !== null
+  )
+    throw new Error("NPC E2E transport route is not isolated.");
+
+  const members = await tx
+    .select()
+    .from(entities)
+    .where(eq(entities.worldId, scope.worldId));
+  const players = members.filter(
+    (x) =>
+      x.entityType === "player_character" &&
+      x.canonicalName === "Gateway Test Character" &&
+      x.status === "active",
+  );
+  const npc = members.filter(
+    (x) =>
+      x.id === scope.npcId &&
+      x.entityType === "npc" &&
+      x.canonicalName === "Sentinel-001" &&
+      x.status === "active",
+  );
+  const identities = await tx
+    .select()
+    .from(discordIdentities)
+    .where(eq(discordIdentities.worldId, scope.worldId));
+  const human = identities[0];
+  if (
+    members.length !== 3 ||
+    npc.length !== 1 ||
+    players.length !== 1 ||
+    identities.length !== 1 ||
+    !human ||
+    human.id !== scope.playerMappingId ||
+    human.discordUserId !== config.playerId ||
+    human.entityId !== players[0]!.id ||
+    human.mappingType !== "player_character" ||
+    human.status !== "active"
+  )
+    throw new Error("NPC E2E owner test player or NPC identity differs.");
+
+  const states = await tx
+    .select()
+    .from(npcState)
+    .where(eq(npcState.npcId, scope.npcId));
+  const state = states[0];
+  const grants = await tx
+    .select()
+    .from(localPresence)
+    .where(eq(localPresence.worldId, scope.worldId));
+  const grant = grants[0];
+  if (
+    states.length !== 1 ||
+    !state ||
+    state.currentLocationId !== scene.linkedLocationEntityId ||
+    state.locationCertainty !== "certain" ||
+    grants.length !== 1 ||
+    !grant ||
+    grant.id !== config.presenceId ||
+    grant.revokedAt !== null ||
+    grant.worldId !== scope.worldId ||
+    grant.contextId !== scope.contextId ||
+    grant.npcId !== scope.npcId ||
+    grant.locationId !== scene.linkedLocationEntityId ||
+    grant.stateVersion !== state.version
+  )
+    throw new Error("Trusted Sentinel local presence is not valid.");
+
+  const audits = await tx
+    .select()
+    .from(contextIntakePolicyAudit)
+    .where(eq(contextIntakePolicyAudit.worldId, scope.worldId));
+  const audit = audits[0];
+  if (
+    audits.length !== 1 ||
+    !audit ||
+    audit.id !== scope.policyAuditId ||
+    audit.contextId !== scope.contextId ||
+    audit.previousPolicy !== "disabled" ||
+    audit.targetPolicy !== "mapped_players"
+  )
+    throw new Error("NPC E2E activation audit has unexpected history.");
+
+  const deliveries = await tx
+    .select()
+    .from(responseDeliveries)
+    .where(eq(responseDeliveries.worldId, scope.worldId));
+  const records = await tx
+    .select()
+    .from(interactions)
+    .where(eq(interactions.worldId, scope.worldId));
+  if (deliveries.length !== 0)
+    throw new Error("NPC E2E world unexpectedly contains outbound deliveries.");
+  if (phase === "before") {
+    if (records.length !== 0 || sourceMessageId)
+      throw new Error("NPC E2E one-shot inbound world has already been used.");
+    return;
+  }
+
+  const interaction = records[0];
+  const eventMs = discordMessageCreatedAt(sourceMessageId ?? null);
+  if (
+    !sourceMessageId ||
+    !eventMs ||
+    eventMs < grant.issuedAt.getTime() ||
+    eventMs < audit.createdAt.getTime() ||
+    eventMs < route.updatedAt.getTime() ||
+    records.length !== 1 ||
+    !interaction ||
+    interaction.contextId !== scope.contextId ||
+    interaction.npcId !== scope.npcId ||
+    interaction.speakerEntityId !== players[0]!.id ||
+    interaction.sourceProvider !== "discord" ||
+    interaction.sourceMessageId !== sourceMessageId ||
+    interaction.sourceGuildId !== config.guildId ||
+    interaction.sourceChannelId !== config.parentId ||
+    interaction.sourceThreadId !== config.threadId ||
+    interaction.sourceMappingId !== route.id ||
+    interaction.status !== "received" ||
+    interaction.communicationMode !== "unknown" ||
+    interaction.localPresenceId !== null ||
+    (interaction.requestText !== "<@" + config.botId + "> " + eventText &&
+      interaction.requestText !== "<@!" + config.botId + "> " + eventText) ||
+    interaction.responseText !== null ||
+    interaction.responseClaimId !== null ||
+    interaction.responseClaimedAt !== null ||
+    interaction.responseDispatchedAt !== null ||
+    interaction.responsePromptVersion !== null ||
+    interaction.responseGenerationOutcome !== null ||
+    interaction.responseMessageId !== null ||
+    interaction.respondedAt !== null ||
+    interaction.completedAt !== null
+  )
+    throw new Error("NPC E2E did not persist exactly one inert inbound event.");
 }
 
 export async function runNpcE2eInboundCommand(
