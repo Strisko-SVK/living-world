@@ -136,11 +136,7 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
     const stages: PilotInboundDiagnosticStage[] = [];
     const observe = (stage: PilotInboundDiagnosticStage) => stages.push(stage);
     expect(
-      pickPilotInboundMessage(
-        testMessage({ content: "" }),
-        config,
-        observe,
-      ),
+      pickPilotInboundMessage(testMessage({ content: "" }), config, observe),
     ).toBeNull();
     expect(stages).toEqual([
       "target_thread_event_seen",
@@ -149,11 +145,7 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
     ]);
     stages.length = 0;
     expect(
-      pickPilotInboundMessage(
-        testMessage({ id: "bad id" }),
-        config,
-        observe,
-      ),
+      pickPilotInboundMessage(testMessage({ id: "bad id" }), config, observe),
     ).toBeNull();
     expect(stages).toEqual([
       "target_thread_event_seen",
