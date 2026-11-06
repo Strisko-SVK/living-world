@@ -118,6 +118,17 @@ export function parseNpcE2eInboundArguments(
   throw new Error("Live NPC E2E inbound requires all exact one-message confirmations.");
 }
 
+// Only SDK-authenticated snowflakes from this explicitly armed session can
+// consume the one-shot pilot. This does not authenticate arbitrary input.
+export function isFreshNpcE2eSource(
+  sourceMessageId: string,
+  armedAt: number,
+  now: number,
+): boolean {
+  const sourceMs = discordMessageCreatedAt(sourceMessageId);
+  return sourceMs !== null && sourceMs >= armedAt && sourceMs <= now + 30_000;
+}
+
 export async function verifyNpcE2eInboundDatabase(
   db: DatabaseClient["db"],
   config: NpcE2eInboundConfig,
@@ -371,8 +382,7 @@ export async function runNpcE2eInboundCommand(
     await connectOnePilotMessage(
       config,
       async (message: IncomingMessage, botId: string) => {
-        const sourceMs = discordMessageCreatedAt(message.sourceMessageId);
-        if (!sourceMs || sourceMs < armedAt || sourceMs > Date.now() + 30_000)
+        if (!isFreshNpcE2eSource(message.sourceMessageId, armedAt, Date.now()))
           return "stale";
         return intake(message, botId);
       },
