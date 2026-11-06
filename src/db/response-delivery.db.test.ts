@@ -1875,4 +1875,84 @@ describe("M2.13B real-PG offline scene handshake", () => {
     expect(harness.provider.generate).not.toHaveBeenCalled();
     expect(harness.transport.send).not.toHaveBeenCalled();
   });
+  it("rejects a real Discord event older than its NPC presence grant", async () => {
+    const { target, harness, input, run, read } = await setup();
+    const oldMillis = BigInt(target.grant.issuedAt.getTime() - 5_000);
+    const oldId = String(
+      ((oldMillis - 1420070400000n) << 22n) + ++serial,
+    );
+    target.message.sourceMessageId = oldId;
+    input.sourceMessageId = oldId;
+    expect(await read()).toBeNull();
+    expect(await run(input)).toBe("presence_denied");
+    expect((await read())?.status).toBe("received");
+    expect(harness.provider.generate).not.toHaveBeenCalled();
+    expect(harness.transport.send).not.toHaveBeenCalled();
+  });
+
+  it("does not revive a received event after presence is revoked and regranted", async () => {
+    const { target, harness, input, intake, run, read } = await setup();
+    const realIntake = vi.mocked(intake).getMockImplementation();
+    if (!realIntake) throw Error("Missing real intake adapter");
+    vi.mocked(intake).mockImplementationOnce(async () => {
+      const accepted = await realIntake();
+      expect(accepted).toBe("accepted");
+      expect(
+        await revokeLocalPresence(
+          database.db,
+          {
+            worldId: target.world,
+            npcId: target.npc,
+            contextId: target.scene,
+          },
+          target.grant.id,
+        ),
+      ).toMatchObject({ status: "revoked" });
+      expect(
+        await grantLocalPresence(database.db, {
+          worldId: target.world,
+          npcId: target.npc,
+          contextId: target.scene,
+        }),
+      ).toMatchObject({ status: "granted" });
+      return accepted;
+    });
+    expect(await run(input)).toBe("presence_denied");
+    expect((await read())?.status).toBe("received");
+    expect(harness.provider.generate).not.toHaveBeenCalled();
+    expect(harness.transport.send).not.toHaveBeenCalled();
+  });
+
+  it("blocks fake delivery when a Discord route is disabled during generation", async () => {
+    const { target, harness, input, run, read } = await setup();
+    vi.mocked(harness.provider.generate).mockImplementationOnce(async () => {
+      await database.pool.query(
+        "update discord_context_mappings set status='inactive' where id=$1",
+        [target.mapping],
+      );
+      return {
+        text: JSON.stringify({ speech: "Do not send through a disabled route." }),
+        completed: true,
+        usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
+      };
+    });
+    expect(await run(input)).toBe("delivery_blocked");
+    expect((await read())?.responseMessageId).toBeNull();
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+    expect(harness.transport.send).not.toHaveBeenCalled();
+  });
+
+  it("records uncertain fake delivery without a second send", async () => {
+    const { harness, input, run, read } = await setup();
+    vi.mocked(harness.transport.send).mockResolvedValueOnce({
+      kind: "uncertain",
+    });
+    expect(await run(input)).toBe("delivery_uncertain");
+    expect((await read())?.responseMessageId).toBeNull();
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+    expect(await run(input)).toBe("duplicate");
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+  });
+
 });
