@@ -12,6 +12,8 @@ import {
 } from "../adapters/discord-outbound/outbound.test-fixture.js";
 import { sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
+import { ChannelType, Events, MessageType, type Message } from "discord.js";
 import {
   afterAll,
   afterEach,
@@ -41,6 +43,7 @@ import {
   mapDiscordUserToEntity,
 } from "../domains/discord-mapping/discord-mapping.repository.js";
 import { createDiscordPersistence } from "../adapters/discord/persistence.js";
+import { createDiscordAdapter } from "../adapters/discord/client.js";
 import { createDiscordIntake } from "../intake/discord-intake.js";
 import {
   grantLocalPresence,
@@ -58,6 +61,7 @@ import {
 } from "../llm/llm.test-fixture.js";
 import { createOfflineNpcWorkflow } from "../offline/npc-e2e.js";
 import { createOfflineSceneHandshake } from "../offline/npc-scene-handshake.js";
+import { createOfflineGatewaySceneBridge } from "../offline/npc-scene-gateway.js";
 import { createOfflineNpcTestHarness } from "../offline/npc-e2e.test-fixture.js";
 import { createDeliveryRepository } from "../delivery/delivery.repository.js";
 import { createDeliveryDispatcher } from "../delivery/dispatch.js";
@@ -1807,8 +1811,7 @@ describe("M2.13B real-PG offline scene handshake", () => {
         rows.rows[0].id,
       );
     };
-    const run = createOfflineSceneHandshake({
-      intake,
+    const ports = {
       received: async () => {
         const row = await read();
         return row ? [row] : [];
@@ -1836,9 +1839,79 @@ describe("M2.13B real-PG offline scene handshake", () => {
           npcId: interaction.npcId,
           interactionId: interaction.id,
         }),
-    });
-    return { target, harness, input, intake, read, run };
+    };
+    const run = createOfflineSceneHandshake({ intake, ...ports });
+    return { target, harness, input, intake, actualIntake, read, run, ports };
   }
+
+  it("binds a fake SDK Gateway event and client bot identity to real PG intake", async () => {
+    const { target, harness, input, actualIntake, read, ports } = await setup();
+    const persistence = createDiscordPersistence(database.db);
+    const observed: string[] = [];
+    const bridge = createOfflineGatewaySceneBridge({
+      ...ports,
+      resolveScene: async (message) => {
+        const worlds = await persistence.worldIds(message);
+        if (worlds.length !== 1) return null;
+        const scene = await persistence.context(worlds[0]!, message);
+        if (!scene || scene.status !== "active") return null;
+        return { worldId: scene.worldId, contextId: scene.id };
+      },
+      intake: actualIntake,
+    });
+    const client = Object.assign(new EventEmitter(), {
+      user: { id: "123" },
+      login: vi.fn().mockResolvedValue("offline-fixture"),
+      destroy: vi.fn().mockResolvedValue(undefined),
+    });
+    const config = {
+      enabled: true,
+      token: "offline-fixture",
+      intents: ["Guilds", "GuildMessages", "MessageContent"] as [
+        "Guilds",
+        "GuildMessages",
+        "MessageContent",
+      ],
+    };
+    const adapter = createDiscordAdapter(
+      config,
+      async (message, botId) => {
+        observed.push(await bridge(message, botId));
+      },
+      vi.fn(),
+      client as unknown as Parameters<typeof createDiscordAdapter>[3],
+    );
+    expect(await read()).toBeNull();
+    await adapter.start();
+    try {
+      const sdkMessage = {
+        id: input.sourceMessageId,
+        author: { id: target.message.authorId, bot: false },
+        partial: false,
+        webhookId: null,
+        system: false,
+        guildId: target.guild,
+        channelId: target.threadId,
+        type: MessageType.Default,
+        content: target.message.content,
+        channel: {
+          type: ChannelType.PublicThread,
+          parentId: target.channel,
+          isThread: () => true,
+        },
+        mentions: { users: new Map([["123", {}]]) },
+      } as unknown as Message;
+      client.emit(Events.MessageCreate, sdkMessage);
+    } finally {
+      await adapter.stop();
+    }
+    expect(observed).toEqual(["delivered"]);
+    expect((await read())?.responseMessageId).toBe("fake:verified-ack");
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+    expect(client.login).toHaveBeenCalledWith("offline-fixture");
+    expect(client.destroy).toHaveBeenCalledTimes(1);
+  });
 
   it("persists real intake only during handshake then fake-delivers once", async () => {
     const { target, harness, input, intake, read, run } = await setup();
