@@ -116,7 +116,11 @@ describe("M2.14C first Sentinel inbound-only Gateway safeguards", () => {
       presenceId: npcE2eInboundTarget.presenceId,
       scope: {
         worldKey: "lw-dev-npc-e2e-001",
-        ...npcE2eInboundTarget,
+        worldId: npcE2eInboundTarget.worldId,
+        contextId: npcE2eInboundTarget.contextId,
+        npcId: npcE2eInboundTarget.npcId,
+        playerMappingId: npcE2eInboundTarget.playerMappingId,
+        policyAuditId: npcE2eInboundTarget.policyAuditId,
       },
     });
     expect(npcE2eInboundRoute).toEqual({ guildId, parentId, threadId });
