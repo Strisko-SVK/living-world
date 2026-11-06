@@ -139,7 +139,12 @@ describe("M2.14C first Sentinel inbound-only Gateway safeguards", () => {
       { LW_DEV_GUILD_ID: "1666666666666666666" },
       { LW_NPC_E2E_GUILD_ID: "1666666666666666666" },
       { DATABASE_URL: environment.DATABASE_URL?.replace("55432", "5432") },
-      { DATABASE_URL: environment.DATABASE_URL?.replace("127.0.0.1", "example.com") },
+      {
+        DATABASE_URL: environment.DATABASE_URL?.replace(
+          "127.0.0.1",
+          "example.com",
+        ),
+      },
     ])
       expect(() =>
         validateNpcE2eInboundEnvironment({ ...environment, ...invalid }),
@@ -156,9 +161,7 @@ describe("M2.14C first Sentinel inbound-only Gateway safeguards", () => {
       ["--apply"],
       ["--preflight", "--connect"],
       flags.slice(0, -1),
-      flags.map((x) =>
-        x === "lw-dev-npc-e2e-001" ? "lw-dev-pilot-001" : x,
-      ),
+      flags.map((x) => (x === "lw-dev-npc-e2e-001" ? "lw-dev-pilot-001" : x)),
       flags.map((x) =>
         x === npcE2eInboundTarget.worldId
           ? "585b48b9-9160-4366-9312-455c39551302"
@@ -177,9 +180,15 @@ describe("M2.14C first Sentinel inbound-only Gateway safeguards", () => {
     const snowflake = (ms: number) =>
       ((BigInt(ms) - 1420070400000n) << 22n).toString();
     const armed = 1793990000000;
-    expect(isFreshNpcE2eSource(snowflake(armed + 1000), armed, armed + 1200)).toBe(true);
-    expect(isFreshNpcE2eSource(snowflake(armed - 1), armed, armed + 2000)).toBe(false);
-    expect(isFreshNpcE2eSource(snowflake(armed + 31000), armed, armed)).toBe(false);
+    expect(
+      isFreshNpcE2eSource(snowflake(armed + 1000), armed, armed + 1200),
+    ).toBe(true);
+    expect(isFreshNpcE2eSource(snowflake(armed - 1), armed, armed + 2000)).toBe(
+      false,
+    );
+    expect(isFreshNpcE2eSource(snowflake(armed + 31000), armed, armed)).toBe(
+      false,
+    );
     expect(isFreshNpcE2eSource("not-a-message-id", armed, armed)).toBe(false);
   });
 
@@ -265,18 +274,24 @@ describe("M2.14C first Sentinel inbound-only Gateway safeguards", () => {
     const statements: unknown[] = [];
     const execute = vi.fn().mockImplementation(async (statement: unknown) => {
       statements.push(statement);
-      return { rows: statements.length < 3 ? [] : [{
-        database: "living_world_gateway_dev",
-        role: "postgres",
-        version: 170011,
-        superuser: true,
-        createdb: true,
-        createrole: true,
-      }] };
+      return {
+        rows:
+          statements.length < 3
+            ? []
+            : [
+                {
+                  database: "living_world_gateway_dev",
+                  role: "postgres",
+                  version: 170011,
+                  superuser: true,
+                  createdb: true,
+                  createrole: true,
+                },
+              ],
+      };
     });
     const db = {
-      transaction: (fn: (tx: unknown) => Promise<unknown>) =>
-        fn({ execute }),
+      transaction: (fn: (tx: unknown) => Promise<unknown>) => fn({ execute }),
     };
     await expect(
       verifyNpcE2eInboundDatabase(
