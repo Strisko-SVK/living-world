@@ -132,6 +132,41 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
     expect(printed).not.toContain(token);
   });
 
+  it("explains failed normalization without printing message fields", () => {
+    const stages: PilotInboundDiagnosticStage[] = [];
+    const observe = (stage: PilotInboundDiagnosticStage) => stages.push(stage);
+    expect(
+      pickPilotInboundMessage(
+        testMessage({ content: "" }),
+        config,
+        observe,
+      ),
+    ).toBeNull();
+    expect(stages).toEqual([
+      "target_thread_event_seen",
+      "normalization_content_unavailable",
+      "message_normalization_rejected",
+    ]);
+    stages.length = 0;
+    expect(
+      pickPilotInboundMessage(
+        testMessage({ id: "bad id" }),
+        config,
+        observe,
+      ),
+    ).toBeNull();
+    expect(stages).toEqual([
+      "target_thread_event_seen",
+      "normalization_source_message_id_invalid",
+      "message_normalization_rejected",
+    ]);
+    const output = JSON.stringify(stages);
+    expect(output).not.toContain(humanId);
+    expect(output).not.toContain(botId);
+    expect(output).not.toContain(token);
+    expect(output).not.toContain("bad id");
+  });
+
   it("differentiates filtered thread events from timeout with no matching message", async () => {
     const client = fakeClient();
     const stages: PilotInboundDiagnosticStage[] = [];
