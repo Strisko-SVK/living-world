@@ -65,6 +65,8 @@ import {
   type SceneHandshakeDependencies,
 } from "../offline/npc-scene-handshake.js";
 import { createOfflineGatewaySceneBridge } from "../offline/npc-scene-gateway.js";
+import { readNpcSummonFacts } from "../communication/summon-facts.repository.js";
+import { evaluatePlayerSummon } from "../communication/summon-availability.js";
 import { createOfflineNpcTestHarness } from "../offline/npc-e2e.test-fixture.js";
 import { createDeliveryRepository } from "../delivery/delivery.repository.js";
 import { createDeliveryDispatcher } from "../delivery/dispatch.js";
@@ -1774,6 +1776,87 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
     expect(deliver).not.toHaveBeenCalled();
     expect(await target.outbox()).toBeUndefined();
     expect((await target.read())?.responseText).toBeNull();
+  });
+});
+
+describe("M2.13B read-only player summon facts", () => {
+  it("does not infer availability from location alone", async () => {
+    const before = await database.pool.query(
+      "select version, availability_state from npc_state where npc_id=$1",
+      [f.npc],
+    );
+    const facts = await readNpcSummonFacts(database.db, {
+      worldId: f.world,
+      npcId: f.npc,
+      contextId: f.scene,
+    });
+    expect(facts).toMatchObject({
+      npcLocationId: f.place,
+      sceneLocationId: f.place,
+      locationCertainty: "certain",
+      activity: "unknown",
+      perception: "unknown",
+      otherScene: "unknown",
+    });
+    expect(evaluatePlayerSummon(facts)).toMatchObject({
+      status: "unknown",
+      reason: "activity_unknown",
+      mayGrantPresence: false,
+      maySendSpeech: false,
+    });
+    const after = await database.pool.query(
+      "select version, availability_state from npc_state where npc_id=$1",
+      [f.npc],
+    );
+    expect(after.rows).toEqual(before.rows);
+  });
+
+  it("does not silently teleport an NPC away from another location", async () => {
+    const other = await createEntity(database.db, f.world, {
+      entityType: "location",
+      canonicalName: "Different location",
+    });
+    await database.pool.query(
+      "update npc_state set current_location_id=$1, version=version+1 where npc_id=$2",
+      [other.id, f.npc],
+    );
+    const facts = await readNpcSummonFacts(database.db, {
+      worldId: f.world,
+      npcId: f.npc,
+      contextId: f.scene,
+    });
+    expect(facts?.npcLocationId).toBe(other.id);
+    expect(evaluatePlayerSummon(facts)).toMatchObject({
+      status: "not_available",
+      reason: "elsewhere",
+      mayGrantPresence: false,
+      maySendSpeech: false,
+    });
+    const location = await database.pool.query(
+      "select current_location_id from npc_state where npc_id=$1",
+      [f.npc],
+    );
+    expect(location.rows[0].current_location_id).toBe(other.id);
+  });
+
+  it("does not resolve foreign or unknown world/scene pairs", async () => {
+    const invalid = await readNpcSummonFacts(database.db, {
+      worldId: randomUUID(),
+      npcId: f.npc,
+      contextId: f.scene,
+    });
+    expect(invalid).toBeNull();
+    expect(
+      await readNpcSummonFacts(database.db, {
+        worldId: f.world,
+        npcId: f.npc,
+        contextId: randomUUID(),
+      }),
+    ).toBeNull();
+    expect(evaluatePlayerSummon(invalid)).toMatchObject({
+      status: "unknown",
+      reason: "invalid_facts",
+    });
   });
 });
 
