@@ -46,7 +46,12 @@ describe("M2.14B atomic NPC DEV activation on disposable PostgreSQL", () => {
     await expect(
       db.db.transaction(async (tx) => {
         const route = freshRoute();
-        const created = await provisionDevFixture(tx, route, true, npcE2eWorldKey);
+        const created = await provisionDevFixture(
+          tx,
+          route,
+          true,
+          npcE2eWorldKey,
+        );
         expect(created.status).toBe("created");
         const ids: NpcE2eIds = {
           worldId: created.worldId!,
@@ -128,9 +133,9 @@ describe("M2.14B atomic NPC DEV activation on disposable PostgreSQL", () => {
           event: "npc_e2e_intake_disabled",
           alreadyDisabled: false,
         });
-        expect(
-          await disableNpcE2eIntake(tx, { route, ids }),
-        ).toMatchObject({ alreadyDisabled: true });
+        expect(await disableNpcE2eIntake(tx, { route, ids })).toMatchObject({
+          alreadyDisabled: true,
+        });
         const [disabledScene] = await tx
           .select()
           .from(interactionContexts)
@@ -152,7 +157,12 @@ describe("M2.14B atomic NPC DEV activation on disposable PostgreSQL", () => {
     await expect(
       db.db.transaction(async (tx) => {
         const route = freshRoute();
-        const created = await provisionDevFixture(tx, route, true, npcE2eWorldKey);
+        const created = await provisionDevFixture(
+          tx,
+          route,
+          true,
+          npcE2eWorldKey,
+        );
         expect(created.status).toBe("created");
         const ids: NpcE2eIds = {
           worldId: created.worldId!,
