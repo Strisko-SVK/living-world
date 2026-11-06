@@ -76,7 +76,10 @@ export function normalizeDiscordMessage(
   if (isThread && !parentId) return reject("thread_parent_missing");
   if (typeof message.content !== "string" || !message.content.trim())
     return reject("content_unavailable");
-  if (!message.mentions?.users || typeof message.mentions.users.has !== "function")
+  if (
+    !message.mentions?.users ||
+    typeof message.mentions.users.has !== "function"
+  )
     return reject("mentions_unavailable");
 
   // SDK mention collections may include a replied-to author. Require a literal
