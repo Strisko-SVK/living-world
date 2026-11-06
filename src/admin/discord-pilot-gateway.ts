@@ -185,7 +185,7 @@ export function pickPilotInboundMessage(
     return null;
   }
   const targetText = "<@" + config.botId + "> [Sentinel] Report readiness.";
-  const literalText = normalized.content.replace(/^<@!(\\d+)>/u, "<@$1>");
+  const literalText = normalized.content.replace(/^<@!(\d+)>/u, "<@$1>");
   if (literalText !== targetText) {
     diagnose?.("exact_text_rejected");
     return null;
