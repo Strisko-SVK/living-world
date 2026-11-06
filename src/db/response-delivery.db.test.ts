@@ -1587,6 +1587,31 @@ describe("M2.12 repository-backed offline NPC E2E", () => {
     expect(harness.transport.send).not.toHaveBeenCalled();
     expect(await target.outbox()).toBeUndefined();
   });
+  it("fences a route remapped away and restored by direct SQL", async () => {
+    const target = await fixture();
+    const other = await createInteractionContext(database.db, target.world, {
+      contextType: "scene",
+      linkedLocationEntityId: target.place,
+    });
+    await database.pool.query(
+      "update discord_context_mappings set context_id=$1 where id=$2",
+      [other.id, target.mapping],
+    );
+    await database.pool.query(
+      "update discord_context_mappings set context_id=$1 where id=$2",
+      [target.scene, target.mapping],
+    );
+    expect(await target.repository.preview(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
+    expect(await target.repository.prepare(target.scope)).toMatchObject({
+      status: "blocked",
+      reason: "route_untrusted",
+    });
+    expect(target.fake.send).not.toHaveBeenCalled();
+  });
+
   it("keeps an already blocked outbox terminal after route reactivation", async () => {
     const target = await fixture();
     expect((await target.repository.prepare(target.scope)).status).toBe(
@@ -1954,5 +1979,38 @@ describe("M2.13B real-PG offline scene handshake", () => {
     expect(await run(input)).toBe("duplicate");
     expect(harness.transport.send).toHaveBeenCalledTimes(1);
     expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+  });
+  it("allows a new source event after the route is restored", async () => {
+    const { target, harness, input, run } = await setup();
+    await database.pool.query(
+      "update discord_context_mappings set status='inactive' where id=$1",
+      [target.mapping],
+    );
+    await database.pool.query(
+      "update discord_context_mappings set status='active' where id=$1",
+      [target.mapping],
+    );
+    let sourceMillis = 0n;
+    await vi.waitFor(
+      async () => {
+        const result = await database.pool.query(
+          `select floor(extract(epoch from clock_timestamp()) * 1000)::bigint::text as now_ms,
+                  ceil(extract(epoch from updated_at) * 1000)::bigint::text as route_ms
+           from discord_context_mappings where id=$1`,
+          [target.mapping],
+        );
+        const now = BigInt(result.rows[0].now_ms);
+        expect(now).toBeGreaterThan(BigInt(result.rows[0].route_ms) + 2n);
+        sourceMillis = now - 1n;
+      },
+      { timeout: 1000, interval: 1 },
+    );
+    const eventId = String(
+      ((sourceMillis - 1420070400000n) << 22n) + ++serial,
+    );
+    target.message.sourceMessageId = eventId;
+    input.sourceMessageId = eventId;
+    expect(await run(input)).toBe("delivered");
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
   });
 });
