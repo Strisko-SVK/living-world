@@ -1875,12 +1875,12 @@ describe("M2.13B real-PG offline scene handshake", () => {
     expect(harness.provider.generate).not.toHaveBeenCalled();
     expect(harness.transport.send).not.toHaveBeenCalled();
   });
-  it("rejects a real Discord event older than its NPC presence grant", async () => {
+
+  it("denies Discord events predating presence", async () => {
     const { target, harness, input, run, read } = await setup();
     const oldMillis = BigInt(target.grant.issuedAt.getTime() - 5_000);
-    const oldId = String(
-      ((oldMillis - 1420070400000n) << 22n) + ++serial,
-    );
+    const snowflake = (oldMillis - 1420070400000n) << 22n;
+    const oldId = String(snowflake + ++serial);
     target.message.sourceMessageId = oldId;
     input.sourceMessageId = oldId;
     expect(await read()).toBeNull();
@@ -1890,7 +1890,7 @@ describe("M2.13B real-PG offline scene handshake", () => {
     expect(harness.transport.send).not.toHaveBeenCalled();
   });
 
-  it("does not revive a received event after presence is revoked and regranted", async () => {
+  it("does not replay events after revoke and regrant", async () => {
     const { target, harness, input, intake, run, read } = await setup();
     const realIntake = vi.mocked(intake).getMockImplementation();
     if (!realIntake) throw Error("Missing real intake adapter");
@@ -1923,7 +1923,7 @@ describe("M2.13B real-PG offline scene handshake", () => {
     expect(harness.transport.send).not.toHaveBeenCalled();
   });
 
-  it("blocks fake delivery when a Discord route is disabled during generation", async () => {
+  it("blocks a route disabled during generation", async () => {
     const { target, harness, input, run, read } = await setup();
     vi.mocked(harness.provider.generate).mockImplementationOnce(async () => {
       await database.pool.query(
@@ -1942,7 +1942,7 @@ describe("M2.13B real-PG offline scene handshake", () => {
     expect(harness.transport.send).not.toHaveBeenCalled();
   });
 
-  it("records uncertain fake delivery without a second send", async () => {
+  it("does not resend uncertain fake delivery", async () => {
     const { harness, input, run, read } = await setup();
     vi.mocked(harness.transport.send).mockResolvedValueOnce({
       kind: "uncertain",
@@ -1954,5 +1954,4 @@ describe("M2.13B real-PG offline scene handshake", () => {
     expect(harness.transport.send).toHaveBeenCalledTimes(1);
     expect(harness.provider.generate).toHaveBeenCalledTimes(1);
   });
-
 });
