@@ -157,10 +157,28 @@ describe("M2.14C first Sentinel inbound-only Gateway safeguards", () => {
     expect(parseNpcE2eInboundArguments([])).toBe("preflight");
     expect(parseNpcE2eInboundArguments(["--preflight"])).toBe("preflight");
     expect(parseNpcE2eInboundArguments(flags)).toBe("connect");
-    expect(parseNpcE2eInboundArguments(["--preflight", "--check-message-content-intent"])).toBe("preflight_message_content");
-    expect(parseNpcE2eInboundArguments([...flags, "--confirm-message-content-intent"])).toBe("connect_message_content");
-    expect(() => parseNpcE2eInboundArguments([...flags, "--privileged"])).toThrow();
-    expect(() => parseNpcE2eInboundArguments([...flags, "--confirm-message-content-intent", "--extra"])).toThrow();
+    expect(
+      parseNpcE2eInboundArguments([
+        "--preflight",
+        "--check-message-content-intent",
+      ]),
+    ).toBe("preflight_message_content");
+    expect(
+      parseNpcE2eInboundArguments([
+        ...flags,
+        "--confirm-message-content-intent",
+      ]),
+    ).toBe("connect_message_content");
+    expect(() =>
+      parseNpcE2eInboundArguments([...flags, "--privileged"]),
+    ).toThrow();
+    expect(() =>
+      parseNpcE2eInboundArguments([
+        ...flags,
+        "--confirm-message-content-intent",
+        "--extra",
+      ]),
+    ).toThrow();
     for (const bad of [
       ["--connect"],
       ["--send"],
@@ -183,15 +201,8 @@ describe("M2.14C first Sentinel inbound-only Gateway safeguards", () => {
   });
 
   it("keeps privileged MessageContent disabled by default and double-gated", async () => {
-    expect(npcE2eGatewayIntents(false)).toEqual([
-      1,
-      512,
-    ]);
-    expect(npcE2eGatewayIntents(true)).toEqual([
-      1,
-      512,
-      32768,
-    ]);
+    expect(npcE2eGatewayIntents(false)).toEqual([1, 512]);
+    expect(npcE2eGatewayIntents(true)).toEqual([1, 512, 32768]);
     expect(() =>
       requireNpcE2ePrivilegedGate("connect", environment),
     ).not.toThrow();
