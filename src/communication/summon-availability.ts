@@ -82,12 +82,10 @@ export function evaluatePlayerSummon(input: unknown): SummonDecision {
   if (f.activity === "unavailable")
     return answer("not_available", "activity_unavailable");
   if (f.activity === "busy") return answer("delayed", "activity_busy");
-  if (f.activity === "unknown")
-    return answer("unknown", "activity_unknown");
+  if (f.activity === "unknown") return answer("unknown", "activity_unknown");
   if (f.perception === "unaware")
     return answer("not_available", "perception_unaware");
-  if (f.perception === "unknown")
-    return answer("unknown", "perception_unknown");
+  if (f.perception === "unknown") return answer("unknown", "perception_unknown");
   if (f.otherScene === "unknown")
     return answer("unknown", "scene_conflict_unknown");
   return answer("candidate", "possible");
