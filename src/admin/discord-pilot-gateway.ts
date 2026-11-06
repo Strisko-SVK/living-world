@@ -10,7 +10,10 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 
 import { createDiscordPersistence } from "../adapters/discord/persistence.js";
-import { normalizeDiscordMessage } from "../adapters/discord/message.js";
+import {
+  normalizeDiscordMessage,
+  type DiscordNormalizationRejection,
+} from "../adapters/discord/message.js";
 import { createDatabaseClient, type DatabaseClient } from "../db/client.js";
 import { contextIntakePolicyAudit } from "../db/schema/context-intake-policy-audit.js";
 import { discordContextMappings } from "../db/schema/discord-context-mappings.js";
@@ -123,6 +126,7 @@ export type PilotInboundDiagnosticStage =
   | "thread_shape_rejected"
   | "sender_or_kind_rejected"
   | "message_normalization_rejected"
+  | `normalization_${DiscordNormalizationRejection}`
   | "mention_rejected"
   | "exact_text_rejected"
   | "alias_rejected"
@@ -174,7 +178,9 @@ export function pickPilotInboundMessage(
     diagnose?.("sender_or_kind_rejected");
     return null;
   }
-  const normalized = normalizeDiscordMessage(message);
+  const normalized = normalizeDiscordMessage(message, (reason) =>
+    diagnose?.(`normalization_${reason}`),
+  );
   if (!normalized) {
     diagnose?.("message_normalization_rejected");
     return null;
