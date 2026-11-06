@@ -214,8 +214,9 @@ export function pickPilotInboundMessage(
     // mentions, not textual @display-names or reply/ping metadata. Log a
     // fixed classification after exact route + human identity filtering,
     // never the message, mention snowflakes or another channel's metadata.
-    const literalTarget = [...normalized.content.matchAll(/<@!?(\d+)>/gu)]
-      .some((match) => match[1] === config.botId);
+    const literalTarget = [...normalized.content.matchAll(/<@!?(\d+)>/gu)].some(
+      (match) => match[1] === config.botId,
+    );
     const metadataTarget = message.mentions.users.has(config.botId);
     diagnose?.(
       !literalTarget
