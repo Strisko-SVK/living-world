@@ -131,6 +131,12 @@ export type PilotInboundDiagnosticStage =
   | "bot_mention_metadata_unavailable"
   | `normalization_${DiscordNormalizationRejection}`
   | "mention_rejected"
+  | "mention_target_not_literal"
+  | "mention_target_only_in_metadata"
+  | "mention_other_user_only"
+  | "mention_target_missing_from_metadata"
+  | "mention_multiple_user_targets"
+  | "mention_inconsistent"
   | "exact_text_rejected"
   | "alias_rejected"
   | "message_matched"
@@ -204,6 +210,26 @@ export function pickPilotInboundMessage(
     normalized.mentionedUserIds.length !== 1 ||
     normalized.mentionedUserIds[0] !== config.botId
   ) {
+    // The normalizer intentionally accepts only *literal* SDK-confirmed user
+    // mentions, not textual @display-names or reply/ping metadata. Log a
+    // fixed classification after exact route + human identity filtering,
+    // never the message, mention snowflakes or another channel's metadata.
+    const literalTarget = [...normalized.content.matchAll(/<@!?(\d+)>/gu)]
+      .some((match) => match[1] === config.botId);
+    const metadataTarget = message.mentions.users.has(config.botId);
+    diagnose?.(
+      !literalTarget
+        ? metadataTarget
+          ? "mention_target_only_in_metadata"
+          : normalized.mentionedUserIds.length > 0
+            ? "mention_other_user_only"
+            : "mention_target_not_literal"
+        : !metadataTarget
+          ? "mention_target_missing_from_metadata"
+          : normalized.mentionedUserIds.length > 1
+            ? "mention_multiple_user_targets"
+            : "mention_inconsistent",
+    );
     diagnose?.("mention_rejected");
     return null;
   }
