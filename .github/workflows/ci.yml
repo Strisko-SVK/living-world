@@ -30,16 +30,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Temporary M2.14E formatter probe (print only)
-        run: |
-          set -euo pipefail
-          for f in src/adapters/discord/message.ts src/adapters/discord/client.test.ts src/admin/discord-npc-e2e-diagnostics.test.ts; do
-            echo "PRETTIER_START $f"
-            pnpm exec prettier "$f" | base64 -w0 | fold -w 120
-            echo
-            echo "PRETTIER_END $f"
-          done
-
       - name: Run quality gate
         run: pnpm quality:gate
 
