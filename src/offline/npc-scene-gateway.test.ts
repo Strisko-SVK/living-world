@@ -66,19 +66,25 @@ describe("M2.13B offline authenticated-Gateway bridge", () => {
 
   it("rejects a nonliteral or absent mention of the authenticated bot", async () => {
     const { ports, run } = fixture();
+    expect(await run({ ...message, mentionedUserIds: [] }, botId)).toBe(
+      "intake_denied",
+    );
     expect(
-      await run({ ...message, mentionedUserIds: [] }, botId),
-    ).toBe("intake_denied");
-    expect(
-      await run({ ...message, content: "<@1666911648701223053> [Pelo] Hello." }, botId),
+      await run(
+        { ...message, content: "<@1666911648701223053> [Pelo] Hello." },
+        botId,
+      ),
     ).toBe("intake_denied");
     expect(ports.intake).not.toHaveBeenCalled();
   });
 
-  it("rejects asserted world, context and DM flags in the event envelope", async () => {
+  it("ignores asserted world, context and DM flags", async () => {
     const { ports, run } = fixture();
     expect(
-      await run({ ...message, worldId: scope.worldId, isDm: true } as IncomingMessage, botId),
+      await run(
+        { ...message, worldId: scope.worldId, isDm: true } as IncomingMessage,
+        botId,
+      ),
     ).toBe("delivered");
     expect(ports.intake).toHaveBeenCalledWith(message, botId);
     expect(ports.resolveScene).toHaveBeenCalledWith(message);
@@ -97,9 +103,9 @@ describe("M2.13B offline authenticated-Gateway bridge", () => {
 
   it("rejects malformed Discord event IDs before invoking intake", async () => {
     const { ports, run } = fixture();
-    expect(
-      await run({ ...message, sourceMessageId: "not-discord-id" }, botId),
-    ).toBe("invalid_request");
+    expect(await run({ ...message, sourceMessageId: "not-discord-id" }, botId)).toBe(
+      "invalid_request",
+    );
     expect(ports.intake).not.toHaveBeenCalled();
   });
 

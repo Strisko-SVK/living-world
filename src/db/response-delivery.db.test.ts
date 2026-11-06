@@ -60,7 +60,10 @@ import {
   fakeProvider,
 } from "../llm/llm.test-fixture.js";
 import { createOfflineNpcWorkflow } from "../offline/npc-e2e.js";
-import { createOfflineSceneHandshake } from "../offline/npc-scene-handshake.js";
+import {
+  createOfflineSceneHandshake,
+  type SceneHandshakeDependencies,
+} from "../offline/npc-scene-handshake.js";
 import { createOfflineGatewaySceneBridge } from "../offline/npc-scene-gateway.js";
 import { createOfflineNpcTestHarness } from "../offline/npc-e2e.test-fixture.js";
 import { createDeliveryRepository } from "../delivery/delivery.repository.js";
@@ -1811,7 +1814,7 @@ describe("M2.13B real-PG offline scene handshake", () => {
         rows.rows[0].id,
       );
     };
-    const ports = {
+    const ports: Omit<SceneHandshakeDependencies, "intake"> = {
       received: async () => {
         const row = await read();
         return row ? [row] : [];
