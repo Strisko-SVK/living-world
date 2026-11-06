@@ -119,8 +119,7 @@ export function parseNpcE2eInboundArguments(
   )
     return "preflight_message_content";
   const privileged =
-    args.length === 18 &&
-    args[17] === "--confirm-message-content-intent";
+    args.length === 18 && args[17] === "--confirm-message-content-intent";
   if (
     (args.length === 17 || privileged) &&
     args[0] === "--connect" &&
