@@ -62,7 +62,7 @@ export function parseNpcE2eActivationArguments(
   )
     throw new Error("NPC E2E activation requires exact DEV world, UUIDs and database.");
   return {
-    mode: args[0],
+    mode: args[0] === "--activate" ? "activate" : "disable",
     ids: confirmedIdsSchema.parse({
       worldId: args[4],
       contextId: args[6],
@@ -160,7 +160,11 @@ export async function activateNpcE2e(
       userId: request.userId,
       mode: "enroll",
     });
-    if (enrollment.event !== "pilot_player_enrolled")
+    if (
+      enrollment.event !== "pilot_player_enrolled" ||
+      !("mappingId" in enrollment) ||
+      typeof enrollment.mappingId !== "string"
+    )
       throw new Error("NPC E2E test player was not newly enrolled.");
 
     const state = await updateNpcState(
@@ -200,7 +204,9 @@ export async function activateNpcE2e(
     });
     if (
       policy.event !== "pilot_policy_changed" ||
-      policy.policy !== "mapped_players"
+      policy.policy !== "mapped_players" ||
+      !("auditId" in policy) ||
+      typeof policy.auditId !== "string"
     )
       throw new Error("NPC E2E intake policy activation failed.");
     return {
