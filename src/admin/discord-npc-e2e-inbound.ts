@@ -407,7 +407,9 @@ export async function runNpcE2eInboundCommand(
       // a Discord ID, user content, bot token, raw SQL or SDK exception.
       if (reported.has(stage)) return;
       reported.add(stage);
-      console.info(JSON.stringify({ event: "npc_e2e_inbound_diagnostic", stage }));
+      console.info(
+        JSON.stringify({ event: "npc_e2e_inbound_diagnostic", stage }),
+      );
     };
     // Reuse Step 14's *tested transport only* with a fresh, independently
     // verified config. No Step 14 DB verifier, world, event or route is reused.
