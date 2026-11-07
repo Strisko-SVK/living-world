@@ -37,11 +37,12 @@ jobs:
           package = json.loads(path.read_text())
           package['dependencies']['zod'] = '^4.6.6'
           package['devDependencies']['vitest'] = '^4.1.12'
-          package['pnpm']['overrides'].update({'source-map-js@<1.2.2': '1.2.2', 'vite@>=7.0.0 <=7.3.6': '7.3.7', 'eslint@10.11.0>minimatch': '11.0.1'})
+          package['devDependencies']['vite'] = '^7.3.7'
+          package['pnpm']['overrides'].update({'source-map-js@<1.2.2': '1.2.2', 'minimatch@>=7.0.0 <11.0.1': '11.0.1'})
           path.write_text(json.dumps(package, indent=2) + '\n')
           PY
           pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile
-          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm install --frozen-lockfile --ignore-scripts --strict-peer-dependencies
           pnpm exec prettier --write package.json pnpm-lock.yaml
           pnpm audit --audit-level=low
           pnpm typecheck
