@@ -1946,7 +1946,8 @@ describe("M2.13B real-PG offline scene handshake", () => {
     const actualIntake = createDiscordIntake(
       createDiscordPersistence(database.db),
     );
-    const intake = vi.fn(async () => actualIntake(target.message, "123"));
+    const realIntake = async () => actualIntake(target.message, "123");
+    const intake = vi.fn(realIntake);
     const read = async () => {
       const rows = await database.pool.query(
         "select id, npc_id from interactions where world_id=$1 and source_message_id=$2",
@@ -1990,7 +1991,17 @@ describe("M2.13B real-PG offline scene handshake", () => {
         }),
     };
     const run = createOfflineSceneHandshake({ intake, ...ports });
-    return { target, harness, input, intake, actualIntake, read, run, ports };
+    return {
+      target,
+      harness,
+      input,
+      intake,
+      actualIntake,
+      realIntake,
+      read,
+      run,
+      ports,
+    };
   }
 
   it("binds SDK event and client identity through real PG intake", async () => {
@@ -2210,9 +2221,8 @@ describe("M2.13B real-PG offline scene handshake", () => {
   });
 
   it("does not replay events after revoke and regrant", async () => {
-    const { target, harness, input, intake, run, read } = await setup();
-    const realIntake = vi.mocked(intake).getMockImplementation();
-    if (!realIntake) throw Error("Missing real intake adapter");
+    const { target, harness, input, intake, realIntake, run, read } =
+      await setup();
     vi.mocked(intake).mockImplementationOnce(async () => {
       const accepted = await realIntake();
       expect(accepted).toBe("accepted");

@@ -40,7 +40,8 @@
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
     "typescript-eslint": "^8.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.12",
+    "vite": "^7.3.7"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [
@@ -55,11 +56,13 @@
     "drizzle-orm": "^0.45.3",
     "openai": "^7.38.0",
     "pg": "^8.23.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "pnpm": {
     "overrides": {
-      "@esbuild-kit/core-utils@3.3.2>esbuild": "0.25.12"
+      "@esbuild-kit/core-utils@3.3.2>esbuild": "0.25.12",
+      "source-map-js@<1.2.2": "1.2.2",
+      "minimatch@>=7.0.0 <11.0.1": "11.0.1"
     }
   }
 }
