@@ -9,7 +9,9 @@
 
 ### Local PostgreSQL
 
-1. Copy `.env.example` to `.env` and adjust values if needed.
+1. Run `pnpm db:init` to create a private `.env` with a random password. Existing
+   `.env` files are never overwritten. See [security operations](docs/security-operations.md)
+   for existing databases, credential rotation and host verification.
 2. Start PostgreSQL: `pnpm db:up`
 3. Generate and run migrations: `pnpm db:generate`, then `pnpm db:migrate`
 4. Run the database integration test: `pnpm test:db`
