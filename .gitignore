@@ -10,3 +10,12 @@ coverage/
 .codex/
 .vscode/
 tmp/
+
+# Local credentials, database exports and private security reports.
+.pgpass
+*.pem
+*.key
+*.p12
+*.pfx
+*.dump
+security-reports/
