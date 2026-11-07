@@ -47,6 +47,7 @@ jobs:
           if old in s:
               p.write_text(s.replace(old, new, 1))
           PY
+          pnpm exec eslint --fix scripts/security/init-local-env.mjs scripts/security/security.test.mjs
           pnpm exec prettier --write pnpm-lock.yaml package.json README.md scripts/security/init-local-env.mjs scripts/security/security.test.mjs docs/security-operations.md .github/dependabot.yml
           pnpm test:security
           pnpm exec eslint scripts/security/init-local-env.mjs scripts/security/security.test.mjs
