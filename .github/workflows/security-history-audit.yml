@@ -1,0 +1,129 @@
+name: One-off public exposure audit
+
+on:
+  push:
+    branches: [security/history-audit-20261107]
+    paths: [.github/workflows/security-history-audit.yml]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Fetch all reachable public Git refs
+        run: git -c credential.helper= fetch --force --prune https://github.com/Strisko-SVK/living-world.git '+refs/heads/*:refs/remotes/audit/*' '+refs/tags/*:refs/tags/*' '+refs/pull/*/head:refs/remotes/audit-pr/*'
+      - name: Install checksum-verified scanner
+        run: bash scripts/security/install-gitleaks.sh
+      - name: Collect public discussions and retained completed CI logs without displaying their contents
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import io, json, os, urllib.request, urllib.error, urllib.parse, zipfile
+          from pathlib import Path
+          base = 'https://api.github.com/repos/Strisko-SVK/living-world'
+          root = Path(os.environ['RUNNER_TEMP']) / 'exposure-audit-input'
+          root.mkdir(mode=0o700)
+          counts = {}
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+          opener = urllib.request.build_opener(NoRedirect)
+          def get(path, binary=False):
+              req = urllib.request.Request(base + path, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'})
+              try:
+                  response = opener.open(req, timeout=60)
+              except urllib.error.HTTPError as error:
+                  if error.code != 302 or not binary:
+                      raise
+                  location = error.headers['Location']
+                  url = urllib.parse.urlsplit(location)
+                  if url.scheme != 'https' or url.username or url.password or not (url.hostname.endswith('.blob.core.windows.net') or url.hostname.endswith('.actions.githubusercontent.com')):
+                      raise RuntimeError('Unapproved download host')
+                  # New request with NO Authorization header across the redirect.
+                  response = urllib.request.urlopen(location, timeout=60)
+              with response:
+                  data = response.read(64 * 1024 * 1024 + 1)
+                  if len(data) > 64 * 1024 * 1024:
+                      raise RuntimeError('Response too large')
+                  return data if binary else json.loads(data)
+          def pages(path, key=None):
+              page = 1
+              while True:
+                  obj = get(path + ('&' if '?' in path else '?') + 'per_page=100&page=' + str(page))
+                  items = obj[key] if key else obj
+                  if not isinstance(items, list):
+                      raise RuntimeError('Unexpected API response')
+                  yield from items
+                  if len(items) < 100:
+                      break
+                  page += 1
+                  if page > 100:
+                      raise RuntimeError('Pagination limit exceeded')
+          def save_text(kind, item):
+              text = '\n'.join(str(item.get(k) or '') for k in ('title', 'body', 'diff_hunk'))
+              (root / (kind + '-' + str(item['id']) + '.txt')).write_text(text, encoding='utf-8')
+              counts[kind] = counts.get(kind, 0) + 1
+          def save_archive(kind, identifier, data):
+              with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                  entries = [x for x in archive.infolist() if not x.is_dir()]
+                  if sum(x.file_size for x in entries) > 128 * 1024 * 1024:
+                      raise RuntimeError('Expanded archive too large')
+                  for index, entry in enumerate(entries):
+                      # Never extract attacker-controlled paths or execute content.
+                      payload = archive.read(entry)
+                      (root / (kind + '-' + identifier + '-' + str(index) + '.txt')).write_bytes(payload)
+              counts[kind] = counts.get(kind, 0) + 1
+              counts[kind + '_files'] = counts.get(kind + '_files', 0) + len(entries)
+          try:
+              issues = list(pages('/issues?state=all'))
+              for item in issues:
+                  save_text('issue_or_pr', item)
+                  if 'pull_request' in item:
+                      for review in pages('/pulls/' + str(item['number']) + '/reviews'):
+                          save_text('review', review)
+              for kind, path in [('issue_comment', '/issues/comments'), ('review_comment', '/pulls/comments'), ('commit_comment', '/comments')]:
+                  for item in pages(path):
+                      save_text(kind, item)
+              for item in pages('/releases'):
+                  save_text('release', item)
+              runs = list(pages('/actions/runs', 'workflow_runs'))
+              counts['runs_listed'] = len(runs)
+              for run in runs:
+                  if run['status'] != 'completed':
+                      counts['runs_still_active'] = counts.get('runs_still_active', 0) + 1
+                      continue
+                  for attempt in range(1, run.get('run_attempt', 1) + 1):
+                      identifier = str(run['id']) + '-' + str(attempt)
+                      try:
+                          data = get('/actions/runs/' + str(run['id']) + '/attempts/' + str(attempt) + '/logs', binary=True)
+                          save_archive('run_logs', identifier, data)
+                      except urllib.error.HTTPError as error:
+                          if error.code not in (404, 410):
+                              raise
+                          counts['unavailable_log_archives'] = counts.get('unavailable_log_archives', 0) + 1
+              for item in pages('/actions/artifacts', 'artifacts'):
+                  if item.get('expired'):
+                      counts['expired_artifacts'] = counts.get('expired_artifacts', 0) + 1
+                      continue
+                  save_archive('artifact', str(item['id']), get('/actions/artifacts/' + str(item['id']) + '/zip', binary=True))
+              print(json.dumps({'event': 'exposure_audit_collection', 'counts': counts}), flush=True)
+          except Exception as error:
+              print(json.dumps({'event': 'exposure_collection_incomplete', 'error_type': type(error).__name__, 'counts': counts}), flush=True)
+              raise SystemExit(1)
+          PY
+      - name: Scan Git history and collected text; never publish raw secret reports
+        run: python3 scripts/security/scan-secrets.py "$RUNNER_TEMP/exposure-audit-input"
+      - name: Remove private temporary scan input
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/exposure-audit-input"
