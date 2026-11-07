@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: [main, "security/hardening-*"]
   schedule:
     - cron: "37 5 * * 1"
   workflow_dispatch:
@@ -73,3 +73,32 @@ jobs:
       - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           category: /language:javascript-typescript
+          output: ${{ runner.temp }}/codeql-results
+      - name: Fail closed on CodeQL findings or missing results
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          paths = list((Path(os.environ['RUNNER_TEMP']) / 'codeql-results').glob('*.sarif'))
+          if not paths:
+              raise SystemExit('CodeQL result files are missing')
+          total = 0
+          for path in paths:
+              document = json.loads(path.read_text())
+              runs = document.get('runs')
+              if not isinstance(runs, list) or not runs:
+                  raise SystemExit('Invalid CodeQL report')
+              for run in runs:
+                  for invocation in run.get('invocations', []):
+                      if invocation.get('executionSuccessful') is False:
+                          raise SystemExit('CodeQL analysis did not complete')
+                  results = run.get('results', [])
+                  if not isinstance(results, list):
+                      raise SystemExit('Invalid CodeQL results')
+                  total += len(results)
+                  for result in results[:50]:
+                      location = (result.get('locations') or [{}])[0].get('physicalLocation', {})
+                      print(json.dumps({'event': 'codeql_finding', 'rule': result.get('ruleId'), 'file': location.get('artifactLocation', {}).get('uri'), 'line': location.get('region', {}).get('startLine')}))
+          print(json.dumps({'event': 'codeql_result', 'reports': len(paths), 'findings': total}))
+          raise SystemExit(1 if total else 0)
+          PY
