@@ -55,10 +55,10 @@ Settings > Actions > General:
   GitHub users. Review the changed workflow/code before approving a run.
 - Do not use a self-hosted runner for untrusted public pull requests.
 
-Review Settings > Collaborators, Deploy keys and Webhooks, plus account Settings
-> Applications. Remove only entries confirmed unnecessary; do not disconnect
-legitimate project integrations blindly. Use account two-factor authentication or
-a passkey and keep recovery codes private.
+Review repository Settings for Collaborators, Deploy keys and Webhooks, and
+account Settings > Applications. Remove only entries confirmed unnecessary; do
+not disconnect legitimate project integrations blindly. Use account two-factor
+authentication or a passkey and keep recovery codes private.
 
 ## Live host verification (separate from GitHub)
 
