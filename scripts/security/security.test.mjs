@@ -102,3 +102,10 @@ test("permanent workflows pin actions and never use privileged PR triggers", asy
     );
   }
 });
+
+test("CodeQL gate remains local alongside GitHub default setup", async () => {
+  const workflow = await readFile(".github/workflows/security.yml", "utf8");
+  assert.match(workflow, /queries: security-extended/);
+  assert.match(workflow, /upload: never/);
+  assert.match(workflow, /Fail closed on CodeQL findings or missing results/);
+});

@@ -44,8 +44,10 @@ never uploaded. Failures, including scanner/registry outages, fail closed.
 Known test fixtures must be individually investigated; no blanket test/history
 allowlist or baseline is permitted. No secret found is not proof of absence.
 Dependency audit includes development dependencies. Dependabot proposes weekly
-npm and action updates; it does not auto-merge. CodeQL performs security-extended
-JavaScript/TypeScript analysis without building or starting the application.
+npm and action updates; it does not auto-merge. GitHub CodeQL default setup
+publishes code-scanning alerts. The separate CI CodeQL job performs local
+security-extended JavaScript/TypeScript analysis with `upload: never`, reads
+its local SARIF and fails on findings or missing analysis. No application starts.
 
 A narrow dependency override upgrades the legacy esbuild dependency of
 `@esbuild-kit/core-utils@3.3.2` to the already-used `0.25.12`. This removes the

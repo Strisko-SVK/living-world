@@ -37,8 +37,9 @@ settings pages (labels can differ between GitHub versions).
 - Enable secret scanning and repository push protection, including generic secret
   patterns when available. Review any existing alerts; do not dismiss them merely
   to make a dashboard green.
-- Keep the custom CodeQL workflow as the single CodeQL configuration. Do not also
-  enable a competing default setup without migrating the custom workflow.
+- GitHub CodeQL default setup publishes alerts. Our separate CodeQL job runs
+  security-extended queries as a local CI gate with `upload: never`, to avoid
+  conflicts and duplicate uploads. Keep both safeguards enabled.
 - Public repository security features do not require purchasing an additional
   product for this project. Do not enable paid extras as part of this checklist.
 

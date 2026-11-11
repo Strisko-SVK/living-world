@@ -74,6 +74,7 @@ jobs:
         with:
           category: /language:javascript-typescript
           output: ${{ runner.temp }}/codeql-results
+          upload: never
       - name: Fail closed on CodeQL findings or missing results
         run: |
           python3 - <<'PY'
