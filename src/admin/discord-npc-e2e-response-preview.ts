@@ -7,9 +7,7 @@ import {
   type SummonDecision,
 } from "../communication/summon-availability.js";
 import { readNpcSummonFacts } from "../communication/summon-facts.repository.js";
-import {
-  validateNpcE2eActivationEnvironment,
-} from "./discord-npc-e2e-activation.js";
+import { validateNpcE2eActivationEnvironment } from "./discord-npc-e2e-activation.js";
 import {
   npcE2eInboundRoute,
   npcE2eInboundTarget,
@@ -100,8 +98,7 @@ export async function inspectPostInboundPreviewFacts(
       .from(interactions)
       .where(eq(interactions.worldId, config.scope.worldId))
       .limit(2);
-    if (events.length !== 1 || !events[0]?.sourceMessageId)
-      return blocked();
+    if (events.length !== 1 || !events[0]?.sourceMessageId) return blocked();
 
     // Reuse the exact audited inbound constraints rather than treating the
     // "already_used" fixture status as permission to generate a reply.
@@ -116,7 +113,9 @@ export async function inspectPostInboundPreviewFacts(
       npcId: config.scope.npcId,
       contextId: config.scope.contextId,
     });
-    return facts ? classifyPostInboundPreview(evaluatePlayerSummon(facts)) : blocked();
+    return facts
+      ? classifyPostInboundPreview(evaluatePlayerSummon(facts))
+      : blocked();
   } catch {
     // Fixed category: no raw message, IDs, database errors or NPC state
     // details leave the isolated owner operator boundary.
