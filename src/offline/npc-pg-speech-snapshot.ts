@@ -47,13 +47,20 @@ function offlineCiOnly(): boolean {
   );
 }
 
+// TEMPORARY CI-only diagnostic: fixed stage codes, no IDs or content.
+function diagnosticNull(stage: string): null {
+  if (process.env.NODE_ENV === "test")
+    console.info("M2_15G_DIAGNOSTIC_" + stage);
+  return null;
+}
+
 export async function readVerifiedOfflineSpeechSnapshot(
   db: Database,
   raw: unknown,
 ): Promise<OfflineSpeechReadinessRequest | null> {
-  if (!offlineCiOnly()) return null;
+  if (!offlineCiOnly()) return diagnosticNull("G1");
   const parsed = scopeSchema.safeParse(raw);
-  if (!parsed.success) return null;
+  if (!parsed.success) return diagnosticNull("G2");
   const scope = parsed.data;
 
   try {
@@ -69,9 +76,9 @@ export async function readVerifiedOfflineSpeechSnapshot(
         role?.database !== "living_world_ci" ||
         role.db_role !== "living_world_ci"
       )
-        return null;
+        return diagnosticNull("G3");
       const nowMs = Number(role.now_ms);
-      if (!Number.isSafeInteger(nowMs) || nowMs < 0) return null;
+      if (!Number.isSafeInteger(nowMs) || nowMs < 0) return diagnosticNull("G4");
 
       // Same lock order as M2.9 context/presence transitions. All reads
       // share one transaction; the trusted-policy reader uses a SAVEPOINT.
@@ -92,7 +99,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         world.systemType !== "test" ||
         !world.key.startsWith("npc-gateway-ci-")
       )
-        return null;
+        return diagnosticNull("G5");
 
       const [interaction] = await tx
         .select()
@@ -122,20 +129,20 @@ export async function readVerifiedOfflineSpeechSnapshot(
         !interaction.sourceChannelId ||
         !interaction.sourceThreadId
       )
-        return null;
+        return diagnosticNull("G6");
       const sourceEventMs = discordMessageCreatedAt(interaction.sourceMessageId);
       if (
         sourceEventMs === null ||
         sourceEventMs > nowMs ||
         nowMs - sourceEventMs > maxAgeMs
       )
-        return null;
+        return diagnosticNull("G7");
       const trigger = parseDiscordTrigger(
         interaction.requestText,
         gatewaySmokeBotId,
         [gatewaySmokeBotId],
       );
-      if (!trigger) return null;
+      if (!trigger) return diagnosticNull("G8");
 
       const [context] = await tx
         .select()
@@ -158,7 +165,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         context.externalThreadId !== interaction.sourceThreadId ||
         !context.linkedLocationEntityId
       )
-        return null;
+        return diagnosticNull("G9");
 
       // The original immutable route must still be the same active scene.
       // The update-epoch trigger prevents post-event routing changes from
@@ -187,7 +194,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         route.npcId !== null ||
         route.updatedAt.getTime() > sourceEventMs
       )
-        return null;
+        return diagnosticNull("G10");
 
       const [player] = await tx
         .select({ status: entities.status, type: entities.entityType })
@@ -200,7 +207,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         )
         .for("share");
       if (player?.status !== "active" || player.type !== "player_character")
-        return null;
+        return diagnosticNull("G11");
 
       const identities = await tx
         .select()
@@ -220,7 +227,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         !snowflake.test(identities[0]!.discordUserId) ||
         identities[0]!.discordUserId === gatewaySmokeBotId
       )
-        return null;
+        return diagnosticNull("G12");
 
       // The current alias must resolve uniquely to THIS NPC within this
       // world, not merely exist on the target while another NPC shares it.
@@ -237,17 +244,17 @@ export async function readVerifiedOfflineSpeechSnapshot(
         )
         .limit(2);
       if (aliases.length !== 1 || aliases[0]!.entityId !== scope.npcId)
-        return null;
+        return diagnosticNull("G13");
 
       const deliveries = await tx
         .select({ id: responseDeliveries.id })
         .from(responseDeliveries)
         .where(eq(responseDeliveries.interactionId, scope.interactionId))
         .limit(1);
-      if (deliveries.length) return null;
+      if (deliveries.length) return diagnosticNull("G14");
 
       const facts = await readNpcSummonFacts(tx, scope);
-      if (!facts) return null;
+      if (!facts) return diagnosticNull("G15");
       const presences = await tx
         .select()
         .from(localPresence)
@@ -260,7 +267,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         )
         .limit(2)
         .for("share");
-      if (presences.length !== 1 || presences[0]!.revokedAt) return null;
+      if (presences.length !== 1 || presences[0]!.revokedAt) return diagnosticNull("G16");
       const presence = presences[0]!;
       const contact = assessSceneContact({
         worldId: scope.worldId,
@@ -275,7 +282,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         (contact.status !== "needs_review" &&
           contact.status !== "candidate_needs_review")
       )
-        return null;
+        return diagnosticNull("G17");
 
       const approval = await readTrustedHostScenePolicy(tx, {
         worldId: scope.worldId,
@@ -284,7 +291,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         presenceId: presence.id,
       });
       if (!approval || approval.issuedByRole !== "host_operator")
-        return null;
+        return diagnosticNull("G18");
 
       const snapshot: OfflineSpeechReadinessRequest = {
         ...scope,
@@ -298,11 +305,11 @@ export async function readVerifiedOfflineSpeechSnapshot(
       // Approval alone is not a real speech authorization. Even this
       // candidate can drive only the injected fake-only Vitest harness.
       if (!assessOfflineSpeechReadiness(snapshot).canRehearseFake)
-        return null;
+        return diagnosticNull("G19");
       return snapshot;
     });
   } catch {
     // Never leak Discord IDs, scene content, SQL or secrets in diagnostics.
-    return null;
+    return diagnosticNull("G20");
   }
 }
