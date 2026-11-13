@@ -123,7 +123,9 @@ export async function readVerifiedOfflineSpeechSnapshot(
         !interaction.sourceThreadId
       )
         return null;
-      const sourceEventMs = discordMessageCreatedAt(interaction.sourceMessageId);
+      const sourceEventMs = discordMessageCreatedAt(
+        interaction.sourceMessageId,
+      );
       if (
         sourceEventMs === null ||
         sourceEventMs > nowMs ||
@@ -295,8 +297,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         contextId: scope.contextId,
         presenceId: presence.id,
       });
-      if (!approval || approval.issuedByRole !== "host_operator")
-        return null;
+      if (!approval || approval.issuedByRole !== "host_operator") return null;
 
       const snapshot: OfflineSpeechReadinessRequest = {
         ...scope,
@@ -309,8 +310,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
       };
       // Approval alone is not a real speech authorization. Even this
       // candidate can drive only the injected fake-only Vitest harness.
-      if (!assessOfflineSpeechReadiness(snapshot).canRehearseFake)
-        return null;
+      if (!assessOfflineSpeechReadiness(snapshot).canRehearseFake) return null;
       return snapshot;
     });
   } catch {
