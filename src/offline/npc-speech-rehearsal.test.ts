@@ -32,7 +32,9 @@ function snapshot(): OfflineSpeechReadinessRequest {
       canSend: false,
     },
     approval: {
-      ...scope,
+      worldId: scope.worldId,
+      npcId: scope.npcId,
+      contextId: scope.contextId,
       presenceId,
       npcStateVersion: 4,
       id: "66666666-6666-4666-8666-666666666666",
