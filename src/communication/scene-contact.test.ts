@@ -170,8 +170,8 @@ describe("M2.15C trusted scene contact advisory (never speech authorization)", (
   it("rejects wrong context, mismatched NPC location and inactive world", () => {
     const base = fixture();
     for (const changed of [
-      { ...base, facts: { ...base.facts, worldStatus: "inactive" } },
-      { ...base, facts: { ...base.facts, npcLifecycle: "inactive" } },
+      { ...base, facts: { ...base.facts, worldStatus: "archived" } },
+      { ...base, facts: { ...base.facts, npcLifecycle: "dormant" } },
       { ...base, facts: { ...base.facts, npcStatus: "inactive" } },
       { ...base, facts: { ...base.facts, contextStatus: "inactive" } },
     ]) {
