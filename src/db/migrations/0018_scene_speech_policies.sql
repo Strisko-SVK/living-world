@@ -52,8 +52,8 @@ BEGIN
      OR current_user NOT IN ('living_world_ci','lw_gateway_dev') THEN
     RAISE EXCEPTION 'Scene speech operator is not authorized' USING ERRCODE='42501';
   END IF;
-  IF TG_OP = 'DELETE' THEN
-    RAISE EXCEPTION 'Issued scene speech evidence cannot be deleted' USING ERRCODE='23514';
+  IF TG_OP = 'DELETE' OR TG_OP = 'TRUNCATE' THEN
+    RAISE EXCEPTION 'Issued scene speech evidence cannot be deleted or truncated' USING ERRCODE='23514';
   END IF;
   IF TG_OP = 'INSERT' THEN
     NEW.issued_at := clock_timestamp();
@@ -81,3 +81,7 @@ END $$;
 CREATE TRIGGER scene_speech_policy_immutable
 BEFORE INSERT OR UPDATE OR DELETE ON "npc_scene_speech_policies"
 FOR EACH ROW EXECUTE FUNCTION public.guard_scene_speech_policy();
+--> statement-breakpoint
+CREATE TRIGGER scene_speech_policy_no_truncate
+BEFORE TRUNCATE ON "npc_scene_speech_policies"
+FOR EACH STATEMENT EXECUTE FUNCTION public.guard_scene_speech_policy();
