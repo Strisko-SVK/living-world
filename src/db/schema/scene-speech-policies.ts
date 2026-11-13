@@ -28,7 +28,9 @@ export const sceneSpeechPolicies = pgTable(
     // caller-supplied entity ID or Discord display name.
     issuerEntityId: uuid("issuer_entity_id").notNull(),
     issuerRole: text("issuer_role").notNull(),
-    issuedBy: text("issued_by").notNull().default(sql`current_user`),
+    issuedBy: text("issued_by")
+      .notNull()
+      .default(sql`current_user`),
     decision: text("decision").notNull(),
     activity: text("activity").notNull(),
     perception: text("perception").notNull(),
@@ -65,7 +67,10 @@ export const sceneSpeechPolicies = pgTable(
       t.contextId,
       t.presenceId,
     ),
-    check("scene_speech_role_host_only", sql`${t.issuerRole} = 'host_operator'`),
+    check(
+      "scene_speech_role_host_only",
+      sql`${t.issuerRole} = 'host_operator'`,
+    ),
     check(
       "scene_speech_decision_values",
       sql`${t.decision} in ('allow_direct_speech','hold','deny')`,
