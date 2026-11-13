@@ -31,6 +31,7 @@ const fixture = (): MigrationPreflightFacts => ({
   policyTablePresent: false,
   policyUpdateTriggerInstalled: false,
   policyTruncateTriggerInstalled: false,
+  policyObjectsIntact: false,
 });
 
 const isInert = (v: ReturnType<typeof classifyMigration0018Preflight>) => {
@@ -60,6 +61,7 @@ describe("M2.15F read-only 0018 migration preflight", () => {
       policyTablePresent: true,
       policyUpdateTriggerInstalled: true,
       policyTruncateTriggerInstalled: true,
+      policyObjectsIntact: true,
     });
     expect(v).toMatchObject({
       status: "already_applied",
@@ -117,6 +119,15 @@ describe("M2.15F read-only 0018 migration preflight", () => {
         policyTablePresent: true,
         policyUpdateTriggerInstalled: false,
         policyTruncateTriggerInstalled: true,
+        policyObjectsIntact: false,
+      },
+      {
+        ...before,
+        appliedTimes: times,
+        policyTablePresent: true,
+        policyUpdateTriggerInstalled: true,
+        policyTruncateTriggerInstalled: true,
+        policyObjectsIntact: false,
       },
     ];
     for (const facts of cases) {
