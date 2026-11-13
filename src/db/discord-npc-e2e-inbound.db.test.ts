@@ -12,7 +12,10 @@ import {
   provisionDevFixture,
   type DevFixtureRoute,
 } from "../admin/discord-dev-fixture.js";
-import { grantLocalPresence } from "../communication/local.repository.js";
+import {
+  grantLocalPresence,
+  revokeLocalPresence,
+} from "../communication/local.repository.js";
 import { updateNpcState } from "../domains/npc/npc.repository.js";
 import { createDiscordIntake } from "../intake/discord-intake.js";
 import { createDatabaseClient } from "./client.js";
@@ -21,7 +24,6 @@ import { interactions } from "./schema/interactions.js";
 import { responseDeliveries } from "./schema/response-deliveries.js";
 import { eq } from "drizzle-orm";
 import { discordIdentities } from "./schema/discord-identities.js";
-import { localPresence } from "./schema/local-presence.js";
 import { inspectPostInboundPreviewFacts } from "../admin/discord-npc-e2e-response-preview.js";
 
 const database = createDatabaseClient();
@@ -199,10 +201,13 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
         expect(deliveries).toHaveLength(0);
         // A revoked authoritative grant must never be treated as a summon
         // or as a valid direct-scene speech candidate.
-        await tx
-          .update(localPresence)
-          .set({ revokedAt: new Date(), revokedBy: "ci_test" })
-          .where(eq(localPresence.id, config.presenceId));
+        expect(
+          await revokeLocalPresence(
+            tx,
+            { worldId, npcId, contextId },
+            config.presenceId,
+          ),
+        ).toMatchObject({ status: "revoked" });
         expect(await inspectPostInboundPreviewFacts(tx, config)).toMatchObject({
           status: "integrity_blocked",
           canGenerate: false,
