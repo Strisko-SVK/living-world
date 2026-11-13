@@ -7,7 +7,10 @@ import {
   runPostInboundPreviewCommand,
 } from "./discord-npc-e2e-response-preview.js";
 import type { NpcE2eInboundFactsConfig } from "./discord-npc-e2e-inbound.js";
-import { npcE2eInboundRoute, npcE2eInboundTarget } from "./discord-npc-e2e-inbound.js";
+import {
+  npcE2eInboundRoute,
+  npcE2eInboundTarget,
+} from "./discord-npc-e2e-inbound.js";
 import { npcE2eWorldKey } from "./discord-npc-e2e-fixture.js";
 import { gatewaySmokeBotId } from "./discord-gateway-smoke.js";
 
@@ -58,7 +61,8 @@ describe("M2.15B privacy-safe Sentinel reply preview (offline)", () => {
       ["--send"],
       ["--preview", "--execute"],
       ["--confirm-world", npcE2eWorldKey],
-    ]) expect(() => parsePostInboundPreviewArguments(args)).toThrow();
+    ])
+      expect(() => parsePostInboundPreviewArguments(args)).toThrow();
   });
 
   it("does not infer speech permission from pre-existing presence", () => {
@@ -113,14 +117,19 @@ describe("M2.15B privacy-safe Sentinel reply preview (offline)", () => {
       { ...safeEnv, LW_NPC_E2E_TEST_USER_ID: undefined },
       { ...safeEnv, LW_NPC_E2E_TEST_USER_ID: gatewaySmokeBotId },
       { ...safeEnv, LW_NPC_E2E_THREAD_ID: safeEnv.LW_PILOT_THREAD_ID },
-      { ...safeEnv, DATABASE_URL: safeEnv.DATABASE_URL?.replace("55432", "5432") },
+      {
+        ...safeEnv,
+        DATABASE_URL: safeEnv.DATABASE_URL?.replace("55432", "5432"),
+      },
     ];
     for (const env of unsafe) {
       await expect(
         runPostInboundPreviewCommand(
           [],
           env,
-          connect as unknown as Parameters<typeof runPostInboundPreviewCommand>[2],
+          connect as unknown as Parameters<
+            typeof runPostInboundPreviewCommand
+          >[2],
         ),
       ).rejects.toThrow();
     }
@@ -133,8 +142,8 @@ describe("M2.15B privacy-safe Sentinel reply preview (offline)", () => {
       statements.push(statement);
       return { rows: [] };
     });
-    const transaction = vi.fn(
-      async (fn: (tx: unknown) => Promise<unknown>) => fn({ execute }),
+    const transaction = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn({ execute }),
     );
     const close = vi.fn().mockResolvedValue(undefined);
     const connect = vi.fn().mockReturnValue({
@@ -145,7 +154,9 @@ describe("M2.15B privacy-safe Sentinel reply preview (offline)", () => {
       runPostInboundPreviewCommand(
         ["--preview"],
         safeEnv,
-        connect as unknown as Parameters<typeof runPostInboundPreviewCommand>[2],
+        connect as unknown as Parameters<
+          typeof runPostInboundPreviewCommand
+        >[2],
       ),
     ).rejects.toThrow("isolated DEV database");
     expect(statements).toHaveLength(3);
@@ -168,7 +179,9 @@ describe("M2.15B privacy-safe Sentinel reply preview (offline)", () => {
     const from = vi.fn().mockReturnValue({ where });
     const select = vi.fn().mockReturnValue({ from });
     const output = await inspectPostInboundPreviewFacts(
-      { select } as unknown as Parameters<typeof inspectPostInboundPreviewFacts>[0],
+      { select } as unknown as Parameters<
+        typeof inspectPostInboundPreviewFacts
+      >[0],
       config,
     );
     expect(output).toEqual({
