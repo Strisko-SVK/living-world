@@ -22,9 +22,11 @@
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "prepare": "husky",
-    "quality:gate": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build",
+    "quality:gate": "pnpm test:security && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build",
     "admin:context-policy": "node --env-file-if-exists=.env --import tsx src/admin/context-intake-policy.ts",
-    "admin:deliver": "node --env-file-if-exists=.env --import tsx src/admin/discord-delivery.ts"
+    "admin:deliver": "node --env-file-if-exists=.env --import tsx src/admin/discord-delivery.ts",
+    "db:init": "node scripts/security/init-local-env.mjs",
+    "test:security": "node --test scripts/security/security.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
@@ -38,7 +40,8 @@
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
     "typescript-eslint": "^8.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.12",
+    "vite": "^7.3.7"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [
@@ -53,6 +56,13 @@
     "drizzle-orm": "^0.45.3",
     "openai": "^7.38.0",
     "pg": "^8.23.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
+  },
+  "pnpm": {
+    "overrides": {
+      "@esbuild-kit/core-utils@3.3.2>esbuild": "0.25.12",
+      "source-map-js@<1.2.2": "1.2.2",
+      "minimatch@>=7.0.0 <11.0.1": "11.0.1"
+    }
   }
 }
