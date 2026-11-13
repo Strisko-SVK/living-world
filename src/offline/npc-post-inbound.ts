@@ -36,6 +36,7 @@ export type PersistedContinuationResult =
   | "not_found"
   | "ambiguous_event"
   | "invalid_binding"
+  | "authorization_denied"
   | "no_presence"
   | "presence_denied"
   | "workflow_uncertain"
@@ -45,6 +46,9 @@ export type PersistedContinuationDependencies = Omit<
   SceneHandshakeDependencies,
   "intake"
 > & {
+  // Verify the original mapped author and current scene/route policy from DB.
+  // This is not the caller asserting a DM or player role.
+  authorize(interaction: SceneInteraction, source: SceneRequest): Promise<boolean>;
   // Fixed-category, privacy-safe outcome only. No IDs, content or errors.
   diagnose?: (event: {
     event: "npc_post_inbound";
@@ -101,6 +105,7 @@ export function createOfflinePersistedContinuation(
     if (!parsed.success) return finish("invalid_request");
     const request = parsed.data;
     let responseStarted = false;
+    let authorized = false;
     try {
       // Caller-provided IDs cannot authorize anything. The received() port
       // MUST query the authoritative DB by original event and mapped author;
@@ -111,6 +116,10 @@ export function createOfflinePersistedContinuation(
       const interaction = matches[0]!;
       if (!matchesPersistedEvent(interaction, request.source, request))
         return finish("invalid_binding");
+
+      if (!(await deps.authorize(interaction, request.source)))
+        return finish("authorization_denied");
+      authorized = true;
 
       // Local evidence comes only from the trusted DB. The existing
       // prepareLocalInteraction transaction revalidates its issue time,
@@ -127,7 +136,13 @@ export function createOfflinePersistedContinuation(
       return finish(await deps.respond(interaction));
     } catch {
       // Never retry after an uncertain fake generation/delivery outcome.
-      return finish(responseStarted ? "workflow_uncertain" : "presence_denied");
+      return finish(
+        responseStarted
+          ? "workflow_uncertain"
+          : authorized
+            ? "presence_denied"
+            : "authorization_denied",
+      );
     }
   };
 }
