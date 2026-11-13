@@ -20,6 +20,8 @@ import { interactionContexts } from "./schema/interaction-contexts.js";
 import { interactions } from "./schema/interactions.js";
 import { responseDeliveries } from "./schema/response-deliveries.js";
 import { eq } from "drizzle-orm";
+import { discordIdentities } from "./schema/discord-identities.js";
+import { inspectPostInboundPreviewFacts } from "../admin/discord-npc-e2e-response-preview.js";
 
 const database = createDatabaseClient();
 afterAll(async () => database.close());
@@ -118,6 +120,11 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
         config.scope.policyAuditId = policy.auditId;
 
         await verifyNpcE2eInboundFacts(tx, config, "before");
+        expect(await inspectPostInboundPreviewFacts(tx, config)).toMatchObject({
+          status: "integrity_blocked",
+          canGenerate: false,
+          canSend: false,
+        });
         await expect(
           verifyNpcE2eInboundFacts(
             tx,
@@ -143,6 +150,23 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
         };
         expect(await intake(event, botId)).toBe("accepted");
         await verifyNpcE2eInboundFacts(tx, config, "after", sourceMessageId);
+        const beforePreview = await tx
+          .select()
+          .from(interactions)
+          .where(eq(interactions.worldId, worldId));
+        expect(await inspectPostInboundPreviewFacts(tx, config)).toMatchObject({
+          status: "needs_availability_review",
+          availability: "unknown",
+          reason: "activity_unknown",
+          canGenerate: false,
+          canSend: false,
+          readOnly: true,
+        });
+        const afterPreview = await tx
+          .select()
+          .from(interactions)
+          .where(eq(interactions.worldId, worldId));
+        expect(afterPreview).toEqual(beforePreview);
         expect(await intake(event, botId)).toBe("duplicate");
         await expect(
           verifyNpcE2eInboundFacts(tx, config, "before"),
@@ -169,6 +193,15 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           .from(responseDeliveries)
           .where(eq(responseDeliveries.worldId, worldId));
         expect(deliveries).toHaveLength(0);
+        await tx
+          .update(discordIdentities)
+          .set({ status: "inactive", isPrimary: false })
+          .where(eq(discordIdentities.worldId, worldId));
+        expect(await inspectPostInboundPreviewFacts(tx, config)).toMatchObject({
+          status: "integrity_blocked",
+          canGenerate: false,
+          canSend: false,
+        });
         throw new RollbackTest();
       }),
     ).rejects.toThrow(RollbackTest);
