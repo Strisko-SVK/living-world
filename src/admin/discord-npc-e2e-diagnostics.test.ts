@@ -93,6 +93,7 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
     const cases: {
       overrides: Record<string, unknown>;
       reason: PilotInboundDiagnosticStage;
+      detail?: PilotInboundDiagnosticStage;
     }[] = [
       {
         overrides: {
@@ -111,6 +112,7 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
       {
         overrides: { mentions: { users: new Map() } },
         reason: "mention_rejected",
+        detail: "mention_target_missing_from_metadata",
       },
       {
         overrides: { content: "<@" + botId + "> [Sentinel] Different text." },
@@ -122,7 +124,11 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
       expect(
         pickPilotInboundMessage(testMessage(test.overrides), config, emit),
       ).toBeNull();
-      expect(stages).toEqual(["target_thread_event_seen", test.reason]);
+      expect(stages).toEqual([
+        "target_thread_event_seen",
+        ...(test.detail ? [test.detail] : []),
+        test.reason,
+      ]);
     }
     stages.length = 0;
     expect(pickPilotInboundMessage(testMessage(), config, emit)).not.toBeNull();
@@ -130,6 +136,95 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
     const printed = JSON.stringify(stages);
     expect(printed).not.toContain(humanId);
     expect(printed).not.toContain(token);
+  });
+
+  it("classifies all strict mention rejection causes without logging content or IDs", () => {
+    const stages: PilotInboundDiagnosticStage[] = [];
+    const diagnose = (stage: PilotInboundDiagnosticStage) => stages.push(stage);
+    const stranger = "1999999999999999999";
+    const cases: {
+      label: string;
+      overrides: Record<string, unknown>;
+      stage: PilotInboundDiagnosticStage;
+    }[] = [
+      {
+        label: "plain typed display name, not a Discord mention",
+        overrides: {
+          content: "@Living World [Sentinel] Report readiness.",
+          mentions: { users: new Map() },
+        },
+        stage: "mention_target_not_literal",
+      },
+      {
+        label: "SDK metadata only without a literal bot mention",
+        overrides: { content: "hello" },
+        stage: "mention_target_only_in_metadata",
+      },
+      {
+        label: "another user's real mention instead of the bot",
+        overrides: {
+          content: "<@" + stranger + "> [Sentinel] Report readiness.",
+          mentions: { users: new Map([[stranger, { id: stranger }]]) },
+        },
+        stage: "mention_other_user_only",
+      },
+      {
+        label: "literal bot mention without SDK confirmation",
+        overrides: { mentions: { users: new Map() } },
+        stage: "mention_target_missing_from_metadata",
+      },
+      {
+        label: "extra recognized user alongside real bot mention",
+        overrides: {
+          content:
+            "<@" + botId + "> <@" + stranger + "> [Sentinel] Report readiness.",
+          mentions: {
+            users: new Map([
+              [botId, { id: botId }],
+              [stranger, { id: stranger }],
+            ]),
+          },
+        },
+        stage: "mention_multiple_user_targets",
+      },
+    ];
+    for (const testCase of cases) {
+      stages.length = 0;
+      expect(
+        pickPilotInboundMessage(
+          testMessage(testCase.overrides),
+          config,
+          diagnose,
+        ),
+        testCase.label,
+      ).toBeNull();
+      expect(stages, testCase.label).toEqual([
+        "target_thread_event_seen",
+        testCase.stage,
+        "mention_rejected",
+      ]);
+      const printed = JSON.stringify(stages);
+      for (const secret of [
+        botId,
+        humanId,
+        stranger,
+        token,
+        "Living World",
+        "Report readiness.",
+      ])
+        expect(printed).not.toContain(secret);
+    }
+    stages.length = 0;
+    expect(
+      pickPilotInboundMessage(
+        testMessage({
+          content: "<@!" + botId + "> [Sentinel] Report readiness.",
+        }),
+        config,
+        diagnose,
+      ),
+    ).not.toBeNull();
+    expect(stages).toEqual(["target_thread_event_seen", "message_matched"]);
   });
 
   it("explains failed normalization without printing message fields", () => {
@@ -196,6 +291,7 @@ describe("M2.14D safe one-shot Gateway diagnostics, entirely offline", () => {
       await expect(running).rejects.toThrow("expired");
       expect(stages).toEqual([
         "target_thread_event_seen",
+        "mention_target_only_in_metadata",
         "mention_rejected",
         "timeout_without_match",
       ]);
