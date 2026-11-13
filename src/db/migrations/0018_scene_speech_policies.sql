@@ -55,6 +55,12 @@ BEGIN
   IF TG_OP = 'INSERT' THEN
     NEW.issued_at := clock_timestamp();
     NEW.issued_by := current_user;
+    -- Database-generated time prevents a forged long-lived grant. Bound
+    -- minor clock_timestamp() differences between the two expressions.
+    NEW.expires_at := LEAST(
+      NEW.expires_at,
+      NEW.issued_at + interval '30 minutes'
+    );
     RETURN NEW;
   END IF;
   IF (to_jsonb(NEW) - 'revoked_at' - 'revoked_by')
