@@ -40,7 +40,7 @@ Inspect Compose `ps`: the **only** published DB binding must be `127.0.0.1:55432
 > consumed Sentinel NPC E2E fixture, **do not rerun it without the separate
 > owner approval for migration 0018**. Follow the [read-only migration
 > preflight and private backup procedure](m2.15f-migration-0018-handoff.md).
-> It must verify that *only* 0018 is pending before the write operation.
+> It must verify that _only_ 0018 is pending before the write operation.
 
 ## 3. Run migrations and preview (no fixture data write)
 
