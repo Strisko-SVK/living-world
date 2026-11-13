@@ -173,6 +173,13 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
               .where(eq(sceneSpeechPolicies.id, hostPolicy.id));
           }),
         ).rejects.toThrow();
+        await expect(
+          tx.transaction(async (savepoint) => {
+            await savepoint
+              .delete(sceneSpeechPolicies)
+              .where(eq(sceneSpeechPolicies.id, hostPolicy.id));
+          }),
+        ).rejects.toThrow();
         expect(await issueHostSceneSpeechPolicy(tx, hostRequest)).toMatchObject(
           {
             status: "already_open",
