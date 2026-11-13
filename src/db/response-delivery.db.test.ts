@@ -63,7 +63,10 @@ import { createOfflineNpcWorkflow } from "../offline/npc-e2e.js";
 import {
   createOfflineSceneHandshake,
   type SceneHandshakeDependencies,
+  type SceneInteraction,
+  type SceneRequest,
 } from "../offline/npc-scene-handshake.js";
+import { createOfflinePersistedContinuation } from "../offline/npc-post-inbound.js";
 import { createOfflineGatewaySceneBridge } from "../offline/npc-scene-gateway.js";
 import { readNpcSummonFacts } from "../communication/summon-facts.repository.js";
 import { evaluatePlayerSummon } from "../communication/summon-availability.js";
@@ -2003,6 +2006,114 @@ describe("M2.13B real-PG offline scene handshake", () => {
       ports,
     };
   }
+
+  // The live Sentinel one-shot is already persisted. Exercise that distinct
+  // path on a disposable PostgreSQL world with no second Gateway intake.
+  async function persistedSetup() {
+    const setupResult = await setup();
+    const { target, input, realIntake, ports } = setupResult;
+    expect(await realIntake()).toBe("accepted");
+    const initial = await setupResult.read();
+    expect(initial).toMatchObject({
+      status: "received",
+      communicationMode: "unknown",
+      localPresenceId: null,
+    });
+    const authorized = {
+      ...ports,
+      authorize: async (
+        interaction: SceneInteraction,
+        source: SceneRequest,
+      ) => {
+        const check = await database.pool.query(
+          "select 1 from discord_identities i " +
+            "join discord_context_mappings m on m.world_id=i.world_id " +
+            "join interaction_contexts c on c.id=m.context_id " +
+            "and c.world_id=m.world_id " +
+            "where i.world_id=$1 and i.entity_id=$2 and i.discord_user_id=$3 " +
+            "and i.mapping_type='player_character' and i.status='active' " +
+            "and m.id=$4 and m.context_id=$5 and m.guild_id=$6 " +
+            "and m.channel_id=$7 and m.thread_id=$8 " +
+            "and m.mapping_type='scene' and m.status='active' " +
+            "and c.status='active' and c.npc_intake_policy='mapped_players'",
+          [
+            interaction.worldId,
+            interaction.speakerEntityId,
+            source.authorId,
+            interaction.sourceMappingId,
+            interaction.contextId,
+            source.guildId,
+            source.channelId,
+            source.threadId,
+          ],
+        );
+        return check.rows.length === 1;
+      },
+    };
+    const resume = createOfflinePersistedContinuation(authorized);
+    const request = {
+      source: { ...input },
+      npcId: target.npc,
+      interactionId: initial!.id,
+    };
+    return { ...setupResult, resume, request };
+  }
+
+  it("resumes persisted inbound with one fake ACK", async () => {
+    const { target, harness, read, realIntake, resume, request } =
+      await persistedSetup();
+    expect(await resume(request)).toBe("delivered");
+    expect((await read())?.communicationMode).toBe("local");
+    expect((await read())?.responseMessageId).toBe("fake:verified-ack");
+    expect(harness.provider.generate).toHaveBeenCalledTimes(1);
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+    expect(harness.transport.sent[0]?.payload.destination).toEqual({
+      provider: "discord",
+      guildId: target.guild,
+      channelId: target.channel,
+      threadId: target.threadId,
+    });
+    expect(await realIntake()).toBe("duplicate");
+    expect(await resume(request)).toBe("invalid_binding");
+    expect(harness.transport.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("denies revoked player mapping", async () => {
+    const { target, input, harness, resume, request } = await persistedSetup();
+    await database.pool.query(
+      "update discord_identities set status='inactive', is_primary=false " +
+        "where world_id=$1 and discord_user_id=$2",
+      [target.world, input.authorId],
+    );
+    expect(await resume(request)).toBe("authorization_denied");
+    expect(harness.provider.generate).not.toHaveBeenCalled();
+    expect(harness.transport.send).not.toHaveBeenCalled();
+  });
+
+  it("denies revoked original route", async () => {
+    const { target, harness, resume, request } = await persistedSetup();
+    await database.pool.query(
+      "update discord_context_mappings set status='inactive' where id=$1",
+      [target.mapping],
+    );
+    expect(await resume(request)).toBe("authorization_denied");
+    expect(harness.provider.generate).not.toHaveBeenCalled();
+    expect(harness.transport.send).not.toHaveBeenCalled();
+  });
+
+  it("denies revoked local presence", async () => {
+    const { target, harness, resume, request } = await persistedSetup();
+    expect(
+      await revokeLocalPresence(
+        database.db,
+        { worldId: target.world, npcId: target.npc, contextId: target.scene },
+        target.grant.id,
+      ),
+    ).toMatchObject({ status: "revoked" });
+    expect(await resume(request)).toBe("no_presence");
+    expect(harness.provider.generate).not.toHaveBeenCalled();
+    expect(harness.transport.send).not.toHaveBeenCalled();
+  });
 
   it("binds SDK event and client identity through real PG intake", async () => {
     const { target, harness, input, actualIntake, read, ports } = await setup();
