@@ -46,7 +46,7 @@ function fixture() {
     prepare: vi.fn(async () => "prepared"),
     respond: vi.fn(async () => {
       stored = { ...stored, status: "responded" };
-      return "delivered";
+      return "delivered" as const;
     }),
     diagnose,
   };
@@ -215,7 +215,7 @@ describe("M2.15A persisted Discord inbound continuation (offline only)", () => {
     const { deps, run, setStored } = fixture();
     vi.mocked(deps.respond).mockImplementationOnce(async () => {
       setStored({ ...row, status: "responded" });
-      return "delivery_uncertain";
+      return "delivery_uncertain" as const;
     });
     expect(await run(request)).toBe("delivery_uncertain");
     expect(await run(request)).toBe("invalid_binding");
