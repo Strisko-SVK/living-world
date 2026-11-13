@@ -53,7 +53,9 @@ function fixture(): OfflineSpeechReadinessRequest {
   };
 }
 
-function expectNoLivePermission(output: ReturnType<typeof assessOfflineSpeechReadiness>) {
+function expectNoLivePermission(
+  output: ReturnType<typeof assessOfflineSpeechReadiness>,
+) {
   expect(output).toMatchObject({
     canGenerate: false,
     canSend: false,
@@ -245,7 +247,10 @@ describe("M2.15D bounded direct-scene speech approval (offline only)", () => {
       { ...base, nowMs: "later" },
       { ...base, approval: { ...base.approval!, text: "DM approves" } },
       { ...base, approval: { ...base.approval!, issuedByRole: "player" } },
-      { ...base, approval: { ...base.approval!, issuedByEntityId: "not-uuid" } },
+      {
+        ...base,
+        approval: { ...base.approval!, issuedByEntityId: "not-uuid" },
+      },
       { ...base, contact: { ...base.contact, isDm: true } },
       { ...base, contact: { ...base.contact, canSend: true } },
     ]) {
