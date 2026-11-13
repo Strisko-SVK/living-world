@@ -53,6 +53,16 @@ const eventText = "[Sentinel] Report readiness.";
 export type NpcE2eInboundConfig = PilotInboundConfig & {
   presenceId: string;
 };
+export type NpcE2eInboundFactsConfig = Pick<
+  NpcE2eInboundConfig,
+  | "scope"
+  | "guildId"
+  | "parentId"
+  | "threadId"
+  | "playerId"
+  | "presenceId"
+  | "botId"
+>;
 
 export function validateNpcE2eInboundEnvironment(
   env: NodeJS.ProcessEnv,
@@ -215,7 +225,7 @@ type Database = Omit<DatabaseClient["db"], "$client">;
 // The operator entrypoint ALWAYS calls the guarded verifier above.
 export async function verifyNpcE2eInboundFacts(
   tx: Database,
-  config: NpcE2eInboundConfig,
+  config: NpcE2eInboundFactsConfig,
   phase: "before" | "after",
   sourceMessageId?: string,
 ): Promise<void> {
