@@ -47,20 +47,13 @@ function offlineCiOnly(): boolean {
   );
 }
 
-// TEMPORARY CI-only diagnostic: fixed stage codes, no IDs or content.
-function diagnosticNull(stage: string): null {
-  if (process.env.NODE_ENV === "test")
-    console.info("M2_15G_DIAGNOSTIC_" + stage);
-  return null;
-}
-
 export async function readVerifiedOfflineSpeechSnapshot(
   db: Database,
   raw: unknown,
 ): Promise<OfflineSpeechReadinessRequest | null> {
-  if (!offlineCiOnly()) return diagnosticNull("G1");
+  if (!offlineCiOnly()) return null;
   const parsed = scopeSchema.safeParse(raw);
-  if (!parsed.success) return diagnosticNull("G2");
+  if (!parsed.success) return null;
   const scope = parsed.data;
 
   try {
@@ -76,9 +69,9 @@ export async function readVerifiedOfflineSpeechSnapshot(
         role?.database !== "living_world_ci" ||
         role.db_role !== "living_world_ci"
       )
-        return diagnosticNull("G3");
+        return null;
       const nowMs = Number(role.now_ms);
-      if (!Number.isSafeInteger(nowMs) || nowMs < 0) return diagnosticNull("G4");
+      if (!Number.isSafeInteger(nowMs) || nowMs < 0) return null;
 
       // Same lock order as M2.9 context/presence transitions. All reads
       // share one transaction; the trusted-policy reader uses a SAVEPOINT.
@@ -99,7 +92,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         world.systemType !== "test" ||
         !world.key.startsWith("npc-gateway-ci-")
       )
-        return diagnosticNull("G5");
+        return null;
 
       const [interaction] = await tx
         .select()
@@ -129,20 +122,20 @@ export async function readVerifiedOfflineSpeechSnapshot(
         !interaction.sourceChannelId ||
         !interaction.sourceThreadId
       )
-        return diagnosticNull("G6");
+        return null;
       const sourceEventMs = discordMessageCreatedAt(interaction.sourceMessageId);
       if (
         sourceEventMs === null ||
         sourceEventMs > nowMs ||
         nowMs - sourceEventMs > maxAgeMs
       )
-        return diagnosticNull("G7");
+        return null;
       const trigger = parseDiscordTrigger(
         interaction.requestText,
         gatewaySmokeBotId,
         [gatewaySmokeBotId],
       );
-      if (!trigger) return diagnosticNull("G8");
+      if (!trigger) return null;
 
       const [context] = await tx
         .select()
@@ -165,7 +158,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         context.externalThreadId !== interaction.sourceThreadId ||
         !context.linkedLocationEntityId
       )
-        return diagnosticNull("G9");
+        return null;
 
       // The original immutable route must still be the same active scene.
       // The update-epoch trigger prevents post-event routing changes from
@@ -194,7 +187,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         route.npcId !== null ||
         route.updatedAt.getTime() > sourceEventMs
       )
-        return diagnosticNull("G10");
+        return null;
 
       const [player] = await tx
         .select({ status: entities.status, type: entities.entityType })
@@ -207,7 +200,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         )
         .for("share");
       if (player?.status !== "active" || player.type !== "player_character")
-        return diagnosticNull("G11");
+        return null;
 
       const identities = await tx
         .select()
@@ -227,7 +220,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         !snowflake.test(identities[0]!.discordUserId) ||
         identities[0]!.discordUserId === gatewaySmokeBotId
       )
-        return diagnosticNull("G12");
+        return null;
 
       // The current alias must resolve uniquely to THIS NPC within this
       // world, not merely exist on the target while another NPC shares it.
@@ -244,17 +237,17 @@ export async function readVerifiedOfflineSpeechSnapshot(
         )
         .limit(2);
       if (aliases.length !== 1 || aliases[0]!.entityId !== scope.npcId)
-        return diagnosticNull("G13");
+        return null;
 
       const deliveries = await tx
         .select({ id: responseDeliveries.id })
         .from(responseDeliveries)
         .where(eq(responseDeliveries.interactionId, scope.interactionId))
         .limit(1);
-      if (deliveries.length) return diagnosticNull("G14");
+      if (deliveries.length) return null;
 
       const facts = await readNpcSummonFacts(tx, scope);
-      if (!facts) return diagnosticNull("G15");
+      if (!facts) return null;
       const presences = await tx
         .select()
         .from(localPresence)
@@ -267,14 +260,26 @@ export async function readVerifiedOfflineSpeechSnapshot(
         )
         .limit(2)
         .for("share");
-      if (presences.length !== 1 || presences[0]!.revokedAt) return diagnosticNull("G16");
+      if (presences.length !== 1 || presences[0]!.revokedAt) return null;
       const presence = presences[0]!;
+      // Strict contact policy accepts precisely these eight fields.
+      // Raw local_presence rows also contain audit metadata (issuedBy,
+      // revokedBy), which must not be smuggled into the trust contract.
       const contact = assessSceneContact({
         worldId: scope.worldId,
         npcId: scope.npcId,
         contextId: scope.contextId,
         facts,
-        presence,
+        presence: {
+          id: presence.id,
+          worldId: presence.worldId,
+          npcId: presence.npcId,
+          contextId: presence.contextId,
+          locationId: presence.locationId,
+          stateVersion: presence.stateVersion,
+          issuedAt: presence.issuedAt,
+          revokedAt: presence.revokedAt,
+        },
         sourceEventMs,
       });
       if (
@@ -282,7 +287,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         (contact.status !== "needs_review" &&
           contact.status !== "candidate_needs_review")
       )
-        return diagnosticNull("G17");
+        return null;
 
       const approval = await readTrustedHostScenePolicy(tx, {
         worldId: scope.worldId,
@@ -291,7 +296,7 @@ export async function readVerifiedOfflineSpeechSnapshot(
         presenceId: presence.id,
       });
       if (!approval || approval.issuedByRole !== "host_operator")
-        return diagnosticNull("G18");
+        return null;
 
       const snapshot: OfflineSpeechReadinessRequest = {
         ...scope,
@@ -305,11 +310,11 @@ export async function readVerifiedOfflineSpeechSnapshot(
       // Approval alone is not a real speech authorization. Even this
       // candidate can drive only the injected fake-only Vitest harness.
       if (!assessOfflineSpeechReadiness(snapshot).canRehearseFake)
-        return diagnosticNull("G19");
+        return null;
       return snapshot;
     });
   } catch {
     // Never leak Discord IDs, scene content, SQL or secrets in diagnostics.
-    return diagnosticNull("G20");
+    return null;
   }
 }
