@@ -22,7 +22,7 @@ import { createDatabaseClient } from "./client.js";
 import { interactionContexts } from "./schema/interaction-contexts.js";
 import { interactions } from "./schema/interactions.js";
 import { responseDeliveries } from "./schema/response-deliveries.js";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { discordIdentities } from "./schema/discord-identities.js";
 import { inspectPostInboundPreviewFacts } from "../admin/discord-npc-e2e-response-preview.js";
 import {
@@ -178,6 +178,13 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
             await savepoint
               .delete(sceneSpeechPolicies)
               .where(eq(sceneSpeechPolicies.id, hostPolicy.id));
+          }),
+        ).rejects.toThrow();
+        await expect(
+          tx.transaction(async (savepoint) => {
+            await savepoint.execute(
+              sql.raw('truncate table "npc_scene_speech_policies"'),
+            );
           }),
         ).rejects.toThrow();
         expect(await issueHostSceneSpeechPolicy(tx, hostRequest)).toMatchObject(
