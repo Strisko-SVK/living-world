@@ -21,6 +21,7 @@ import { interactions } from "./schema/interactions.js";
 import { responseDeliveries } from "./schema/response-deliveries.js";
 import { eq } from "drizzle-orm";
 import { discordIdentities } from "./schema/discord-identities.js";
+import { localPresence } from "./schema/local-presence.js";
 import { inspectPostInboundPreviewFacts } from "../admin/discord-npc-e2e-response-preview.js";
 
 const database = createDatabaseClient();
@@ -158,6 +159,9 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           status: "needs_availability_review",
           availability: "unknown",
           reason: "activity_unknown",
+          contactPath: "direct_in_scene",
+          speechStatus: "needs_review",
+          speechReason: "activity_unknown",
           canGenerate: false,
           canSend: false,
           readOnly: true,
@@ -193,6 +197,17 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           .from(responseDeliveries)
           .where(eq(responseDeliveries.worldId, worldId));
         expect(deliveries).toHaveLength(0);
+        // A revoked authoritative grant must never be treated as a summon
+        // or as a valid direct-scene speech candidate.
+        await tx
+          .update(localPresence)
+          .set({ revokedAt: new Date(), revokedBy: "ci_test" })
+          .where(eq(localPresence.id, config.presenceId));
+        expect(await inspectPostInboundPreviewFacts(tx, config)).toMatchObject({
+          status: "integrity_blocked",
+          canGenerate: false,
+          canSend: false,
+        });
         await tx
           .update(discordIdentities)
           .set({ status: "inactive", isPrimary: false })
