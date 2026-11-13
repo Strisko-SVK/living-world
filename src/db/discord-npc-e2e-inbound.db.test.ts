@@ -31,6 +31,7 @@ import {
   revokeHostSceneSpeechPolicy,
 } from "../communication/scene-speech-policies.repository.js";
 import { assessOfflineSpeechReadiness } from "../communication/scene-speech-readiness.js";
+import { sceneSpeechPolicies } from "./schema/scene-speech-policies.js";
 
 const database = createDatabaseClient();
 afterAll(async () => database.close());
@@ -146,8 +147,32 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           otherScene: "none" as const,
           ttlMinutes: 5,
         };
+        expect(
+          await issueHostSceneSpeechPolicy(tx, {
+            ...hostRequest,
+            issuerEntityId: randomUUID(),
+          }),
+        ).toMatchObject({ status: "issuer_not_found" });
+        expect(
+          await issueHostSceneSpeechPolicy(tx, {
+            ...hostRequest,
+            ttlMinutes: 31,
+          }),
+        ).toMatchObject({ status: "invalid_request" });
         const hostPolicy = await issueHostSceneSpeechPolicy(tx, hostRequest);
         expect(hostPolicy.status).toBe("created");
+        if (hostPolicy.status !== "created")
+          throw Error("missing synthetic host policy");
+        // The PostgreSQL trigger prevents changing an issued decision
+        // directly; only a single audited revoke is permitted.
+        await expect(
+          tx.transaction(async (savepoint) => {
+            await savepoint
+              .update(sceneSpeechPolicies)
+              .set({ decision: "deny" })
+              .where(eq(sceneSpeechPolicies.id, hostPolicy.id));
+          }),
+        ).rejects.toThrow();
         expect(await issueHostSceneSpeechPolicy(tx, hostRequest)).toMatchObject(
           {
             status: "already_open",
