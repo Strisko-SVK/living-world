@@ -34,6 +34,14 @@ node --env-file=.env.gateway-dev.local --import tsx src/admin/gateway-dev-db.ts 
 
 Inspect Compose `ps`: the **only** published DB binding must be `127.0.0.1:55432->5432/tcp`. The check verifies the actual database/role, ownership, PostgreSQL 17 and non-superuser, no-CREATEDB/no-CREATEROLE privileges. A reused or incompatible volume must be investigated, not silently repaired.
 
+> **Existing populated Gateway DEV database (M2.15F / migration 0018):**
+> This section's generic `migrate` command is intended for the initial
+> database setup. If the isolated local volume already contains the
+> consumed Sentinel NPC E2E fixture, **do not rerun it without the separate
+> owner approval for migration 0018**. Follow the [read-only migration
+> preflight and private backup procedure](m2.15f-migration-0018-handoff.md).
+> It must verify that _only_ 0018 is pending before the write operation.
+
 ## 3. Run migrations and preview (no fixture data write)
 
 Only after both the Docker context and DB identity have been verified:
