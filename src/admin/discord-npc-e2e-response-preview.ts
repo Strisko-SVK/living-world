@@ -1,7 +1,13 @@
 import { pathToFileURL } from "node:url";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { createDatabaseClient, type DatabaseClient } from "../db/client.js";
 import { interactions } from "../db/schema/interactions.js";
+import { localPresence } from "../db/schema/local-presence.js";
+import { discordMessageCreatedAt } from "../intake/discord-snowflake.js";
+import {
+  assessSceneContact,
+  type SceneContactDecision,
+} from "../communication/scene-contact.js";
 import {
   evaluatePlayerSummon,
   type SummonDecision,
@@ -33,6 +39,10 @@ export type PostInboundPreview = {
   status: PostInboundPreviewStatus;
   availability: SummonDecision["status"] | "not_assessed";
   reason: SummonDecision["reason"] | "integrity_blocked";
+  // Additive M2.15C field: distinguishes local speech review from summons.
+  contactPath?: SceneContactDecision["path"];
+  speechStatus?: SceneContactDecision["status"];
+  speechReason?: SceneContactDecision["reason"];
   canGenerate: false;
   canSend: false;
   readOnly: true;
@@ -53,6 +63,7 @@ const blocked = (): PostInboundPreview => ({
 // authorization to generate or send. Even a candidate requires owner review.
 export function classifyPostInboundPreview(
   decision: SummonDecision,
+  contact?: SceneContactDecision,
 ): PostInboundPreview {
   const status: PostInboundPreviewStatus =
     decision.status === "candidate"
@@ -68,6 +79,13 @@ export function classifyPostInboundPreview(
     status,
     availability: decision.status,
     reason: decision.reason,
+    ...(contact
+      ? {
+          contactPath: contact.path,
+          speechStatus: contact.status,
+          speechReason: contact.reason,
+        }
+      : {}),
     canGenerate: false,
     canSend: false,
     readOnly: true,
@@ -113,9 +131,49 @@ export async function inspectPostInboundPreviewFacts(
       npcId: config.scope.npcId,
       contextId: config.scope.contextId,
     });
-    return facts
-      ? classifyPostInboundPreview(evaluatePlayerSummon(facts))
-      : blocked();
+    if (!facts) return blocked();
+
+    // The source event was already verified against its authenticated
+    // sender, exact bot mention, scene mapping and pre-event presence.
+    // Re-read that same scoped evidence; do not grant presence or infer it
+    // from a display name, player text or the generic summon decision.
+    const evidence = await db
+      .select({
+        id: localPresence.id,
+        worldId: localPresence.worldId,
+        npcId: localPresence.npcId,
+        contextId: localPresence.contextId,
+        locationId: localPresence.locationId,
+        stateVersion: localPresence.stateVersion,
+        issuedAt: localPresence.issuedAt,
+        revokedAt: localPresence.revokedAt,
+      })
+      .from(localPresence)
+      .where(
+        and(
+          eq(localPresence.id, config.presenceId),
+          eq(localPresence.worldId, config.scope.worldId),
+          eq(localPresence.npcId, config.scope.npcId),
+          eq(localPresence.contextId, config.scope.contextId),
+        ),
+      )
+      .limit(2);
+    const sourceEventMs = discordMessageCreatedAt(events[0].sourceMessageId);
+    if (evidence.length !== 1 || sourceEventMs === null) return blocked();
+
+    const contact = assessSceneContact({
+      worldId: config.scope.worldId,
+      npcId: config.scope.npcId,
+      contextId: config.scope.contextId,
+      facts,
+      presence: evidence[0],
+      sourceEventMs,
+    });
+    // M2.15B's exact Sentinel fixture already proves direct local
+    // presence. If the newer check disagrees, never reinterpret it as an
+    // authorized summon or an actionable speech candidate.
+    if (contact.path !== "direct_in_scene") return blocked();
+    return classifyPostInboundPreview(evaluatePlayerSummon(facts), contact);
   } catch {
     // Fixed category: no raw message, IDs, database errors or NPC state
     // details leave the isolated owner operator boundary.

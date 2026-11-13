@@ -194,6 +194,8 @@ describe("M2.15B privacy-safe Sentinel reply preview (offline)", () => {
       canSend: false,
       readOnly: true,
     });
+    expect(output.contactPath).toBeUndefined();
+    expect(output.speechStatus).toBeUndefined();
     expect(JSON.stringify(output)).not.toContain(config.playerId);
   });
 });
