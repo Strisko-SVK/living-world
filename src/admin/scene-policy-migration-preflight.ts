@@ -1,0 +1,223 @@
+import { pathToFileURL } from "node:url";
+import { sql } from "drizzle-orm";
+import {
+  createDatabaseClient,
+  type DatabaseClient,
+} from "../db/client.js";
+import { validateGatewayDevDatabaseEnv } from "./gateway-dev-db.js";
+
+// This file never imports the migrator. Running the preview cannot apply SQL.
+const expectedDatabase = "living_world_gateway_dev";
+const expectedRole = "lw_gateway_dev";
+const migrationTag = "0018_scene_speech_policies";
+
+// These are the published, reviewed Drizzle journal timestamps through 0018.
+// Pinning the complete prefix prevents an unnoticed new migration, a missing
+// earlier migration, or a different journal from being treated as safe.
+export const expectedMigrationTimes = [
+  1790249280186, 1790250202078, 1790668018203, 1790668371766,
+  1790668977094, 1790758274435, 1790758523569, 1790758802257,
+  1792431687825, 1792432355849, 1792434787205, 1792436374558,
+  1793220272404, 1793533567330, 1793534423374, 1793535587173,
+  1793647173083, 1793972100000, 1794611200000,
+] as const;
+
+export type MigrationPreflightReason =
+  | "pending_exactly_0018"
+  | "already_applied_verified"
+  | "database_identity_mismatch"
+  | "migration_history_missing"
+  | "migration_history_drift"
+  | "schema_partial"
+  | "route_trigger_missing"
+  | "unsafe_environment"
+  | "read_failed";
+
+export type MigrationPreflight = {
+  event: "npc_scene_policy_migration_preflight";
+  migration: typeof migrationTag;
+  status: "ready_for_backup" | "already_applied" | "blocked";
+  reason: MigrationPreflightReason;
+  readOnly: true;
+  canMigrate: false;
+};
+
+function report(
+  status: MigrationPreflight["status"],
+  reason: MigrationPreflightReason,
+): MigrationPreflight {
+  return {
+    event: "npc_scene_policy_migration_preflight",
+    migration: migrationTag,
+    status,
+    reason,
+    readOnly: true,
+    canMigrate: false,
+  };
+}
+
+export type MigrationPreflightFacts = {
+  identityValid: boolean;
+  migrationTablePresent: boolean;
+  appliedTimes: readonly string[];
+  routeTriggerInstalled: boolean;
+  policyTablePresent: boolean;
+  policyUpdateTriggerInstalled: boolean;
+  policyTruncateTriggerInstalled: boolean;
+};
+
+// Fail-closed, side-effect-free classification. The local CLI can print only
+// this fixed vocabulary; it never prints a DB URL, SQL or stored NPC data.
+export function classifyMigration0018Preflight(
+  f: MigrationPreflightFacts,
+): MigrationPreflight {
+  if (!f.identityValid) return report("blocked", "database_identity_mismatch");
+  if (!f.migrationTablePresent)
+    return report("blocked", "migration_history_missing");
+  const known = f.appliedTimes.length;
+  if (known !== 18 && known !== 19)
+    return report("blocked", "migration_history_drift");
+  for (let i = 0; i < known; i += 1) {
+    if (f.appliedTimes[i] !== String(expectedMigrationTimes[i]))
+      return report("blocked", "migration_history_drift");
+  }
+  if (!f.routeTriggerInstalled)
+    return report("blocked", "route_trigger_missing");
+  if (known === 18) {
+    if (
+      f.policyTablePresent ||
+      f.policyUpdateTriggerInstalled ||
+      f.policyTruncateTriggerInstalled
+    )
+      return report("blocked", "schema_partial");
+    return report("ready_for_backup", "pending_exactly_0018");
+  }
+  if (
+    !f.policyTablePresent ||
+    !f.policyUpdateTriggerInstalled ||
+    !f.policyTruncateTriggerInstalled
+  )
+    return report("blocked", "schema_partial");
+  return report("already_applied", "already_applied_verified");
+}
+
+type Database = DatabaseClient["db"];
+
+// The first SQL command *inside* the transaction is SET TRANSACTION READ ONLY.
+// No preview path calls a migrator, backup process, or writes fixture data.
+export async function inspectMigration0018Preflight(
+  database: Database,
+): Promise<MigrationPreflight> {
+  try {
+    return await database.transaction(async (tx) => {
+      await tx.execute(sql.raw("set transaction read only"));
+      await tx.execute(sql.raw("set local statement_timeout = '8s'"));
+      const result = await tx.execute(sql.raw(
+        "select current_database() as database, current_user as db_role, " +
+          "current_setting('server_version_num')::int as version, " +
+          "(select pg_get_userbyid(datdba) from pg_database " +
+          " where datname=current_database()) as db_owner, " +
+          "(select rolsuper from pg_roles where rolname=current_user) as superuser, " +
+          "(select rolcreatedb from pg_roles where rolname=current_user) as createdb, " +
+          "(select rolcreaterole from pg_roles where rolname=current_user) as createrole",
+      ));
+      const id = result.rows[0];
+      const identityValid = !!id &&
+        id.database === expectedDatabase &&
+        id.db_role === expectedRole &&
+        id.db_owner === expectedRole &&
+        typeof id.version === "number" &&
+        id.version >= 170000 && id.version < 180000 &&
+        id.superuser === false &&
+        id.createdb === false && id.createrole === false;
+      // Stop immediately if connected to an unexpected database, even if
+      // the endpoint string passed a previous environment check.
+      if (!identityValid)
+        return report("blocked", "database_identity_mismatch");
+
+      const schema = await tx.execute(sql.raw(
+        "select " +
+          "to_regclass('drizzle.__drizzle_migrations') is not null as migration_table, " +
+          "to_regclass('public.npc_scene_speech_policies') is not null as policy_table, " +
+          "exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid " +
+          "join pg_namespace n on n.oid=c.relnamespace " +
+          "where n.nspname='public' and c.relname='discord_context_mappings' " +
+          "and t.tgname='discord_route_revision' and t.tgenabled='O' " +
+          "and not t.tgisinternal) as route_trigger, " +
+          "exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid " +
+          "join pg_namespace n on n.oid=c.relnamespace " +
+          "where n.nspname='public' and c.relname='npc_scene_speech_policies' " +
+          "and t.tgname='scene_speech_policy_immutable' and t.tgenabled='O' " +
+          "and not t.tgisinternal) as policy_update_trigger, " +
+          "exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid " +
+          "join pg_namespace n on n.oid=c.relnamespace " +
+          "where n.nspname='public' and c.relname='npc_scene_speech_policies' " +
+          "and t.tgname='scene_speech_policy_no_truncate' and t.tgenabled='O' " +
+          "and not t.tgisinternal) as policy_truncate_trigger",
+      ));
+      const row = schema.rows[0];
+      if (!row?.migration_table)
+        return report("blocked", "migration_history_missing");
+
+      const migrations = await tx.execute(
+        sql.raw(
+          "select created_at::text as applied_at " +
+            "from drizzle.__drizzle_migrations order by id",
+        ),
+      );
+      return classifyMigration0018Preflight({
+        identityValid,
+        migrationTablePresent: row.migration_table === true,
+        appliedTimes: migrations.rows.map((r) =>
+          typeof r.applied_at === "string" ? r.applied_at : "",
+        ),
+        routeTriggerInstalled: row.route_trigger === true,
+        policyTablePresent: row.policy_table === true,
+        policyUpdateTriggerInstalled: row.policy_update_trigger === true,
+        policyTruncateTriggerInstalled: row.policy_truncate_trigger === true,
+      });
+    });
+  } catch {
+    return report("blocked", "read_failed");
+  }
+}
+
+export function parseMigrationPreflightArguments(args: readonly string[]): void {
+  if (args.length === 0 || (args.length === 1 && args[0] === "--preview"))
+    return;
+  throw new Error("Migration 0018 preflight accepts only --preview.");
+}
+
+export async function runMigration0018Preflight(
+  args: readonly string[],
+  environment: NodeJS.ProcessEnv = process.env,
+  connect: typeof createDatabaseClient = createDatabaseClient,
+): Promise<MigrationPreflight> {
+  parseMigrationPreflightArguments(args);
+  try {
+    validateGatewayDevDatabaseEnv(environment);
+  } catch {
+    return report("blocked", "unsafe_environment");
+  }
+  const client = connect(environment);
+  try {
+    return await inspectMigration0018Preflight(client.db);
+  } finally {
+    await client.close();
+  }
+}
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  void runMigration0018Preflight(process.argv.slice(2)).then(
+    (preview) => console.info(JSON.stringify(preview)),
+    () => {
+      console.error(JSON.stringify({
+        event: "npc_scene_policy_migration_preflight_failed_safely",
+      }));
+      process.exitCode = 1;
+    },
+  );
+}
