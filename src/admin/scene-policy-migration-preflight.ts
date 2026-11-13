@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { sql } from "drizzle-orm";
 import {
@@ -22,12 +24,93 @@ export const expectedMigrationTimes = [
   1793647173083, 1793972100000, 1794611200000,
 ] as const;
 
+// SHA-1 is the reviewed Git blob content ID of migration 0018 in merged
+// M2.15E main. This protects against accidental local file/source drift,
+// not against an attacker who already controls repository code.
+const approvedMigrationBlob = "55dff82871c3ee3785c6c88b336b329ca88f3992";
+const expectedMigrationTags = [
+  "0000_freezing_dreaming_celestial",
+  "0001_petite_gravity",
+  "0002_strange_annihilus",
+  "0003_free_surge",
+  "0004_outstanding_sharon_carter",
+  "0005_smooth_jigsaw",
+  "0006_fresh_daredevil",
+  "0007_famous_vector",
+  "0008_mapping_integrity",
+  "0009_discord_event_idempotency",
+  "0010_llm_budget_accounting",
+  "0011_npc_response_claims",
+  "0012_context_intake_policy",
+  "0013_local_presence",
+  "0014_presence_lifecycle",
+  "0015_response_delivery_outbox",
+  "0016_discord_outbound_limits",
+  "0017_discord_route_revision",
+  "0018_scene_speech_policies",
+] as const;
+
+export function isReviewedMigrationPlan(
+  rawJournal: unknown,
+  rawSql: Uint8Array,
+): boolean {
+  if (
+    !rawJournal ||
+    typeof rawJournal !== "object" ||
+    !("entries" in rawJournal) ||
+    !("dialect" in rawJournal) ||
+    !("version" in rawJournal)
+  ) return false;
+  const journal = rawJournal as Record<string, unknown>;
+  if (
+    journal.version !== "7" ||
+    journal.dialect !== "postgresql" ||
+    !Array.isArray(journal.entries) ||
+    journal.entries.length !== expectedMigrationTimes.length
+  ) return false;
+
+  const entries = journal.entries;
+  for (let i = 0; i < expectedMigrationTimes.length; i += 1) {
+    const entry: unknown = entries[i];
+    if (!entry || typeof entry !== "object") return false;
+    const e = entry as Record<string, unknown>;
+    if (
+      e.idx !== i ||
+      e.version !== "7" ||
+      e.when !== expectedMigrationTimes[i] ||
+      e.tag !== expectedMigrationTags[i] ||
+      e.breakpoints !== true
+    ) return false;
+  }
+  const hash = createHash("sha1")
+    .update(`blob ${rawSql.byteLength}\\0`)
+    .update(rawSql)
+    .digest("hex");
+  return hash === approvedMigrationBlob;
+}
+
+async function localMigrationPlanReviewed(): Promise<boolean> {
+  try {
+    const [journalBytes, sqlBytes] = await Promise.all([
+      readFile(new URL("../db/migrations/meta/_journal.json", import.meta.url)),
+      readFile(new URL("../db/migrations/0018_scene_speech_policies.sql", import.meta.url)),
+    ]);
+    return isReviewedMigrationPlan(
+      JSON.parse(journalBytes.toString("utf8")),
+      sqlBytes,
+    );
+  } catch {
+    return false;
+  }
+}
+
 export type MigrationPreflightReason =
   | "pending_exactly_0018"
   | "already_applied_verified"
   | "database_identity_mismatch"
   | "migration_history_missing"
   | "migration_history_drift"
+  | "local_migration_plan_drift"
   | "schema_partial"
   | "route_trigger_missing"
   | "unsafe_environment"
@@ -228,6 +311,8 @@ export async function runMigration0018Preflight(
   } catch {
     return report("blocked", "unsafe_environment");
   }
+  if (!(await localMigrationPlanReviewed()))
+    return report("blocked", "local_migration_plan_drift");
   const client = connect(environment);
   try {
     return await inspectMigration0018Preflight(client.db);
