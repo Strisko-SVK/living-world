@@ -22,9 +22,16 @@ import { createDatabaseClient } from "./client.js";
 import { interactionContexts } from "./schema/interaction-contexts.js";
 import { interactions } from "./schema/interactions.js";
 import { responseDeliveries } from "./schema/response-deliveries.js";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { discordIdentities } from "./schema/discord-identities.js";
 import { inspectPostInboundPreviewFacts } from "../admin/discord-npc-e2e-response-preview.js";
+import {
+  issueHostSceneSpeechPolicy,
+  readTrustedHostScenePolicy,
+  revokeHostSceneSpeechPolicy,
+} from "../communication/scene-speech-policies.repository.js";
+import { assessOfflineSpeechReadiness } from "../communication/scene-speech-readiness.js";
+import { sceneSpeechPolicies } from "./schema/scene-speech-policies.js";
 
 const database = createDatabaseClient();
 afterAll(async () => database.close());
@@ -122,6 +129,84 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
         if (!("auditId" in policy)) throw new Error("missing policy audit");
         config.scope.policyAuditId = policy.auditId;
 
+        const [operatorEntity] = await tx
+          .select({ id: discordIdentities.entityId })
+          .from(discordIdentities)
+          .where(eq(discordIdentities.worldId, worldId))
+          .limit(1);
+        expect(operatorEntity?.id).toBeTruthy();
+        const hostRequest = {
+          worldId,
+          npcId,
+          contextId,
+          presenceId: config.presenceId,
+          issuerEntityId: operatorEntity!.id,
+          decision: "allow_direct_speech" as const,
+          activity: "free" as const,
+          perception: "aware" as const,
+          otherScene: "none" as const,
+          ttlMinutes: 5,
+        };
+        expect(
+          await issueHostSceneSpeechPolicy(tx, {
+            ...hostRequest,
+            issuerEntityId: randomUUID(),
+          }),
+        ).toMatchObject({ status: "issuer_not_found" });
+        expect(
+          await issueHostSceneSpeechPolicy(tx, {
+            ...hostRequest,
+            ttlMinutes: 31,
+          }),
+        ).toMatchObject({ status: "invalid_request" });
+        const hostPolicy = await issueHostSceneSpeechPolicy(tx, hostRequest);
+        expect(hostPolicy.status).toBe("created");
+        if (hostPolicy.status !== "created")
+          throw Error("missing synthetic host policy");
+        // The PostgreSQL trigger prevents changing an issued decision
+        // directly; only a single audited revoke is permitted.
+        await expect(
+          tx.transaction(async (savepoint) => {
+            await savepoint
+              .update(sceneSpeechPolicies)
+              .set({ decision: "deny" })
+              .where(eq(sceneSpeechPolicies.id, hostPolicy.id));
+          }),
+        ).rejects.toThrow();
+        await expect(
+          tx.transaction(async (savepoint) => {
+            await savepoint
+              .delete(sceneSpeechPolicies)
+              .where(eq(sceneSpeechPolicies.id, hostPolicy.id));
+          }),
+        ).rejects.toThrow();
+        await expect(
+          tx.transaction(async (savepoint) => {
+            await savepoint.execute(
+              sql.raw('truncate table "npc_scene_speech_policies"'),
+            );
+          }),
+        ).rejects.toThrow();
+        expect(await issueHostSceneSpeechPolicy(tx, hostRequest)).toMatchObject(
+          {
+            status: "already_open",
+          },
+        );
+        const initialPolicy = await readTrustedHostScenePolicy(tx, {
+          worldId,
+          npcId,
+          contextId,
+          presenceId: config.presenceId,
+        });
+        expect(initialPolicy).toMatchObject({
+          issuedByRole: "host_operator",
+          issuedByEntityId: operatorEntity!.id,
+          decision: "allow_direct_speech",
+          activity: "free",
+          perception: "aware",
+          otherScene: "none",
+        });
+
         await verifyNpcE2eInboundFacts(tx, config, "before");
         expect(await inspectPostInboundPreviewFacts(tx, config)).toMatchObject({
           status: "integrity_blocked",
@@ -173,6 +258,39 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           .from(interactions)
           .where(eq(interactions.worldId, worldId));
         expect(afterPreview).toEqual(beforePreview);
+        const currentPolicy = await readTrustedHostScenePolicy(tx, {
+          worldId,
+          npcId,
+          contextId,
+          presenceId: config.presenceId,
+        });
+        expect(currentPolicy).not.toBeNull();
+        expect(
+          assessOfflineSpeechReadiness({
+            worldId,
+            npcId,
+            contextId,
+            presenceId: config.presenceId,
+            interactionId: beforePreview[0]!.id,
+            npcStateVersion: currentPolicy!.npcStateVersion,
+            sourceMessageId,
+            nowMs: Date.now() + 1500,
+            contact: {
+              path: "direct_in_scene",
+              status: "needs_review",
+              reason: "activity_unknown",
+              canGenerate: false,
+              canSend: false,
+              canGrantPresence: false,
+            },
+            approval: currentPolicy,
+          }),
+        ).toMatchObject({
+          status: "fake_rehearsal_candidate",
+          canRehearseFake: true,
+          canGenerate: false,
+          canSend: false,
+        });
         expect(await intake(event, botId)).toBe("duplicate");
         await expect(
           verifyNpcE2eInboundFacts(tx, config, "before"),
@@ -199,6 +317,22 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           .from(responseDeliveries)
           .where(eq(responseDeliveries.worldId, worldId));
         expect(deliveries).toHaveLength(0);
+        expect(
+          await revokeHostSceneSpeechPolicy(tx, {
+            worldId,
+            npcId,
+            contextId,
+            presenceId: config.presenceId,
+          }),
+        ).toMatchObject({ status: "revoked" });
+        expect(
+          await readTrustedHostScenePolicy(tx, {
+            worldId,
+            npcId,
+            contextId,
+            presenceId: config.presenceId,
+          }),
+        ).toBeNull();
         // A revoked authoritative grant must never be treated as a summon
         // or as a valid direct-scene speech candidate.
         expect(

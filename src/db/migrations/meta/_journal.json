@@ -127,6 +127,13 @@
       "when": 1793972100000,
       "tag": "0017_discord_route_revision",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794611200000,
+      "tag": "0018_scene_speech_policies",
+      "breakpoints": true
     }
   ]
 }
