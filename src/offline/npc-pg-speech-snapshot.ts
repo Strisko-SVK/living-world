@@ -58,10 +58,8 @@ export async function readVerifiedOfflineSpeechSnapshot(
 
   try {
     return await db.transaction(async (tx) => {
-      // Same lock order as M2.9 context/presence transitions. All reads
-      // below share one transaction; the nested trusted-policy reader uses
-      // a SAVEPOINT on this same PostgreSQL connection.
-      await lockLocalContext(tx, scope);
+      // Verify the authenticated disposable CI principal before querying
+      // any world, route or NPC data. Never inspect the owner's DEV world.
       const identity = await tx.execute(
         sql`select current_database() as database, current_user as db_role,
           floor(extract(epoch from clock_timestamp()) * 1000)::bigint as now_ms`,
@@ -74,6 +72,10 @@ export async function readVerifiedOfflineSpeechSnapshot(
         return null;
       const nowMs = Number(role.now_ms);
       if (!Number.isSafeInteger(nowMs) || nowMs < 0) return null;
+
+      // Same lock order as M2.9 context/presence transitions. All reads
+      // share one transaction; the trusted-policy reader uses a SAVEPOINT.
+      await lockLocalContext(tx, scope);
 
       const [world] = await tx
         .select({
@@ -220,17 +222,22 @@ export async function readVerifiedOfflineSpeechSnapshot(
       )
         return null;
 
+      // The current alias must resolve uniquely to THIS NPC within this
+      // world, not merely exist on the target while another NPC shares it.
       const aliases = await tx
-        .select({ normalized: entityAliases.normalizedAlias })
+        .select({ entityId: entityAliases.entityId })
         .from(entityAliases)
+        .innerJoin(entities, eq(entities.id, entityAliases.entityId))
         .where(
           and(
-            eq(entityAliases.entityId, scope.npcId),
+            eq(entities.worldId, scope.worldId),
+            eq(entities.status, "active"),
             eq(entityAliases.normalizedAlias, trigger.alias),
           ),
         )
         .limit(2);
-      if (aliases.length !== 1) return null;
+      if (aliases.length !== 1 || aliases[0]!.entityId !== scope.npcId)
+        return null;
 
       const deliveries = await tx
         .select({ id: responseDeliveries.id })
