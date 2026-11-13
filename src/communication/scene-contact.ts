@@ -90,7 +90,8 @@ function fromSummon(decision: SummonDecision): SceneContactDecision {
 // A stale or contradictory grant is BLOCKED, never reinterpreted as a summon.
 export function assessSceneContact(input: unknown): SceneContactDecision {
   const parsed = contactSchema.safeParse(input);
-  if (!parsed.success) return outcome("unverified", "blocked", "untrusted_facts");
+  if (!parsed.success)
+    return outcome("unverified", "blocked", "untrusted_facts");
   const { facts: f, presence, sourceEventMs, ...scope } = parsed.data;
 
   if (
@@ -144,11 +145,7 @@ export function assessSceneContact(input: unknown): SceneContactDecision {
   if (f.perception === "unknown")
     return outcome("direct_in_scene", "needs_review", "perception_unknown");
   if (f.otherScene === "unknown")
-    return outcome(
-      "direct_in_scene",
-      "needs_review",
-      "scene_conflict_unknown",
-    );
+    return outcome("direct_in_scene", "needs_review", "scene_conflict_unknown");
 
   return outcome("direct_in_scene", "candidate_needs_review", "possible");
 }
