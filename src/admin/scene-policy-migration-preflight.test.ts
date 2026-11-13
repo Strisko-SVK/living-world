@@ -16,7 +16,8 @@ const environment: NodeJS.ProcessEnv = {
   LW_GATEWAY_DEV_ADMIN_PASSWORD: adminPassword,
   LW_GATEWAY_DEV_ROLE_PASSWORD: rolePassword,
   DATABASE_URL:
-    "postgresql://lw_gateway_dev:" + rolePassword +
+    "postgresql://lw_gateway_dev:" +
+    rolePassword +
     "@127.0.0.1:55432/living_world_gateway_dev",
   DISCORD_ENABLED: "false",
   DISCORD_OUTBOUND_ENABLED: "false",
@@ -55,29 +56,50 @@ describe("M2.15F read-only 0018 migration preflight", () => {
       ),
     );
     const originalSql = await readFile(
-      new URL("../db/migrations/0018_scene_speech_policies.sql", import.meta.url),
+      new URL(
+        "../db/migrations/0018_scene_speech_policies.sql",
+        import.meta.url,
+      ),
     );
     expect(isReviewedMigrationPlan(journal, originalSql)).toBe(true);
-    expect(isReviewedMigrationPlan({
-      ...journal,
-      entries: [...journal.entries, {
-        idx: 19,
-        when: 1794611200001,
-        tag: "0019_unapproved_migration",
-        version: "7",
-        breakpoints: true,
-      }],
-    }, originalSql)).toBe(false);
-    expect(isReviewedMigrationPlan({
-      ...journal,
-      entries: journal.entries.map((entry: { idx: number }) =>
-        entry.idx === 17 ? { ...entry, tag: "0017_unreviewed" } : entry,
+    expect(
+      isReviewedMigrationPlan(
+        {
+          ...journal,
+          entries: [
+            ...journal.entries,
+            {
+              idx: 19,
+              when: 1794611200001,
+              tag: "0019_unapproved_migration",
+              version: "7",
+              breakpoints: true,
+            },
+          ],
+        },
+        originalSql,
       ),
-    }, originalSql)).toBe(false);
-    expect(isReviewedMigrationPlan(
-      journal,
-      Buffer.concat([originalSql, Buffer.from("\\n-- unreviewed addition\\n")]),
-    )).toBe(false);
+    ).toBe(false);
+    expect(
+      isReviewedMigrationPlan(
+        {
+          ...journal,
+          entries: journal.entries.map((entry: { idx: number }) =>
+            entry.idx === 17 ? { ...entry, tag: "0017_unreviewed" } : entry,
+          ),
+        },
+        originalSql,
+      ),
+    ).toBe(false);
+    expect(
+      isReviewedMigrationPlan(
+        journal,
+        Buffer.concat([
+          originalSql,
+          Buffer.from("\\n-- unreviewed addition\\n"),
+        ]),
+      ),
+    ).toBe(false);
   });
 
   it("requires exactly the reviewed migration 0018 pending", () => {
@@ -111,8 +133,8 @@ describe("M2.15F read-only 0018 migration preflight", () => {
       prior.slice(0, -1),
       [...prior, times[17]],
       [...times, String(Number(times[18]) + 1)],
-      prior.map((x, i) => i === 10 ? "0" : x),
-      times.map((x, i) => i === 18 ? "0" : x),
+      prior.map((x, i) => (i === 10 ? "0" : x)),
+      times.map((x, i) => (i === 18 ? "0" : x)),
       [...times].reverse(),
     ];
     for (const appliedTimes of cases) {
@@ -195,7 +217,12 @@ describe("M2.15F read-only 0018 migration preflight", () => {
       { DISCORD_OUTBOUND_ENABLED: "true" },
       { LLM_PROVIDER: "openai" },
       { DATABASE_URL: environment.DATABASE_URL!.replace("55432", "5432") },
-      { DATABASE_URL: environment.DATABASE_URL!.replace("127.0.0.1", "example.org") },
+      {
+        DATABASE_URL: environment.DATABASE_URL!.replace(
+          "127.0.0.1",
+          "example.org",
+        ),
+      },
       { LW_GATEWAY_DEV_ROLE_PASSWORD: "bad" },
       { DATABASE_URL: "not a URL" },
     ];
@@ -242,9 +269,11 @@ describe("M2.15F read-only 0018 migration preflight", () => {
   });
 
   it("does not reveal SQL exceptions or attempt a write on failed DB reads", async () => {
-    const execute = vi.fn().mockRejectedValue(
-      Error("password=private database content confidential"),
-    );
+    const execute = vi
+      .fn()
+      .mockRejectedValue(
+        Error("*** database content confidential"),
+      );
     const transaction = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn({ execute }),
     );
