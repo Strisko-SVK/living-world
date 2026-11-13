@@ -63,6 +63,8 @@ import { createOfflineNpcWorkflow } from "../offline/npc-e2e.js";
 import {
   createOfflineSceneHandshake,
   type SceneHandshakeDependencies,
+  type SceneInteraction,
+  type SceneRequest,
 } from "../offline/npc-scene-handshake.js";
 import { createOfflinePersistedContinuation } from "../offline/npc-post-inbound.js";
 import { createOfflineGatewaySceneBridge } from "../offline/npc-scene-gateway.js";
@@ -2005,7 +2007,6 @@ describe("M2.13B real-PG offline scene handshake", () => {
     };
   }
 
-
   // The live Sentinel one-shot is already persisted. Exercise that distinct
   // path on a disposable PostgreSQL world with no second Gateway intake.
   async function persistedSetup() {
@@ -2021,13 +2022,14 @@ describe("M2.13B real-PG offline scene handshake", () => {
     const authorized = {
       ...ports,
       authorize: async (
-        interaction: import("../offline/npc-scene-handshake.js").SceneInteraction,
-        source: import("../offline/npc-scene-handshake.js").SceneRequest,
+        interaction: SceneInteraction,
+        source: SceneRequest,
       ) => {
         const check = await database.pool.query(
           "select 1 from discord_identities i " +
             "join discord_context_mappings m on m.world_id=i.world_id " +
-            "join interaction_contexts c on c.id=m.context_id and c.world_id=m.world_id " +
+            "join interaction_contexts c on c.id=m.context_id " +
+            "and c.world_id=m.world_id " +
             "where i.world_id=$1 and i.entity_id=$2 and i.discord_user_id=$3 " +
             "and i.mapping_type='player_character' and i.status='active' " +
             "and m.id=$4 and m.context_id=$5 and m.guild_id=$6 " +
@@ -2057,7 +2059,7 @@ describe("M2.13B real-PG offline scene handshake", () => {
     return { ...setupResult, resume, request };
   }
 
-  it("continues a persisted inbound via fake generation/ACK exactly once", async () => {
+  it("resumes persisted inbound with one fake ACK", async () => {
     const { target, harness, read, realIntake, resume, request } =
       await persistedSetup();
     expect(await resume(request)).toBe("delivered");
@@ -2076,10 +2078,11 @@ describe("M2.13B real-PG offline scene handshake", () => {
     expect(harness.transport.send).toHaveBeenCalledTimes(1);
   });
 
-  it("blocks persisted continuation when author mapping was revoked", async () => {
+  it("denies revoked player mapping", async () => {
     const { target, input, harness, resume, request } = await persistedSetup();
     await database.pool.query(
-      "update discord_identities set status='inactive', is_primary=false where world_id=$1 and discord_user_id=$2",
+      "update discord_identities set status='inactive', is_primary=false " +
+        "where world_id=$1 and discord_user_id=$2",
       [target.world, input.authorId],
     );
     expect(await resume(request)).toBe("authorization_denied");
@@ -2087,7 +2090,7 @@ describe("M2.13B real-PG offline scene handshake", () => {
     expect(harness.transport.send).not.toHaveBeenCalled();
   });
 
-  it("blocks persisted continuation after original Discord route revocation", async () => {
+  it("denies revoked original route", async () => {
     const { target, harness, resume, request } = await persistedSetup();
     await database.pool.query(
       "update discord_context_mappings set status='inactive' where id=$1",
@@ -2098,7 +2101,7 @@ describe("M2.13B real-PG offline scene handshake", () => {
     expect(harness.transport.send).not.toHaveBeenCalled();
   });
 
-  it("blocks persisted continuation after NPC presence revocation", async () => {
+  it("denies revoked local presence", async () => {
     const { target, harness, resume, request } = await persistedSetup();
     expect(
       await revokeLocalPresence(
