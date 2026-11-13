@@ -2,10 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { sql } from "drizzle-orm";
-import {
-  createDatabaseClient,
-  type DatabaseClient,
-} from "../db/client.js";
+import { createDatabaseClient, type DatabaseClient } from "../db/client.js";
 import { validateGatewayDevDatabaseEnv } from "./gateway-dev-db.js";
 
 // This file never imports the migrator. Running the preview cannot apply SQL.
@@ -17,11 +14,10 @@ const migrationTag = "0018_scene_speech_policies";
 // Pinning the complete prefix prevents an unnoticed new migration, a missing
 // earlier migration, or a different journal from being treated as safe.
 export const expectedMigrationTimes = [
-  1790249280186, 1790250202078, 1790668018203, 1790668371766,
-  1790668977094, 1790758274435, 1790758523569, 1790758802257,
-  1792431687825, 1792432355849, 1792434787205, 1792436374558,
-  1793220272404, 1793533567330, 1793534423374, 1793535587173,
-  1793647173083, 1793972100000, 1794611200000,
+  1790249280186, 1790250202078, 1790668018203, 1790668371766, 1790668977094,
+  1790758274435, 1790758523569, 1790758802257, 1792431687825, 1792432355849,
+  1792434787205, 1792436374558, 1793220272404, 1793533567330, 1793534423374,
+  1793535587173, 1793647173083, 1793972100000, 1794611200000,
 ] as const;
 
 // SHA-1 is the reviewed Git blob content ID of migration 0018 in merged
@@ -60,14 +56,16 @@ export function isReviewedMigrationPlan(
     !("entries" in rawJournal) ||
     !("dialect" in rawJournal) ||
     !("version" in rawJournal)
-  ) return false;
+  )
+    return false;
   const journal = rawJournal as Record<string, unknown>;
   if (
     journal.version !== "7" ||
     journal.dialect !== "postgresql" ||
     !Array.isArray(journal.entries) ||
     journal.entries.length !== expectedMigrationTimes.length
-  ) return false;
+  )
+    return false;
 
   const entries = journal.entries;
   for (let i = 0; i < expectedMigrationTimes.length; i += 1) {
@@ -80,7 +78,8 @@ export function isReviewedMigrationPlan(
       e.when !== expectedMigrationTimes[i] ||
       e.tag !== expectedMigrationTags[i] ||
       e.breakpoints !== true
-    ) return false;
+    )
+      return false;
   }
   const hash = createHash("sha1")
     .update("blob " + rawSql.byteLength + String.fromCharCode(0))
@@ -93,7 +92,12 @@ async function localMigrationPlanReviewed(): Promise<boolean> {
   try {
     const [journalBytes, sqlBytes] = await Promise.all([
       readFile(new URL("../db/migrations/meta/_journal.json", import.meta.url)),
-      readFile(new URL("../db/migrations/0018_scene_speech_policies.sql", import.meta.url)),
+      readFile(
+        new URL(
+          "../db/migrations/0018_scene_speech_policies.sql",
+          import.meta.url,
+        ),
+      ),
     ]);
     return isReviewedMigrationPlan(
       JSON.parse(journalBytes.toString("utf8")),
@@ -209,63 +213,71 @@ export async function inspectMigration0018Preflight(
     return await database.transaction(async (tx) => {
       await tx.execute(sql.raw("set transaction read only"));
       await tx.execute(sql.raw("set local statement_timeout = '8s'"));
-      const result = await tx.execute(sql.raw(
-        "select current_database() as database, current_user as db_role, " +
-          "current_setting('server_version_num')::int as version, " +
-          "(select pg_get_userbyid(datdba) from pg_database " +
-          " where datname=current_database()) as db_owner, " +
-          "(select rolsuper from pg_roles where rolname=current_user) as superuser, " +
-          "(select rolcreatedb from pg_roles where rolname=current_user) as createdb, " +
-          "(select rolcreaterole from pg_roles where rolname=current_user) as createrole",
-      ));
+      const result = await tx.execute(
+        sql.raw(
+          "select current_database() as database, current_user as db_role, " +
+            "current_setting('server_version_num')::int as version, " +
+            "(select pg_get_userbyid(datdba) from pg_database " +
+            " where datname=current_database()) as db_owner, " +
+            "(select rolsuper from pg_roles where rolname=current_user) as superuser, " +
+            "(select rolcreatedb from pg_roles where rolname=current_user) as createdb, " +
+            "(select rolcreaterole from pg_roles where rolname=current_user) as createrole",
+        ),
+      );
       const id = result.rows[0];
-      const identityValid = !!id &&
+      const identityValid =
+        !!id &&
         id.database === targetDatabase &&
         id.db_role === targetRole &&
         id.db_owner === targetRole &&
         typeof id.version === "number" &&
-        id.version >= 170000 && id.version < 180000 &&
+        id.version >= 170000 &&
+        id.version < 180000 &&
         (ciIdentity
-          ? id.superuser === true && id.createdb === true &&
+          ? id.superuser === true &&
+            id.createdb === true &&
             id.createrole === true
-          : id.superuser === false && id.createdb === false &&
+          : id.superuser === false &&
+            id.createdb === false &&
             id.createrole === false);
       // Stop immediately if connected to an unexpected database, even if
       // the endpoint string passed a previous environment check.
       if (!identityValid)
         return report("blocked", "database_identity_mismatch");
 
-      const schema = await tx.execute(sql.raw(
-        "select " +
-          "to_regclass('drizzle.__drizzle_migrations') is not null as migration_table, " +
-          "to_regclass('public.npc_scene_speech_policies') is not null as policy_table, " +
-          "exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid " +
-          "join pg_namespace n on n.oid=c.relnamespace " +
-          "where n.nspname='public' and c.relname='discord_context_mappings' " +
-          "and t.tgname='discord_route_revision' and t.tgenabled='O' " +
-          "and not t.tgisinternal) as route_trigger, " +
-          "exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid " +
-          "join pg_namespace n on n.oid=c.relnamespace " +
-          "where n.nspname='public' and c.relname='npc_scene_speech_policies' " +
-          "and t.tgname='scene_speech_policy_immutable' and t.tgenabled='O' " +
-          "and not t.tgisinternal) as policy_update_trigger, " +
-          "exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid " +
-          "join pg_namespace n on n.oid=c.relnamespace " +
-          "where n.nspname='public' and c.relname='npc_scene_speech_policies' " +
-          "and t.tgname='scene_speech_policy_no_truncate' and t.tgenabled='O' " +
-          "and not t.tgisinternal) as policy_truncate_trigger, " +
-          "(select count(*)=11 from pg_constraint pc " +
-          "where pc.conrelid=to_regclass('public.npc_scene_speech_policies') " +
-          "and pc.conname in ('npc_scene_speech_policies_pkey', " +
-          "'scene_speech_presence_scope_fk', 'scene_speech_issuer_world_fk', " +
-          "'scene_speech_role_host_only', 'scene_speech_decision_values', " +
-          "'scene_speech_activity_values', 'scene_speech_perception_values', " +
-          "'scene_speech_occupancy_values', 'scene_speech_positive_revision', " +
-          "'scene_speech_bounded_window', 'scene_speech_revocation_shape')) " +
-          "and to_regclass('public.scene_speech_one_open_policy') is not null " +
-          "and to_regclass('public.scene_speech_world_presence_idx') is not null " +
-          "as policy_objects_intact",
-      ));
+      const schema = await tx.execute(
+        sql.raw(
+          "select " +
+            "to_regclass('drizzle.__drizzle_migrations') is not null as migration_table, " +
+            "to_regclass('public.npc_scene_speech_policies') is not null as policy_table, " +
+            "exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid " +
+            "join pg_namespace n on n.oid=c.relnamespace " +
+            "where n.nspname='public' and c.relname='discord_context_mappings' " +
+            "and t.tgname='discord_route_revision' and t.tgenabled='O' " +
+            "and not t.tgisinternal) as route_trigger, " +
+            "exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid " +
+            "join pg_namespace n on n.oid=c.relnamespace " +
+            "where n.nspname='public' and c.relname='npc_scene_speech_policies' " +
+            "and t.tgname='scene_speech_policy_immutable' and t.tgenabled='O' " +
+            "and not t.tgisinternal) as policy_update_trigger, " +
+            "exists (select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid " +
+            "join pg_namespace n on n.oid=c.relnamespace " +
+            "where n.nspname='public' and c.relname='npc_scene_speech_policies' " +
+            "and t.tgname='scene_speech_policy_no_truncate' and t.tgenabled='O' " +
+            "and not t.tgisinternal) as policy_truncate_trigger, " +
+            "(select count(*)=11 from pg_constraint pc " +
+            "where pc.conrelid=to_regclass('public.npc_scene_speech_policies') " +
+            "and pc.conname in ('npc_scene_speech_policies_pkey', " +
+            "'scene_speech_presence_scope_fk', 'scene_speech_issuer_world_fk', " +
+            "'scene_speech_role_host_only', 'scene_speech_decision_values', " +
+            "'scene_speech_activity_values', 'scene_speech_perception_values', " +
+            "'scene_speech_occupancy_values', 'scene_speech_positive_revision', " +
+            "'scene_speech_bounded_window', 'scene_speech_revocation_shape')) " +
+            "and to_regclass('public.scene_speech_one_open_policy') is not null " +
+            "and to_regclass('public.scene_speech_world_presence_idx') is not null " +
+            "as policy_objects_intact",
+        ),
+      );
       const row = schema.rows[0];
       if (!row?.migration_table)
         return report("blocked", "migration_history_missing");
@@ -294,7 +306,9 @@ export async function inspectMigration0018Preflight(
   }
 }
 
-export function parseMigrationPreflightArguments(args: readonly string[]): void {
+export function parseMigrationPreflightArguments(
+  args: readonly string[],
+): void {
   if (args.length === 0 || (args.length === 1 && args[0] === "--preview"))
     return;
   throw new Error("Migration 0018 preflight accepts only --preview.");
@@ -328,9 +342,11 @@ if (
   void runMigration0018Preflight(process.argv.slice(2)).then(
     (preview) => console.info(JSON.stringify(preview)),
     () => {
-      console.error(JSON.stringify({
-        event: "npc_scene_policy_migration_preflight_failed_safely",
-      }));
+      console.error(
+        JSON.stringify({
+          event: "npc_scene_policy_migration_preflight_failed_safely",
+        }),
+      );
       process.exitCode = 1;
     },
   );
