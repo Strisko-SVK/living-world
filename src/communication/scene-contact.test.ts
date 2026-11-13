@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  assessSceneContact,
-  type SceneContactFacts,
-} from "./scene-contact.js";
+import { assessSceneContact, type SceneContactFacts } from "./scene-contact.js";
 
 const worldId = "11111111-1111-4111-8111-111111111111";
 const npcId = "22222222-2222-4222-8222-222222222222";
@@ -151,7 +148,10 @@ describe("M2.15C trusted scene contact advisory (never speech authorization)", (
       {
         changed: {
           ...base,
-          presence: { ...base.presence!, issuedAt: new Date(sourceEventMs + 1) },
+          presence: {
+            ...base.presence!,
+            issuedAt: new Date(sourceEventMs + 1),
+          },
         },
         reason: "presence_stale",
       },
@@ -212,13 +212,46 @@ describe("M2.15C trusted scene contact advisory (never speech authorization)", (
   it("distinguishes busy, unavailable, unaware and competing scenes", () => {
     const base = fixture();
     const cases = [
-      { facts: { ...base.facts, otherScene: "active" }, status: "not_available", reason: "scene_conflict" },
-      { facts: { ...base.facts, activity: "busy" }, status: "delayed", reason: "activity_busy" },
-      { facts: { ...base.facts, activity: "unavailable" }, status: "not_available", reason: "activity_unavailable" },
-      { facts: { ...base.facts, activity: "free", perception: "unaware" }, status: "not_available", reason: "perception_unaware" },
-      { facts: { ...base.facts, activity: "free" }, status: "needs_review", reason: "perception_unknown" },
-      { facts: { ...base.facts, activity: "free", perception: "aware" }, status: "needs_review", reason: "scene_conflict_unknown" },
-      { facts: { ...base.facts, activity: "free", perception: "aware", otherScene: "none" }, status: "candidate_needs_review", reason: "possible" },
+      {
+        facts: { ...base.facts, otherScene: "active" },
+        status: "not_available",
+        reason: "scene_conflict",
+      },
+      {
+        facts: { ...base.facts, activity: "busy" },
+        status: "delayed",
+        reason: "activity_busy",
+      },
+      {
+        facts: { ...base.facts, activity: "unavailable" },
+        status: "not_available",
+        reason: "activity_unavailable",
+      },
+      {
+        facts: { ...base.facts, activity: "free", perception: "unaware" },
+        status: "not_available",
+        reason: "perception_unaware",
+      },
+      {
+        facts: { ...base.facts, activity: "free" },
+        status: "needs_review",
+        reason: "perception_unknown",
+      },
+      {
+        facts: { ...base.facts, activity: "free", perception: "aware" },
+        status: "needs_review",
+        reason: "scene_conflict_unknown",
+      },
+      {
+        facts: {
+          ...base.facts,
+          activity: "free",
+          perception: "aware",
+          otherScene: "none",
+        },
+        status: "candidate_needs_review",
+        reason: "possible",
+      },
     ] as const;
     for (const testCase of cases) {
       const result = assessSceneContact({ ...base, facts: testCase.facts });
@@ -244,7 +277,15 @@ describe("M2.15C trusted scene contact advisory (never speech authorization)", (
       { ...base, sourceEventMs: -1 },
       { ...base, presence: { ...base.presence!, issuedAt: "yesterday" } },
       { ...base, facts: { ...base.facts, activity: "free", dmApproved: true } },
-      { ...base, facts: { ...base.facts, activity: "free", otherScene: "none", perception: "guessed" } },
+      {
+        ...base,
+        facts: {
+          ...base.facts,
+          activity: "free",
+          otherScene: "none",
+          perception: "guessed",
+        },
+      },
     ];
     for (const item of invalid) {
       const result = assessSceneContact(item);
