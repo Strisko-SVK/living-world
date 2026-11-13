@@ -271,9 +271,7 @@ describe("M2.15F read-only 0018 migration preflight", () => {
   it("does not reveal SQL exceptions or attempt a write on failed DB reads", async () => {
     const execute = vi
       .fn()
-      .mockRejectedValue(
-        Error("*** database content confidential"),
-      );
+      .mockRejectedValue(Error("*** database content confidential"));
     const transaction = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
       fn({ execute }),
     );
