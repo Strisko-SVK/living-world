@@ -55,7 +55,13 @@ export type NpcE2eInboundConfig = PilotInboundConfig & {
 };
 export type NpcE2eInboundFactsConfig = Pick<
   NpcE2eInboundConfig,
-  "scope" | "guildId" | "parentId" | "threadId" | "playerId" | "presenceId" | "botId"
+  | "scope"
+  | "guildId"
+  | "parentId"
+  | "threadId"
+  | "playerId"
+  | "presenceId"
+  | "botId"
 >;
 
 export function validateNpcE2eInboundEnvironment(
