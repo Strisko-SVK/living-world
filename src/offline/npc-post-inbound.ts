@@ -48,7 +48,10 @@ export type PersistedContinuationDependencies = Omit<
 > & {
   // Verify the original mapped author and current scene/route policy from DB.
   // This is not the caller asserting a DM or player role.
-  authorize(interaction: SceneInteraction, source: SceneRequest): Promise<boolean>;
+  authorize(
+    interaction: SceneInteraction,
+    source: SceneRequest,
+  ): Promise<boolean>;
   // Fixed-category, privacy-safe outcome only. No IDs, content or errors.
   diagnose?: (event: {
     event: "npc_post_inbound";
@@ -84,7 +87,9 @@ function matchesPersistedEvent(
 export function createOfflinePersistedContinuation(
   deps: PersistedContinuationDependencies,
 ) {
-  return async (input: PersistedContinuationRequest): Promise<PersistedContinuationResult> => {
+  return async (
+    input: PersistedContinuationRequest,
+  ): Promise<PersistedContinuationResult> => {
     const finish = (outcome: PersistedContinuationResult) => {
       try {
         deps.diagnose?.({ event: "npc_post_inbound", outcome });
