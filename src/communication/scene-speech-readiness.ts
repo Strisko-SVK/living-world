@@ -160,8 +160,6 @@ export function assessOfflineSpeechReadiness(
   return result("fake_rehearsal_candidate", "approval_valid");
 }
 
-export function isDirectSceneContact(
-  contact: SceneContactDecision,
-): boolean {
+export function isDirectSceneContact(contact: SceneContactDecision): boolean {
   return contact.path === "direct_in_scene";
 }
