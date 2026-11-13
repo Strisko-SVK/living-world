@@ -64,6 +64,7 @@ export type MigrationPreflightFacts = {
   policyTablePresent: boolean;
   policyUpdateTriggerInstalled: boolean;
   policyTruncateTriggerInstalled: boolean;
+  policyObjectsIntact: boolean;
 };
 
 // Fail-closed, side-effect-free classification. The local CLI can print only
@@ -95,7 +96,8 @@ export function classifyMigration0018Preflight(
   if (
     !f.policyTablePresent ||
     !f.policyUpdateTriggerInstalled ||
-    !f.policyTruncateTriggerInstalled
+    !f.policyTruncateTriggerInstalled ||
+    !f.policyObjectsIntact
   )
     return report("blocked", "schema_partial");
   return report("already_applied", "already_applied_verified");
@@ -105,9 +107,21 @@ type Database = DatabaseClient["db"];
 
 // The first SQL command *inside* the transaction is SET TRANSACTION READ ONLY.
 // No preview path calls a migrator, backup process, or writes fixture data.
+export type PreflightTestIdentity = {
+  database: "living_world_ci";
+  role: "living_world_ci";
+};
+
+// A separate identity is accepted ONLY in Vitest to validate against the
+// disposable CI PostgreSQL database. The owner CLI uses fixed DEV identity.
 export async function inspectMigration0018Preflight(
   database: Database,
+  ciIdentity?: PreflightTestIdentity,
 ): Promise<MigrationPreflight> {
+  if (ciIdentity && process.env.NODE_ENV !== "test")
+    return report("blocked", "unsafe_environment");
+  const targetDatabase = ciIdentity?.database ?? expectedDatabase;
+  const targetRole = ciIdentity?.role ?? expectedRole;
   try {
     return await database.transaction(async (tx) => {
       await tx.execute(sql.raw("set transaction read only"));
@@ -123,9 +137,9 @@ export async function inspectMigration0018Preflight(
       ));
       const id = result.rows[0];
       const identityValid = !!id &&
-        id.database === expectedDatabase &&
-        id.db_role === expectedRole &&
-        id.db_owner === expectedRole &&
+        id.database === targetDatabase &&
+        id.db_role === targetRole &&
+        id.db_owner === targetRole &&
         typeof id.version === "number" &&
         id.version >= 170000 && id.version < 180000 &&
         id.superuser === false &&
@@ -153,7 +167,18 @@ export async function inspectMigration0018Preflight(
           "join pg_namespace n on n.oid=c.relnamespace " +
           "where n.nspname='public' and c.relname='npc_scene_speech_policies' " +
           "and t.tgname='scene_speech_policy_no_truncate' and t.tgenabled='O' " +
-          "and not t.tgisinternal) as policy_truncate_trigger",
+          "and not t.tgisinternal) as policy_truncate_trigger, " +
+          "(select count(*)=11 from pg_constraint pc " +
+          "where pc.conrelid=to_regclass('public.npc_scene_speech_policies') " +
+          "and pc.conname in ('npc_scene_speech_policies_pkey', " +
+          "'scene_speech_presence_scope_fk', 'scene_speech_issuer_world_fk', " +
+          "'scene_speech_role_host_only', 'scene_speech_decision_values', " +
+          "'scene_speech_activity_values', 'scene_speech_perception_values', " +
+          "'scene_speech_occupancy_values', 'scene_speech_positive_revision', " +
+          "'scene_speech_bounded_window', 'scene_speech_revocation_shape')) " +
+          "and to_regclass('public.scene_speech_one_open_policy') is not null " +
+          "and to_regclass('public.scene_speech_world_presence_idx') is not null " +
+          "as policy_objects_intact",
       ));
       const row = schema.rows[0];
       if (!row?.migration_table)
@@ -175,6 +200,7 @@ export async function inspectMigration0018Preflight(
         policyTablePresent: row.policy_table === true,
         policyUpdateTriggerInstalled: row.policy_update_trigger === true,
         policyTruncateTriggerInstalled: row.policy_truncate_trigger === true,
+        policyObjectsIntact: row.policy_objects_intact === true,
       });
     });
   } catch {
