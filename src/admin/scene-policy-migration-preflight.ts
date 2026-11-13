@@ -83,7 +83,7 @@ export function isReviewedMigrationPlan(
     ) return false;
   }
   const hash = createHash("sha1")
-    .update(`blob ${rawSql.byteLength}\\0`)
+    .update("blob " + rawSql.byteLength + String.fromCharCode(0))
     .update(rawSql)
     .digest("hex");
   return hash === approvedMigrationBlob;
