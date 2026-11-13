@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "echo FMT_BEGIN_E1 && prettier docs/m2.15e-pg-host-scene-policy.md && echo FMT_BEGIN_E2 && prettier src/communication/scene-speech-policies.repository.ts && echo FMT_BEGIN_E3 && prettier src/db/discord-npc-e2e-inbound.db.test.ts && echo FMT_BEGIN_E4 && prettier src/db/migrations/meta/0018_snapshot.json && echo FMT_BEGIN_E5 && prettier src/db/schema/scene-speech-policies.ts && echo FMT_END_E && prettier --check .",
+    "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:db": "node --env-file=.env.example --env-file-if-exists=.env ./node_modules/vitest/vitest.mjs run --config vitest.db.config.ts",
