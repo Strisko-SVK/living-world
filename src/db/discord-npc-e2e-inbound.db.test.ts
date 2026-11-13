@@ -148,9 +148,11 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
         };
         const hostPolicy = await issueHostSceneSpeechPolicy(tx, hostRequest);
         expect(hostPolicy.status).toBe("created");
-        expect(await issueHostSceneSpeechPolicy(tx, hostRequest)).toMatchObject({
-          status: "already_open",
-        });
+        expect(await issueHostSceneSpeechPolicy(tx, hostRequest)).toMatchObject(
+          {
+            status: "already_open",
+          },
+        );
         const initialPolicy = await readTrustedHostScenePolicy(tx, {
           worldId,
           npcId,
