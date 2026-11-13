@@ -1,8 +1,10 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import {
   classifyMigration0018Preflight,
   expectedMigrationTimes,
   inspectMigration0018Preflight,
+  isReviewedMigrationPlan,
   parseMigrationPreflightArguments,
   runMigration0018Preflight,
   type MigrationPreflightFacts,
@@ -45,6 +47,39 @@ const isInert = (v: ReturnType<typeof classifyMigration0018Preflight>) => {
 };
 
 describe("M2.15F read-only 0018 migration preflight", () => {
+  it("pins the entire local migration journal and reviewed 0018 SQL", async () => {
+    const journal = JSON.parse(
+      await readFile(
+        new URL("../db/migrations/meta/_journal.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    const originalSql = await readFile(
+      new URL("../db/migrations/0018_scene_speech_policies.sql", import.meta.url),
+    );
+    expect(isReviewedMigrationPlan(journal, originalSql)).toBe(true);
+    expect(isReviewedMigrationPlan({
+      ...journal,
+      entries: [...journal.entries, {
+        idx: 19,
+        when: 1794611200001,
+        tag: "0019_unapproved_migration",
+        version: "7",
+        breakpoints: true,
+      }],
+    }, originalSql)).toBe(false);
+    expect(isReviewedMigrationPlan({
+      ...journal,
+      entries: journal.entries.map((entry: { idx: number }) =>
+        entry.idx === 17 ? { ...entry, tag: "0017_unreviewed" } : entry,
+      ),
+    }, originalSql)).toBe(false);
+    expect(isReviewedMigrationPlan(
+      journal,
+      Buffer.concat([originalSql, Buffer.from("\\n-- unreviewed addition\\n")]),
+    )).toBe(false);
+  });
+
   it("requires exactly the reviewed migration 0018 pending", () => {
     const v = classifyMigration0018Preflight(fixture());
     expect(v).toMatchObject({
