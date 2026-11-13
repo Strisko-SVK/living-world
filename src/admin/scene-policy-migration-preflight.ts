@@ -142,8 +142,11 @@ export async function inspectMigration0018Preflight(
         id.db_owner === targetRole &&
         typeof id.version === "number" &&
         id.version >= 170000 && id.version < 180000 &&
-        id.superuser === false &&
-        id.createdb === false && id.createrole === false;
+        (ciIdentity
+          ? id.superuser === true && id.createdb === true &&
+            id.createrole === true
+          : id.superuser === false && id.createdb === false &&
+            id.createrole === false);
       // Stop immediately if connected to an unexpected database, even if
       // the endpoint string passed a previous environment check.
       if (!identityValid)
