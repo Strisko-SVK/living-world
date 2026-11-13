@@ -14,9 +14,7 @@ const scope: OfflineSpeechRehearsalScope = {
 };
 const presenceId = "55555555-5555-4555-8555-555555555555";
 const eventTime = 1_800_000_000_000;
-const snowflake = String(
-  (BigInt(eventTime) - 1_420_070_400_000n) << 22n,
-);
+const snowflake = String((BigInt(eventTime) - 1_420_070_400_000n) << 22n);
 
 function snapshot(): OfflineSpeechReadinessRequest {
   return {
