@@ -30,7 +30,9 @@ describe("M2.15F real PostgreSQL 17 migration 0018 preflight", () => {
       client.db.transaction(async (tx) => {
         await tx.execute(sql.raw("set transaction read only"));
         await tx.execute(
-          sql.raw("create temporary table migration_0018_read_only_violation (n integer)"),
+          sql.raw(
+            "create temporary table migration_0018_read_only_violation (n integer)",
+          ),
         );
       }),
     ).rejects.toThrow();
