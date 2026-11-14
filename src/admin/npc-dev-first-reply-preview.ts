@@ -98,6 +98,7 @@ export function validateDevFirstReplyEnvironment(
   });
   if (
     !config.worldKey.startsWith("lw-dev-first-reply-") ||
+    config.guildId !== env.LW_DEV_GUILD_ID ||
     config.playerId === gatewaySmokeBotId ||
     new Set([
       config.guildId,
