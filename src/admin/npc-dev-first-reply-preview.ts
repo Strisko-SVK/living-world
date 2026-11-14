@@ -30,7 +30,11 @@ type Database = Omit<DatabaseClient["db"], "$client">;
 const snowflake = z.string().regex(/^[1-9][0-9]{16,19}$/u);
 const configSchema = z
   .object({
-    worldKey: z.string().regex(/^(?:lw-dev-first-reply-[a-z0-9-]{1,24}|npc-gateway-ci-[a-f0-9-]{36})$/u),
+    worldKey: z
+      .string()
+      .regex(
+        /^(?:lw-dev-first-reply-[a-z0-9-]{1,24}|npc-gateway-ci-[a-f0-9-]{36})$/u,
+      ),
     guildId: snowflake,
     channelId: snowflake,
     threadId: snowflake,
@@ -95,7 +99,12 @@ export function validateDevFirstReplyEnvironment(
   if (
     !config.worldKey.startsWith("lw-dev-first-reply-") ||
     config.playerId === gatewaySmokeBotId ||
-    new Set([config.guildId, config.channelId, config.threadId, config.playerId]).size !== 4 ||
+    new Set([
+      config.guildId,
+      config.channelId,
+      config.threadId,
+      config.playerId,
+    ]).size !== 4 ||
     [
       env.LW_DEV_PARENT_CHANNEL_ID,
       env.LW_DEV_THREAD_ID,
@@ -129,8 +138,10 @@ export async function inspectDevFirstReplyFacts(
   const config = parsed.data;
   if (
     !config.worldKey.startsWith("lw-dev-first-reply-") &&
-    !(process.env.NODE_ENV === "test" &&
-      config.worldKey.startsWith("npc-gateway-ci-"))
+    !(
+      process.env.NODE_ENV === "test" &&
+      config.worldKey.startsWith("npc-gateway-ci-")
+    )
   )
     return report("unsafe_environment");
   try {
@@ -172,17 +183,31 @@ export async function inspectDevFirstReplyFacts(
 
     const scope = { worldId: world.id };
     const [scenes, routes, records, outbox] = await Promise.all([
-      db.select().from(interactionContexts)
-        .where(eq(interactionContexts.worldId, scope.worldId)).limit(2),
-      db.select().from(discordContextMappings)
-        .where(and(
-          eq(discordContextMappings.guildId, config.guildId),
-          eq(discordContextMappings.channelId, config.channelId),
-        )).limit(2),
-      db.select().from(interactions)
-        .where(eq(interactions.worldId, scope.worldId)).limit(2),
-      db.select({ id: responseDeliveries.id }).from(responseDeliveries)
-        .where(eq(responseDeliveries.worldId, scope.worldId)).limit(1),
+      db
+        .select()
+        .from(interactionContexts)
+        .where(eq(interactionContexts.worldId, scope.worldId))
+        .limit(2),
+      db
+        .select()
+        .from(discordContextMappings)
+        .where(
+          and(
+            eq(discordContextMappings.guildId, config.guildId),
+            eq(discordContextMappings.channelId, config.channelId),
+          ),
+        )
+        .limit(2),
+      db
+        .select()
+        .from(interactions)
+        .where(eq(interactions.worldId, scope.worldId))
+        .limit(2),
+      db
+        .select({ id: responseDeliveries.id })
+        .from(responseDeliveries)
+        .where(eq(responseDeliveries.worldId, scope.worldId))
+        .limit(1),
     ]);
     if (outbox.length) return report("outbox_exists");
     if (scenes.length !== 1 || routes.length !== 1)
@@ -236,29 +261,39 @@ export async function inspectDevFirstReplyFacts(
     )
       return report("source_denied");
 
-    const trigger = parseDiscordTrigger(
-      source.requestText,
+    const trigger = parseDiscordTrigger(source.requestText, gatewaySmokeBotId, [
       gatewaySmokeBotId,
-      [gatewaySmokeBotId],
-    );
+    ]);
     if (!trigger) return report("source_denied");
     const [players, aliases, presences] = await Promise.all([
-      db.select().from(discordIdentities)
-        .where(eq(discordIdentities.worldId, world.id)).limit(2),
-      db.select({ npcId: entityAliases.entityId })
+      db
+        .select()
+        .from(discordIdentities)
+        .where(eq(discordIdentities.worldId, world.id))
+        .limit(2),
+      db
+        .select({ npcId: entityAliases.entityId })
         .from(entityAliases)
         .innerJoin(entities, eq(entityAliases.entityId, entities.id))
-        .where(and(
-          eq(entities.worldId, world.id),
-          eq(entities.status, "active"),
-          eq(entityAliases.normalizedAlias, trigger.alias),
-        )).limit(2),
-      db.select().from(localPresence)
-        .where(and(
-          eq(localPresence.worldId, world.id),
-          eq(localPresence.npcId, source.npcId),
-          eq(localPresence.contextId, scene.id),
-        )).limit(2),
+        .where(
+          and(
+            eq(entities.worldId, world.id),
+            eq(entities.status, "active"),
+            eq(entityAliases.normalizedAlias, trigger.alias),
+          ),
+        )
+        .limit(2),
+      db
+        .select()
+        .from(localPresence)
+        .where(
+          and(
+            eq(localPresence.worldId, world.id),
+            eq(localPresence.npcId, source.npcId),
+            eq(localPresence.contextId, scene.id),
+          ),
+        )
+        .limit(2),
     ]);
     if (
       players.length !== 1 ||
@@ -273,12 +308,16 @@ export async function inspectDevFirstReplyFacts(
     )
       return report("source_denied");
 
-    const player = await db.select({ type: entities.entityType, status: entities.status })
+    const player = await db
+      .select({ type: entities.entityType, status: entities.status })
       .from(entities)
-      .where(and(
-        eq(entities.id, source.speakerEntityId),
-        eq(entities.worldId, world.id),
-      )).limit(1);
+      .where(
+        and(
+          eq(entities.id, source.speakerEntityId),
+          eq(entities.worldId, world.id),
+        ),
+      )
+      .limit(1);
     if (
       player[0]?.type !== "player_character" ||
       player[0]?.status !== "active"
@@ -286,19 +325,27 @@ export async function inspectDevFirstReplyFacts(
       return report("source_denied");
 
     const presence = presences[0]!;
-    const policies = await db.select().from(sceneSpeechPolicies)
-      .where(and(
-        eq(sceneSpeechPolicies.worldId, world.id),
-        eq(sceneSpeechPolicies.npcId, source.npcId),
-        eq(sceneSpeechPolicies.contextId, scene.id),
-        eq(sceneSpeechPolicies.presenceId, presence.id),
-      )).limit(2);
+    const policies = await db
+      .select()
+      .from(sceneSpeechPolicies)
+      .where(
+        and(
+          eq(sceneSpeechPolicies.worldId, world.id),
+          eq(sceneSpeechPolicies.npcId, source.npcId),
+          eq(sceneSpeechPolicies.contextId, scene.id),
+          eq(sceneSpeechPolicies.presenceId, presence.id),
+        ),
+      )
+      .limit(2);
     if (policies.length !== 1) return report("policy_denied");
     const policy = policies[0]!;
     if (
       policy.issuerRole !== "host_operator" ||
       (policy.issuedBy !== "lw_gateway_dev" &&
-        !(process.env.NODE_ENV === "test" && policy.issuedBy === "living_world_ci")) ||
+        !(
+          process.env.NODE_ENV === "test" &&
+          policy.issuedBy === "living_world_ci"
+        )) ||
       policy.revokedAt !== null ||
       policy.expiresAt.getTime() <= nowMs ||
       policy.issuedAt.getTime() > sourceEventMs ||
@@ -306,15 +353,22 @@ export async function inspectDevFirstReplyFacts(
     )
       return report("policy_denied");
 
-    const issuer = await db.select({status: entities.status}).from(entities)
-      .where(and(
-        eq(entities.worldId, world.id),
-        eq(entities.id, policy.issuerEntityId),
-      )).limit(1);
+    const issuer = await db
+      .select({ status: entities.status })
+      .from(entities)
+      .where(
+        and(
+          eq(entities.worldId, world.id),
+          eq(entities.id, policy.issuerEntityId),
+        ),
+      )
+      .limit(1);
     if (issuer[0]?.status !== "active") return report("policy_denied");
 
     const facts = await readNpcSummonFacts(db, {
-      worldId: world.id, npcId: source.npcId, contextId: scene.id,
+      worldId: world.id,
+      npcId: source.npcId,
+      contextId: scene.id,
     });
     if (!facts) return report("policy_denied");
     const contact = assessSceneContact({
@@ -410,7 +464,8 @@ export async function runDevFirstReplyPreview(
         role.superuser !== false ||
         role.createdb !== false ||
         role.createrole !== false
-      ) return report("database_identity_denied");
+      )
+        return report("database_identity_denied");
       return inspectDevFirstReplyFacts(tx, config);
     });
   } catch {
