@@ -79,7 +79,9 @@ describe("M2.15O isolated Sentinel first reply provisioning", () => {
   });
 
   it("checks the exact local DB and rejects old/ambiguous routes", () => {
-    expect(validateFirstReplyProvisionEnvironment(environment, "prepare")).toEqual({
+    expect(
+      validateFirstReplyProvisionEnvironment(environment, "prepare"),
+    ).toEqual({
       route,
       userId: environment.LW_FIRST_REPLY_PLAYER_ID,
     });
@@ -128,11 +130,7 @@ describe("M2.15O isolated Sentinel first reply provisioning", () => {
   it("rejects unsafe arguments or environment before connecting", async () => {
     const connect = vi.fn();
     await expect(
-      runFirstReplyProvisionCommand(
-        ["--send"],
-        environment,
-        connect as never,
-      ),
+      runFirstReplyProvisionCommand(["--send"], environment, connect as never),
     ).rejects.toThrow();
     await expect(
       runFirstReplyProvisionCommand(
@@ -145,21 +143,24 @@ describe("M2.15O isolated Sentinel first reply provisioning", () => {
   });
 
   it("enforces an explicit PostgreSQL read-only transaction in preview", async () => {
-    const execute = vi.fn()
+    const execute = vi
+      .fn()
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({
-        rows: [{
-          database: "living_world_gateway_dev",
-          db_role: "lw_gateway_dev",
-          db_owner: "lw_gateway_dev",
-          version: 170000,
-          superuser: false,
-          createdb: false,
-          createrole: false,
-          consent_table: "npc_dev_first_reply_consents",
-        }],
+        rows: [
+          {
+            database: "living_world_gateway_dev",
+            db_role: "lw_gateway_dev",
+            db_owner: "lw_gateway_dev",
+            version: 170000,
+            superuser: false,
+            createdb: false,
+            createrole: false,
+            consent_table: "npc_dev_first_reply_consents",
+          },
+        ],
       })
       .mockResolvedValueOnce({
         rows: [
@@ -168,8 +169,9 @@ describe("M2.15O isolated Sentinel first reply provisioning", () => {
           { tgname: "scene_speech_policy_no_truncate" },
         ],
       });
-    const transaction = vi.fn().mockImplementation(
-      async (fn: (tx: unknown) => Promise<unknown>) =>
+    const transaction = vi
+      .fn()
+      .mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({
           execute,
           select: vi.fn().mockReturnValue({
@@ -180,7 +182,7 @@ describe("M2.15O isolated Sentinel first reply provisioning", () => {
             }),
           }),
         }),
-    );
+      );
     const close = vi.fn().mockResolvedValue(undefined);
     const connect = vi.fn().mockReturnValue({
       db: { transaction },
@@ -199,7 +201,9 @@ describe("M2.15O isolated Sentinel first reply provisioning", () => {
       readOnly: true,
     });
     expect(execute).toHaveBeenCalledTimes(5);
-    expect(String(execute.mock.calls[0]?.[0]?.queryChunks?.[0]?.value?.[0] ?? "")).toContain("set transaction read only");
+    expect(
+      String(execute.mock.calls[0]?.[0]?.queryChunks?.[0]?.value?.[0] ?? ""),
+    ).toContain("set transaction read only");
     expect(close).toHaveBeenCalledOnce();
   });
 });
