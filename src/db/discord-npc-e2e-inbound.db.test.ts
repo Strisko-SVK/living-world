@@ -60,6 +60,7 @@ import {
   type OfflineSpeechPhase,
 } from "../offline/npc-pg-speech-snapshot.js";
 import { createOfflineSpeechRehearsal } from "../offline/npc-speech-rehearsal.js";
+import { createOfflineFirstReplyPreflight, firstReplyText } from "../offline/npc-first-reply-preflight.js";
 
 const database = createDatabaseClient();
 afterAll(async () => database.close());
@@ -490,6 +491,93 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
                 phase,
               );
             expect(await gate("received")).not.toBeNull();
+
+            // M2.15J: one read-only dry-run against the same original,
+            // adapter-persisted event and PostgreSQL-scoped host approval.
+            // This advisor can NEVER authorize a real network send.
+            const firstReplyPreview = createOfflineFirstReplyPreflight(
+              async (candidate) => {
+                const verified = await readVerifiedOfflineSpeechPhaseSnapshot(
+                  savepoint,
+                  candidate,
+                  "received",
+                );
+                if (!verified) return null;
+                const original = await getInteraction(
+                  savepoint,
+                  candidate.worldId,
+                  candidate.npcId,
+                  candidate.interactionId,
+                );
+                if (
+                  !original ||
+                  original.status !== "received" ||
+                  original.communicationMode !== "unknown" ||
+                  original.sourceProvider !== "discord" ||
+                  !original.speakerEntityId ||
+                  !original.sourceMessageId ||
+                  !original.sourceGuildId ||
+                  !original.sourceChannelId ||
+                  !original.sourceThreadId ||
+                  !original.sourceMappingId ||
+                  original.localPresenceId !== null ||
+                  original.responseText !== null ||
+                  original.responseClaimId !== null
+                )
+                  return null;
+                const previous = await savepoint
+                  .select({ id: responseDeliveries.id })
+                  .from(responseDeliveries)
+                  .where(eq(responseDeliveries.interactionId, original.id));
+                return {
+                  speech: verified,
+                  source: {
+                    worldId: original.worldId,
+                    npcId: original.npcId,
+                    contextId: original.contextId,
+                    interactionId: original.id,
+                    speakerEntityId: original.speakerEntityId,
+                    sourceProvider: original.sourceProvider,
+                    sourceMessageId: original.sourceMessageId,
+                    sourceGuildId: original.sourceGuildId,
+                    sourceChannelId: original.sourceChannelId,
+                    sourceThreadId: original.sourceThreadId,
+                    sourceMappingId: original.sourceMappingId,
+                    status: original.status,
+                    communicationMode: original.communicationMode,
+                    localPresenceId: original.localPresenceId,
+                    responseText: original.responseText,
+                    responseClaimId: original.responseClaimId,
+                  },
+                  deliveryCount: previous.length,
+                };
+              },
+            );
+            const previewTarget = {
+              ...actionScope,
+              playerEntityId: beforePreview[0]!.speakerEntityId!,
+              sourceMessageId,
+              guildId: route.guildId,
+              parentId: route.channelId,
+              threadId: route.threadId,
+            };
+            expect(await firstReplyPreview(previewTarget)).toMatchObject({
+              status: "fake_only_candidate",
+              fixedReply: firstReplyText,
+              wouldSend: false,
+              canGenerate: false,
+              canSend: false,
+            });
+            expect(
+              await firstReplyPreview({
+                ...previewTarget,
+                threadId: route.channelId,
+              }),
+            ).toMatchObject({
+              status: "blocked",
+              reason: "source_mismatch",
+            });
+
             const prepared = await prepareLocalInteraction(savepoint, {
               ...actionScope,
               evidenceId: config.presenceId,
@@ -512,7 +600,7 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
               return {
                 ...result,
                 text: JSON.stringify({
-                  speech: "Acknowledged. Standing by.",
+                  speech: firstReplyText,
                 }),
               };
             };
@@ -679,6 +767,11 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
               }),
             ).toBe("ineligible");
             expect(transport.sent).toHaveLength(1);
+            expect(await firstReplyPreview(previewTarget)).toMatchObject({
+              status: "blocked",
+              reason: "unverified",
+              canSend: false,
+            });
             throw new RollbackTest();
           }),
         ).rejects.toThrow(RollbackTest);
