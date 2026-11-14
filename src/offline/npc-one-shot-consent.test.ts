@@ -137,17 +137,20 @@ describe("M2.15K disposable one-shot owner consent contract", () => {
     { ...target, sourceMessageId: "not-snowflake" },
     { ...target, contextId: "wrong" },
     { ...target, threadId: null },
-  ])("rejects malformed or forged input before any trusted read", async (input) => {
-    const f = fixture();
-    expect(await f.run(input)).toMatchObject({
-      outcome: "invalid_request",
-      canSend: false,
-    });
-    expect(f.preflight).not.toHaveBeenCalled();
-    expect(f.readTrustedConsent).not.toHaveBeenCalled();
-    expect(f.claimOnce).not.toHaveBeenCalled();
-    expect(f.fakeSend).not.toHaveBeenCalled();
-  });
+  ])(
+    "rejects malformed or forged input before any trusted read",
+    async (input) => {
+      const f = fixture();
+      expect(await f.run(input)).toMatchObject({
+        outcome: "invalid_request",
+        canSend: false,
+      });
+      expect(f.preflight).not.toHaveBeenCalled();
+      expect(f.readTrustedConsent).not.toHaveBeenCalled();
+      expect(f.claimOnce).not.toHaveBeenCalled();
+      expect(f.fakeSend).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ["worldId", { worldId: target.npcId }],
@@ -184,16 +187,19 @@ describe("M2.15K disposable one-shot owner consent contract", () => {
         expiresAt: new Date(eventMs + 60_000),
       },
     ],
-  ])("blocks %s consent without consuming an attempt", async (_label, value) => {
-    const f = fixture();
-    f.setConsent(value);
-    expect(await f.run(target)).toMatchObject({
-      outcome: "consent_denied",
-      canSend: false,
-    });
-    expect(f.claimOnce).not.toHaveBeenCalled();
-    expect(f.fakeSend).not.toHaveBeenCalled();
-  });
+  ])(
+    "blocks %s consent without consuming an attempt",
+    async (_label, value) => {
+      const f = fixture();
+      f.setConsent(value);
+      expect(await f.run(target)).toMatchObject({
+        outcome: "consent_denied",
+        canSend: false,
+      });
+      expect(f.claimOnce).not.toHaveBeenCalled();
+      expect(f.fakeSend).not.toHaveBeenCalled();
+    },
+  );
 
   it("blocks a future, aged-out or invalid source ID despite a valid-shaped consent", async () => {
     const f = fixture();
@@ -210,7 +216,9 @@ describe("M2.15K disposable one-shot owner consent contract", () => {
       });
     }
     const invalidSnowflake = "99999999999999999999";
-    expect(await f.run({ ...target, sourceMessageId: invalidSnowflake })).toMatchObject({
+    expect(
+      await f.run({ ...target, sourceMessageId: invalidSnowflake }),
+    ).toMatchObject({
       outcome: "consent_denied",
     });
     expect(f.fakeSend).not.toHaveBeenCalled();
@@ -218,7 +226,10 @@ describe("M2.15K disposable one-shot owner consent contract", () => {
 
   it("never accepts a preview as real authority or user-forged send permission", async () => {
     const f = fixture();
-    f.setPreview({ ...preview(), canSend: true } as unknown as FirstReplyPreview);
+    f.setPreview({
+      ...preview(),
+      canSend: true,
+    } as unknown as FirstReplyPreview);
     expect(await f.run(target)).toMatchObject({ outcome: "preflight_denied" });
     f.setPreview({ ...preview(), fixedReply: undefined });
     expect(await f.run(target)).toMatchObject({ outcome: "preflight_denied" });
