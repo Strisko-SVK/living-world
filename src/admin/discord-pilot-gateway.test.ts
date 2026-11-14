@@ -214,7 +214,9 @@ describe("Step 14 inbound-only pilot offline guards", () => {
       scope: { ...config.scope, worldKey: "lw-dev-first-reply-002" },
       threadType: ChannelType.PrivateThread,
     };
-    expect(pickPilotInboundMessage(privateMessage, privateConfig)).toMatchObject({
+    expect(
+      pickPilotInboundMessage(privateMessage, privateConfig),
+    ).toMatchObject({
       authorId: playerId,
       guildId,
       channelId: parentId,
