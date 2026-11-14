@@ -42,7 +42,7 @@ describe("M2.15O one-shot consent, sending fence and durable outcome on disposab
       db.db.transaction(async (tx) => {
         const route = freshRoute();
         // Migration 0019 accepts npc-gateway-ci-* on disposable CI only.
-        // The production CLI is always pinned to lw-dev-first-reply-001.
+        // The production CLI is pinned to the isolated fresh first-reply world.
         const key = "npc-gateway-ci-" + randomUUID();
         const prepared = await prepareFirstReplyFixture(
           tx,
