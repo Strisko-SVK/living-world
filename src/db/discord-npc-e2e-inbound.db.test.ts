@@ -351,7 +351,9 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
         };
         // M2.15L: an actual PostgreSQL-backed DEV-style read-only projection
         // recognizes the original inbound, policy, route and presence.
-        expect(await inspectDevFirstReplyFacts(tx, devPreviewTarget)).toMatchObject({
+        expect(
+          await inspectDevFirstReplyFacts(tx, devPreviewTarget),
+        ).toMatchObject({
           status: "fake_only_candidate",
           reason: "validated_fake_only",
           readOnly: true,
@@ -797,7 +799,9 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
               }),
             ).toBe("ineligible");
             expect(transport.sent).toHaveLength(1);
-            expect(await inspectDevFirstReplyFacts(savepoint, devPreviewTarget)).toMatchObject({
+            expect(
+              await inspectDevFirstReplyFacts(savepoint, devPreviewTarget),
+            ).toMatchObject({
               status: "blocked",
               reason: "outbox_exists",
               canSend: false,
