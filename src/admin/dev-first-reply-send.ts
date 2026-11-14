@@ -364,21 +364,6 @@ export async function finalizeFirstReplyAttempt(
           .update(interactions)
           .set({
             status: "responded",
-            communicationMode: "local",
-            localPresenceId:
-              (
-                await tx
-                  .select({ id: sceneSpeechPolicies.presenceId })
-                  .from(sceneSpeechPolicies)
-                  .where(
-                    and(
-                      eq(sceneSpeechPolicies.worldId, input.worldId),
-                      eq(sceneSpeechPolicies.npcId, input.npcId),
-                      eq(sceneSpeechPolicies.contextId, input.contextId),
-                    ),
-                  )
-                  .limit(1)
-              )[0]?.id ?? null,
             responseText: firstReplyText,
             responseMessageId: transport.messageId,
             responseClaimId: reserved.attemptId,
