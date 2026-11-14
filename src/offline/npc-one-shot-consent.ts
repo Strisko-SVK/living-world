@@ -49,10 +49,7 @@ export interface OfflinePilotDependencies {
   readTrustedConsent(target: FirstReplyRequest): Promise<unknown>;
   // Test double MUST atomically consume the first attempt before fakeSend.
   // An uncertain claim is never retried automatically.
-  claimOnce(
-    consentId: string,
-    target: FirstReplyRequest,
-  ): Promise<boolean>;
+  claimOnce(consentId: string, target: FirstReplyRequest): Promise<boolean>;
   fakeSend(input: {
     target: FirstReplyRequest;
     text: typeof firstReplyText;
