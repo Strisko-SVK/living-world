@@ -47,11 +47,30 @@ function offlineCiOnly(): boolean {
   );
 }
 
+// Strict phase-specific snapshots. Only tests may advance a synthetic
+// response. Never turn a read into permission for real model calls or sends.
+export type OfflineSpeechPhase =
+  "received" | "prepared" | "dispatched" | "responded" | "sending";
+
 export async function readVerifiedOfflineSpeechSnapshot(
   db: Database,
   raw: unknown,
 ): Promise<OfflineSpeechReadinessRequest | null> {
-  if (!offlineCiOnly()) return null;
+  return readVerifiedOfflineSpeechPhaseSnapshot(db, raw, "received");
+}
+
+export async function readVerifiedOfflineSpeechPhaseSnapshot(
+  db: Database,
+  raw: unknown,
+  phase: OfflineSpeechPhase,
+): Promise<OfflineSpeechReadinessRequest | null> {
+  if (
+    !offlineCiOnly() ||
+    !["received", "prepared", "dispatched", "responded", "sending"].includes(
+      phase,
+    )
+  )
+    return null;
   const parsed = scopeSchema.safeParse(raw);
   if (!parsed.success) return null;
   const scope = parsed.data;
@@ -106,14 +125,40 @@ export async function readVerifiedOfflineSpeechSnapshot(
           ),
         )
         .for("share");
+      if (!interaction) return null;
+      const noResponse =
+        interaction.responseText === null &&
+        interaction.responseMessageId === null;
+      const preparedPresence =
+        interaction.communicationMode === "local" &&
+        interaction.localPresenceId !== null;
+      const phaseMatches =
+        phase === "received"
+          ? interaction.status === "received" &&
+            interaction.communicationMode === "unknown" &&
+            interaction.localPresenceId === null &&
+            noResponse &&
+            interaction.responseClaimId === null
+          : phase === "prepared"
+            ? interaction.status === "received" &&
+              preparedPresence &&
+              noResponse &&
+              interaction.responseClaimId === null
+            : phase === "dispatched"
+              ? interaction.status === "processing" &&
+                preparedPresence &&
+                noResponse &&
+                interaction.responseClaimId !== null &&
+                interaction.responseGenerationOutcome === "dispatched"
+              : interaction.status === "responded" &&
+                preparedPresence &&
+                interaction.responseText !== null &&
+                interaction.responseClaimId !== null &&
+                interaction.responseGenerationOutcome === "responded" &&
+                interaction.responseMessageId === null;
+
       if (
-        !interaction ||
-        interaction.status !== "received" ||
-        interaction.communicationMode !== "unknown" ||
-        interaction.localPresenceId !== null ||
-        interaction.responseText !== null ||
-        interaction.responseClaimId !== null ||
-        interaction.responseMessageId !== null ||
+        !phaseMatches ||
         interaction.sourceProvider !== "discord" ||
         !interaction.sourceMessageId ||
         !interaction.sourceMappingId ||
@@ -242,11 +287,29 @@ export async function readVerifiedOfflineSpeechSnapshot(
         return null;
 
       const deliveries = await tx
-        .select({ id: responseDeliveries.id })
+        .select()
         .from(responseDeliveries)
         .where(eq(responseDeliveries.interactionId, scope.interactionId))
-        .limit(1);
-      if (deliveries.length) return null;
+        .limit(2);
+      // A send-boundary snapshot accepts exactly one first-flight outbox
+      // lease. A delivered, uncertain, retried or foreign-bound record is
+      // terminally unsafe for this one-shot fake test.
+      if (phase === "sending") {
+        const sending = deliveries[0];
+        if (
+          deliveries.length !== 1 ||
+          !sending ||
+          sending.worldId !== scope.worldId ||
+          sending.npcId !== scope.npcId ||
+          sending.contextId !== scope.contextId ||
+          sending.status !== "sending" ||
+          sending.attempts !== 1 ||
+          !sending.attemptId ||
+          !sending.dispatchedAt ||
+          sending.ackMessageId !== null
+        )
+          return null;
+      } else if (deliveries.length !== 0) return null;
 
       const facts = await readNpcSummonFacts(tx, scope);
       if (!facts) return null;
@@ -264,6 +327,8 @@ export async function readVerifiedOfflineSpeechSnapshot(
         .for("share");
       if (presences.length !== 1 || presences[0]!.revokedAt) return null;
       const presence = presences[0]!;
+      if (phase !== "received" && interaction.localPresenceId !== presence.id)
+        return null;
       // Strict contact policy accepts precisely these eight fields.
       // Raw local_presence rows also contain audit metadata (issuedBy,
       // revokedBy), which must not be smuggled into the trust contract.

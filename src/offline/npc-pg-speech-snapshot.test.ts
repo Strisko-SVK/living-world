@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readVerifiedOfflineSpeechSnapshot } from "./npc-pg-speech-snapshot.js";
+import {
+  readVerifiedOfflineSpeechSnapshot,
+  readVerifiedOfflineSpeechPhaseSnapshot,
+} from "./npc-pg-speech-snapshot.js";
 
 const scope = {
   worldId: "11111111-1111-4111-8111-111111111111",
@@ -62,6 +65,18 @@ describe("M2.15G PostgreSQL-bound offline speech safety", () => {
     ]) {
       expect(await readVerifiedOfflineSpeechSnapshot(f.db, raw)).toBeNull();
     }
+    expect(f.transaction).not.toHaveBeenCalled();
+  });
+
+  it("never accepts a caller-forged or unknown response phase", async () => {
+    safeTestMode();
+    const f = mockDb();
+    const phase = "send_without_claim" as Parameters<
+      typeof readVerifiedOfflineSpeechPhaseSnapshot
+    >[2];
+    expect(
+      await readVerifiedOfflineSpeechPhaseSnapshot(f.db, scope, phase),
+    ).toBeNull();
     expect(f.transaction).not.toHaveBeenCalled();
   });
 
