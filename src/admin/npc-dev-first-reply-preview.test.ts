@@ -19,7 +19,7 @@ const env: NodeJS.ProcessEnv = {
   DISCORD_ENABLED: "false",
   DISCORD_OUTBOUND_ENABLED: "false",
   LLM_PROVIDER: "disabled",
-  LW_FIRST_REPLY_WORLD_KEY: "lw-dev-first-reply-001",
+  LW_FIRST_REPLY_WORLD_KEY: "lw-dev-first-reply-002",
   LW_DEV_GUILD_ID: "1566911648701223053",
   LW_FIRST_REPLY_GUILD_ID: "1566911648701223053",
   LW_FIRST_REPLY_PARENT_ID: "1888888888888888881",
@@ -28,7 +28,7 @@ const env: NodeJS.ProcessEnv = {
 };
 
 const config: DevFirstReplyConfig = {
-  worldKey: "lw-dev-first-reply-001",
+  worldKey: "lw-dev-first-reply-002",
   guildId: "1566911648701223053",
   channelId: "1888888888888888881",
   threadId: "1888888888888888882",
