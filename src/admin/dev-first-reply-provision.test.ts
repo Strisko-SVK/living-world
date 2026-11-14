@@ -29,6 +29,8 @@ const environment: NodeJS.ProcessEnv = {
   LW_PILOT_THREAD_ID: "1777777777777777707",
   LW_NPC_E2E_PARENT_CHANNEL_ID: "1777777777777777708",
   LW_NPC_E2E_THREAD_ID: "1777777777777777709",
+  LW_FIRST_REPLY_PREVIOUS_PARENT_ID: "1777777777777777721",
+  LW_FIRST_REPLY_PREVIOUS_THREAD_ID: "1777777777777777722",
   LW_FIRST_REPLY_WORLD_KEY: firstReplyWorldKey,
   LW_FIRST_REPLY_GUILD_ID: route.guildId,
   LW_FIRST_REPLY_PARENT_ID: route.channelId,
@@ -100,6 +102,13 @@ describe("M2.15O isolated Sentinel first reply provisioning", () => {
       { LW_FIRST_REPLY_PLAYER_ID: route.threadId },
       { LW_FIRST_REPLY_PLAYER_ID: undefined },
       { LW_NPC_E2E_PARENT_CHANNEL_ID: undefined },
+      { LW_FIRST_REPLY_PREVIOUS_PARENT_ID: undefined },
+      {
+        LW_FIRST_REPLY_THREAD_ID: environment.LW_FIRST_REPLY_PREVIOUS_THREAD_ID,
+      },
+      {
+        LW_FIRST_REPLY_PARENT_ID: environment.LW_FIRST_REPLY_PREVIOUS_PARENT_ID,
+      },
       { DATABASE_URL: environment.DATABASE_URL?.replace("55432", "5432") },
       {
         DATABASE_URL: environment.DATABASE_URL?.replace(

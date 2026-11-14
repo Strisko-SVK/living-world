@@ -30,7 +30,9 @@ const env: NodeJS.ProcessEnv = {
   LW_PILOT_THREAD_ID: "1777777777777777714",
   LW_NPC_E2E_PARENT_CHANNEL_ID: "1777777777777777715",
   LW_NPC_E2E_THREAD_ID: "1777777777777777716",
-  LW_FIRST_REPLY_WORLD_KEY: "lw-dev-first-reply-001",
+  LW_FIRST_REPLY_PREVIOUS_PARENT_ID: "1777777777777777721",
+  LW_FIRST_REPLY_PREVIOUS_THREAD_ID: "1777777777777777722",
+  LW_FIRST_REPLY_WORLD_KEY: "lw-dev-first-reply-002",
   LW_FIRST_REPLY_GUILD_ID: route.guildId,
   LW_FIRST_REPLY_PARENT_ID: route.channelId,
   LW_FIRST_REPLY_THREAD_ID: route.threadId,
@@ -39,7 +41,7 @@ const env: NodeJS.ProcessEnv = {
 const flags = [
   "--connect",
   "--confirm-world",
-  "lw-dev-first-reply-001",
+  "lw-dev-first-reply-002",
   "--confirm-guild",
   route.guildId,
   "--confirm-parent",
@@ -74,7 +76,7 @@ describe("M2.15O new one-shot SDK inbound", () => {
       [...flags, "--send"],
       flags.map((v) => (v === route.threadId ? "1777777777777777790" : v)),
       flags.map((v) =>
-        v === "lw-dev-first-reply-001" ? "lw-dev-npc-e2e-001" : v,
+        v === "lw-dev-first-reply-002" ? "lw-dev-npc-e2e-001" : v,
       ),
     ])
       expect(() => parseFirstReplyInboundArguments(bad, route)).toThrow();
