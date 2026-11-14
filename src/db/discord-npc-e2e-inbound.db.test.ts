@@ -60,7 +60,10 @@ import {
   type OfflineSpeechPhase,
 } from "../offline/npc-pg-speech-snapshot.js";
 import { createOfflineSpeechRehearsal } from "../offline/npc-speech-rehearsal.js";
-import { createOfflineFirstReplyPreflight, firstReplyText } from "../offline/npc-first-reply-preflight.js";
+import {
+  createOfflineFirstReplyPreflight,
+  firstReplyText,
+} from "../offline/npc-first-reply-preflight.js";
 
 const database = createDatabaseClient();
 afterAll(async () => database.close());
