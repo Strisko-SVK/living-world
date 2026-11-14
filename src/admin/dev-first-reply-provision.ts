@@ -25,7 +25,7 @@ import { validateGatewayDevDatabaseEnv } from "./gateway-dev-db.js";
 
 // Only this NEW route/world may be provisioned by the owner-local entrypoint.
 // The old, consumed Sentinel E2E world and Discord routes are never modified.
-export const firstReplyWorldKey = "lw-dev-first-reply-001";
+export const firstReplyWorldKey = "lw-dev-first-reply-002";
 const databaseName = "living_world_gateway_dev";
 const databaseRole = "lw_gateway_dev";
 const snowflake = /^[1-9][0-9]{16,19}$/u;
@@ -56,6 +56,8 @@ export function validateFirstReplyProvisionEnvironment(
     env.LW_PILOT_THREAD_ID,
     env.LW_NPC_E2E_PARENT_CHANNEL_ID,
     env.LW_NPC_E2E_THREAD_ID,
+    env.LW_FIRST_REPLY_PREVIOUS_PARENT_ID,
+    env.LW_FIRST_REPLY_PREVIOUS_THREAD_ID,
   ];
   if (
     env.LW_FIRST_REPLY_WORLD_KEY !== firstReplyWorldKey ||
