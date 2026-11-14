@@ -7,9 +7,9 @@ import {
 } from "./dev-first-reply-provision.js";
 
 const route = {
-  guildId: "1566911648701223053",
-  channelId: "1571156338854076668",
-  threadId: "1571156531624288468",
+  guildId: "1777777777777777701",
+  channelId: "1777777777777777702",
+  threadId: "1777777777777777703",
 };
 const secret = "b".repeat(64);
 const environment: NodeJS.ProcessEnv = {
@@ -23,17 +23,17 @@ const environment: NodeJS.ProcessEnv = {
   DISCORD_OUTBOUND_ENABLED: "false",
   LLM_PROVIDER: "disabled",
   LW_DEV_GUILD_ID: route.guildId,
-  LW_DEV_PARENT_CHANNEL_ID: "1566913668795469934",
-  LW_DEV_THREAD_ID: "1566914038158459090",
-  LW_PILOT_PARENT_CHANNEL_ID: "1567604837309350030",
-  LW_PILOT_THREAD_ID: "1567605016603271208",
-  LW_NPC_E2E_PARENT_CHANNEL_ID: "1568349822505717830",
-  LW_NPC_E2E_THREAD_ID: "1568350458026786886",
+  LW_DEV_PARENT_CHANNEL_ID: "1777777777777777704",
+  LW_DEV_THREAD_ID: "1777777777777777705",
+  LW_PILOT_PARENT_CHANNEL_ID: "1777777777777777706",
+  LW_PILOT_THREAD_ID: "1777777777777777707",
+  LW_NPC_E2E_PARENT_CHANNEL_ID: "1777777777777777708",
+  LW_NPC_E2E_THREAD_ID: "1777777777777777709",
   LW_FIRST_REPLY_WORLD_KEY: firstReplyWorldKey,
   LW_FIRST_REPLY_GUILD_ID: route.guildId,
   LW_FIRST_REPLY_PARENT_ID: route.channelId,
   LW_FIRST_REPLY_THREAD_ID: route.threadId,
-  LW_FIRST_REPLY_PLAYER_ID: "1766911648701223053",
+  LW_FIRST_REPLY_PLAYER_ID: "1777777777777777710",
 };
 
 const confirmed = (mode: "prepare" | "disable") => [
@@ -69,7 +69,7 @@ describe("M2.15O isolated Sentinel first reply provisioning", () => {
       ["--disable"],
       confirmed("prepare").slice(0, -1),
       confirmed("prepare").map((x) =>
-        x === route.threadId ? "1568350458026786886" : x,
+        x === route.threadId ? "1777777777777777709" : x,
       ),
       confirmed("disable").map((x) =>
         x === "living_world_gateway_dev" ? "living_world" : x,
