@@ -70,6 +70,8 @@ export function parseFirstReplySendArguments(
     route.channelId,
     "--confirm-thread",
     route.threadId,
+    "--confirm-database",
+    "living_world_gateway_dev",
     "--confirm-source",
   ];
   const rest = ["--confirm-reply", firstReplyText, "--one-shot", "--no-retry"];
