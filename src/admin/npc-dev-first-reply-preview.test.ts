@@ -74,26 +74,30 @@ describe("M2.15L real DEV first-reply read-only operator preview", () => {
     { LW_FIRST_REPLY_THREAD_ID: env.LW_FIRST_REPLY_PARENT_ID },
     { LW_FIRST_REPLY_PLAYER_ID: "1566909036899868712" },
     { LW_FIRST_REPLY_THREAD_ID: "not-a-snowflake" },
-  ])("refuses dangerous environment before any database connection %#", async (change) => {
-    const connect = vi.fn();
-    const result = await runDevFirstReplyPreview(
-      ["--preview"],
-      { ...env, ...change },
-      connect as unknown as Parameters<typeof runDevFirstReplyPreview>[2],
-    );
-    expect(result).toMatchObject({
-      status: "blocked",
-      reason: "unsafe_environment",
-      readOnly: true,
-      canSend: false,
-    });
-    expect(connect).not.toHaveBeenCalled();
-  });
+  ])(
+    "refuses dangerous environment before any database connection %#",
+    async (change) => {
+      const connect = vi.fn();
+      const result = await runDevFirstReplyPreview(
+        ["--preview"],
+        { ...env, ...change },
+        connect as unknown as Parameters<typeof runDevFirstReplyPreview>[2],
+      );
+      expect(result).toMatchObject({
+        status: "blocked",
+        reason: "unsafe_environment",
+        readOnly: true,
+        canSend: false,
+      });
+      expect(connect).not.toHaveBeenCalled();
+    },
+  );
 
   it("sets the real PostgreSQL transaction read only before any identity query", async () => {
     const execute = vi.fn(async () => ({ rows: [] }));
-    const transaction = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
-      callback({ execute }),
+    const transaction = vi.fn(
+      async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback({ execute }),
     );
     const close = vi.fn(async () => undefined);
     const connect = vi.fn(() => ({ db: { transaction }, close }));
@@ -149,9 +153,9 @@ describe("M2.15L real DEV first-reply read-only operator preview", () => {
 
   it("sanitizes any PostgreSQL exception and never leaks private rows", async () => {
     const db = {
-      execute: vi.fn().mockRejectedValue(
-        Error("private SQL and Discord message contents"),
-      ),
+      execute: vi
+        .fn()
+        .mockRejectedValue(Error("private SQL and Discord message contents")),
     };
     const result = await inspectDevFirstReplyFacts(
       db as unknown as Parameters<typeof inspectDevFirstReplyFacts>[0],
@@ -169,7 +173,9 @@ describe("M2.15L real DEV first-reply read-only operator preview", () => {
 
   it("returns only fixed safety verdicts, never a send capability", async () => {
     const db = {
-      execute: vi.fn().mockResolvedValue({ rows: [{ now_ms: "1800000000000" }] }),
+      execute: vi
+        .fn()
+        .mockResolvedValue({ rows: [{ now_ms: "1800000000000" }] }),
     };
     const result = await inspectDevFirstReplyFacts(
       db as unknown as Parameters<typeof inspectDevFirstReplyFacts>[0],
