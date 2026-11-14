@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   classifyMigration0018Preflight,
   expectedMigrationTimes,
+  expectedMigration0019When,
   inspectMigration0018Preflight,
   isReviewedMigrationPlan,
   parseMigrationPreflightArguments,
@@ -48,7 +49,7 @@ const isInert = (v: ReturnType<typeof classifyMigration0018Preflight>) => {
 };
 
 describe("M2.15F read-only 0018 migration preflight", () => {
-  it("pins the entire local migration journal and reviewed 0018 SQL", async () => {
+  it("pins all reviewed migrations through 0019 and rejects drift", async () => {
     const journal = JSON.parse(
       await readFile(
         new URL("../db/migrations/meta/_journal.json", import.meta.url),
@@ -56,28 +57,41 @@ describe("M2.15F read-only 0018 migration preflight", () => {
       ),
     );
     const originalSql = await readFile(
-      new URL(
-        "../db/migrations/0018_scene_speech_policies.sql",
-        import.meta.url,
-      ),
+      new URL("../db/migrations/0018_scene_speech_policies.sql", import.meta.url),
     );
-    expect(isReviewedMigrationPlan(journal, originalSql)).toBe(true);
+    const appendedSql = await readFile(
+      new URL("../db/migrations/0019_dev_first_reply_consents.sql", import.meta.url),
+    );
+    expect(isReviewedMigrationPlan(journal, originalSql, appendedSql)).toBe(
+      true,
+    );
+    // An older 0018-only journal remains valid without a future migration.
+    expect(
+      isReviewedMigrationPlan(
+        { ...journal, entries: journal.entries.slice(0, 19) },
+        originalSql,
+      ),
+    ).toBe(true);
+    // An appended journal cannot be trusted unless its exact SQL is pinned.
+    expect(isReviewedMigrationPlan(journal, originalSql)).toBe(false);
+    expect(
+      isReviewedMigrationPlan(journal, originalSql, Buffer.concat([
+        appendedSql,
+        Buffer.from("\n-- unapproved append\n"),
+      ])),
+    ).toBe(false);
     expect(
       isReviewedMigrationPlan(
         {
           ...journal,
-          entries: [
-            ...journal.entries,
-            {
-              idx: 19,
-              when: 1794611200001,
-              tag: "0019_unapproved_migration",
-              version: "7",
-              breakpoints: true,
-            },
-          ],
+          entries: journal.entries.map((entry: { idx: number }) =>
+            entry.idx === 19
+              ? { ...entry, tag: "0019_unapproved_migration" }
+              : entry,
+          ),
         },
         originalSql,
+        appendedSql,
       ),
     ).toBe(false);
     expect(
@@ -89,6 +103,7 @@ describe("M2.15F read-only 0018 migration preflight", () => {
           ),
         },
         originalSql,
+        appendedSql,
       ),
     ).toBe(false);
     expect(
@@ -96,8 +111,9 @@ describe("M2.15F read-only 0018 migration preflight", () => {
         journal,
         Buffer.concat([
           originalSql,
-          Buffer.from("\\n-- unreviewed addition\\n"),
+          Buffer.from("\n-- unreviewed addition\n"),
         ]),
+        appendedSql,
       ),
     ).toBe(false);
   });
@@ -125,6 +141,19 @@ describe("M2.15F read-only 0018 migration preflight", () => {
       reason: "already_applied_verified",
     });
     isInert(v);
+    const after0019 = classifyMigration0018Preflight({
+      ...fixture(),
+      appliedTimes: [...times, String(expectedMigration0019When)],
+      policyTablePresent: true,
+      policyUpdateTriggerInstalled: true,
+      policyTruncateTriggerInstalled: true,
+      policyObjectsIntact: true,
+    });
+    expect(after0019).toMatchObject({
+      status: "already_applied",
+      reason: "already_applied_verified",
+    });
+    isInert(after0019);
   });
 
   it("fails closed for changed, duplicated, skipped or future migration history", () => {
