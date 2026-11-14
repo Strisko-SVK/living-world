@@ -478,7 +478,15 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
                   console.info("M2_15H_GUARD_DISPATCHED_DENIED");
                   throw Error("host scene policy not valid at generation");
                 }
-                return fake.generate(request, signal);
+                const result = await fake.generate(request, signal);
+                return {
+                  ...result,
+                  // The real NPC speech validator requires a strict JSON
+                  // shape. The shared fakeProvider returns plain text.
+                  text: JSON.stringify({
+                    speech: "Acknowledged. Standing by.",
+                  }),
+                };
               },
             };
             const transport = fakeDeliveryTransport(new Set([worldId]));
