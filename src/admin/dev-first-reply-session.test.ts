@@ -78,9 +78,7 @@ async function operatorConfig() {
   };
 }
 afterEach(async () => {
-  await Promise.all(
-    dirs.splice(0).map((dir) => rm(dir, { recursive: true })),
-  );
+  await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true })));
 });
 
 describe("M2.15P one-session, no-retry first-reply cutover", () => {
@@ -94,9 +92,7 @@ describe("M2.15P one-session, no-retry first-reply cutover", () => {
       flags.map((x) =>
         x === firstReplyWorldKey ? "lw-dev-first-reply-001" : x,
       ),
-      flags.map((x) =>
-        x === route.threadId ? "1777777777777777799" : x,
-      ),
+      flags.map((x) => (x === route.threadId ? "1777777777777777799" : x)),
       flags.map((x) => (x === "--no-retry" ? "--retry" : x)),
     ])
       expect(() => parseFirstReplySessionArguments(bad, route)).toThrow();
