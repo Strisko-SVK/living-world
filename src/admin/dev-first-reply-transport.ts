@@ -14,7 +14,7 @@ const targetSchema = z.object({
   attemptId: z.string().uuid(),
 }).strict();
 export type FirstReplySendTarget = z.infer<typeof targetSchema>;
-export type FirstReplySendOutcome = "blocked" | "acknowledged" | "uncertain";
+export type FirstReplySendOutcome = "blocked" | "prechecked" | "acknowledged" | "uncertain";
 export type FirstReplySendResult = {
   event: "npc_first_reply_transport";
   status: FirstReplySendOutcome;
@@ -74,6 +74,7 @@ export async function postFirstReplyOnce(
     token: string;
     revalidateAtBoundary: () => Promise<boolean>;
     timeoutMs?: number;
+    dryRun?: true;
   },
 ): Promise<FirstReplySendResult> {
   const parsed = targetSchema.safeParse(raw);
@@ -148,7 +149,7 @@ export async function postFirstReplyOnce(
     return reply("blocked",0);
   }
 
-  // From this line on, even a 429/500, failed POST or lost ACK is terminal.
+  // A separately authenticated preclaim dry-run verifies current Discord ACL\n  // and exact original message without consuming the one-shot or POSTing.\n  if (deps.dryRun === true) return reply("prechecked",0);\n\n  // From this line on, even a 429/500, failed POST or lost ACK is terminal.
   // The caller MUST durably claim the exact event before invoking this adapter.
   const url = api+"/channels/"+t.threadId+"/messages";
   const nonce = t.attemptId.replaceAll("-","").slice(0,24);
