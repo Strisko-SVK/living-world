@@ -85,9 +85,7 @@ describe("M2.15O fresh first reply fixture on disposable PostgreSQL", () => {
           .from(sceneSpeechPolicies)
           .where(eq(sceneSpeechPolicies.worldId, worldId));
         expect(policy).toHaveLength(1);
-        expect(policy[0]?.issuedAt.getTime()).toBeLessThanOrEqual(
-          Date.now(),
-        );
+        expect(policy[0]?.issuedAt.getTime()).toBeLessThanOrEqual(Date.now());
         expect(policy[0]).toMatchObject({
           presenceId: presence[0]?.id,
           decision: "allow_direct_speech",
@@ -103,11 +101,15 @@ describe("M2.15O fresh first reply fixture on disposable PostgreSQL", () => {
         expect(audits).toHaveLength(1);
         expect(audits[0]?.targetPolicy).toBe("mapped_players");
         expect(
-          await tx.select().from(interactions)
+          await tx
+            .select()
+            .from(interactions)
             .where(eq(interactions.worldId, worldId)),
         ).toHaveLength(0);
         expect(
-          await tx.select().from(responseDeliveries)
+          await tx
+            .select()
+            .from(responseDeliveries)
             .where(eq(responseDeliveries.worldId, worldId)),
         ).toHaveLength(0);
 
@@ -117,14 +119,17 @@ describe("M2.15O fresh first reply fixture on disposable PostgreSQL", () => {
 
         const disabled = await disableFirstReplyFixture(tx, route);
         expect(disabled.status).toBe("disabled");
-        expect((await disableFirstReplyFixture(tx, route)).status)
-          .toBe("already_disabled");
+        expect((await disableFirstReplyFixture(tx, route)).status).toBe(
+          "already_disabled",
+        );
 
-        const [stoppedScene] = await tx.select()
+        const [stoppedScene] = await tx
+          .select()
           .from(interactionContexts)
           .where(eq(interactionContexts.worldId, worldId));
         expect(stoppedScene?.npcIntakePolicy).toBe("disabled");
-        const [revoked] = await tx.select()
+        const [revoked] = await tx
+          .select()
           .from(sceneSpeechPolicies)
           .where(eq(sceneSpeechPolicies.worldId, worldId));
         expect(revoked?.revokedAt).not.toBeNull();
