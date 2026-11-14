@@ -510,18 +510,21 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
                 scope.npcId,
                 scope.interactionId,
               );
-            const response = createNpcResponseOrchestrator({
-              read,
-              build: createNpcContextBuilder(savepoint),
-              store: createResponseStore(savepoint),
-              generate: createTextGenerator(
-                enabledConfig(),
-                provider,
-                fakeBudget(),
-              ),
-            }, (event) => {
-              console.info("M2_15H_RESPONSE_OUTCOME_" + event.outcome);
-            });
+            const response = createNpcResponseOrchestrator(
+              {
+                read,
+                build: createNpcContextBuilder(savepoint),
+                store: createResponseStore(savepoint),
+                generate: createTextGenerator(
+                  enabledConfig(),
+                  provider,
+                  fakeBudget(),
+                ),
+              },
+              (event) => {
+                console.info("M2_15H_RESPONSE_OUTCOME_" + event.outcome);
+              },
+            );
             const repository = createDeliveryRepository(savepoint);
             const dispatch = createDeliveryDispatcher(
               repository,
