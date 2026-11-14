@@ -413,15 +413,48 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
         // M2.15G revocation/integrity assertions proceed.
         await expect(
           tx.transaction(async (savepoint) => {
+            // In this outer rollback-only fixture, PostgreSQL now() is the
+            // OUTER transaction start. The first stored intake has an early
+            // created_at, so it cannot pass the independent M2.9 receipt
+            // window. Insert a second SYNTHETIC test interaction with its
+            // actual receipt clock, preserving source route/author bindings.
+            // Never claim this row came from a live Discord SDK event.
+            const actionTime = Date.now();
+            const testMessageId = (
+              (BigInt(actionTime - 10) - 1420070400000n) << 22n
+            ).toString();
+            const [synthetic] = await savepoint
+              .insert(interactions)
+              .values({
+                id: randomUUID(),
+                worldId,
+                contextId,
+                npcId,
+                speakerEntityId: beforePreview[0]!.speakerEntityId,
+                interactionType: beforePreview[0]!.interactionType,
+                communicationMode: "unknown",
+                requestText,
+                sourceProvider: "discord",
+                sourceMessageId: testMessageId,
+                sourceGuildId: route.guildId,
+                sourceChannelId: route.channelId,
+                sourceThreadId: route.threadId,
+                sourceMappingId: beforePreview[0]!.sourceMappingId,
+                traceId: randomUUID(),
+                createdAt: new Date(actionTime),
+              })
+              .returning({ id: interactions.id });
+            expect(synthetic).toBeTruthy();
+            const actionScope = { ...speechScope, interactionId: synthetic!.id };
             const gate = (phase: OfflineSpeechPhase) =>
               readVerifiedOfflineSpeechPhaseSnapshot(
                 savepoint,
-                speechScope,
+                actionScope,
                 phase,
               );
             expect(await gate("received")).not.toBeNull();
             const prepared = await prepareLocalInteraction(savepoint, {
-              ...speechScope,
+              ...actionScope,
               evidenceId: config.presenceId,
             });
             expect(prepared.status).toBe("prepared");
@@ -494,12 +527,12 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
                 }
               },
             });
-            expect(await run(speechScope)).toBe("delivered");
+            expect(await run(actionScope)).toBe("delivered");
             expect(transport.sent).toHaveLength(1);
             expect(transport.sent[0]!.payload.scope).toMatchObject({
               worldId,
               npcId,
-              interactionId: speechScope.interactionId,
+              interactionId: actionScope.interactionId,
             });
             expect(transport.sent[0]!.payload.destination).toMatchObject({
               provider: "discord",
@@ -513,7 +546,7 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
                 .from(responseDeliveries)
                 .where(eq(responseDeliveries.worldId, worldId)),
             ).toEqual([{ status: "delivered" }]);
-            expect(await run(speechScope)).toBe("ineligible");
+            expect(await run(actionScope)).toBe("ineligible");
             expect(transport.sent).toHaveLength(1);
             throw new RollbackTest();
           }),
