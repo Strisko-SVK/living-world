@@ -161,12 +161,7 @@ async function validatedOriginal(tx: Database, t: Target): Promise<boolean> {
     preview.reason !== "validated_fake_only" ||
     preview.canSend !== false
   )
-    {
-      if (process.env.NODE_ENV === "test") {
-        console.info(JSON.stringify({event:"npc_first_reply_ci_issue_diagnostic",reason:preview.reason}));
-      }
-      return false;
-    }
+    return false;
 
   const [operator] = await tx
     .select({ id: entities.id, status: entities.status })
@@ -232,9 +227,6 @@ export async function issueDevOneShotConsent(
       return row ? output("issued", row.id) : output("already_reserved");
     });
   } catch {
-    if (process.env.NODE_ENV === "test") {
-      console.info(JSON.stringify({event:"npc_first_reply_ci_issue_diagnostic",reason:"database_exception"}));
-    }
     // A DB failure cannot become authority to send or leak stored content.
     return output("blocked");
   }
