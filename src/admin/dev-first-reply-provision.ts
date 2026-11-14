@@ -170,7 +170,17 @@ export async function prepareFirstReplyFixture(
   db: Database,
   route: DevFixtureRoute,
   userId: string,
+  worldKey = firstReplyWorldKey,
 ): Promise<FirstReplyProvisionResult> {
+  // The reviewed migration 0019 intentionally accepts synthetic CI keys
+  // in living_world_ci, but ONLY lw-dev-first-reply-* in owner DEV.
+  // CLI does not expose this argument; no operator may change owner world.
+  if (
+    worldKey !== firstReplyWorldKey &&
+    !(process.env.NODE_ENV === "test" &&
+      /^npc-gateway-ci-[a-f0-9-]{36}$/u.test(worldKey))
+  )
+    throw Error("Only the fixed first-reply DEV world is allowed.");
   if (
     !snowflake.test(userId) ||
     userId === gatewaySmokeBotId ||
@@ -181,7 +191,7 @@ export async function prepareFirstReplyFixture(
     const [existing] = await tx
       .select({ id: worlds.id })
       .from(worlds)
-      .where(eq(worlds.key, firstReplyWorldKey))
+      .where(eq(worlds.key, worldKey))
       .limit(1);
     if (existing)
       throw new Error(
@@ -192,7 +202,7 @@ export async function prepareFirstReplyFixture(
       tx,
       route,
       true,
-      firstReplyWorldKey,
+      worldKey,
     );
     if (
       created.status !== "created" ||
@@ -215,7 +225,7 @@ export async function prepareFirstReplyFixture(
       throw new Error("First-reply scene must start default-deny.");
 
     const enrolled = await reconcilePilotPlayer(tx, {
-      worldKey: firstReplyWorldKey,
+      worldKey,
       route,
       userId,
       mode: "enroll",
@@ -243,7 +253,7 @@ export async function prepareFirstReplyFixture(
       throw new Error("Sentinel local presence setup failed.");
 
     const policy = await reconcilePilotPolicy(tx, {
-      worldKey: firstReplyWorldKey,
+      worldKey,
       route,
       mode: "enable",
       confirmedContextId: ids.contextId,
