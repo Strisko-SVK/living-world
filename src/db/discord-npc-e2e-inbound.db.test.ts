@@ -474,10 +474,8 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
               ...fake,
               generate: async (request, signal) => {
                 // Checked at the actual fake model-call boundary.
-                if (!(await gate("dispatched"))) {
-                  console.info("M2_15H_GUARD_DISPATCHED_DENIED");
+                if (!(await gate("dispatched")))
                   throw Error("host scene policy not valid at generation");
-                }
                 const result = await fake.generate(request, signal);
                 return {
                   ...result,
@@ -510,21 +508,16 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
                 scope.npcId,
                 scope.interactionId,
               );
-            const response = createNpcResponseOrchestrator(
-              {
-                read,
-                build: createNpcContextBuilder(savepoint),
-                store: createResponseStore(savepoint),
-                generate: createTextGenerator(
-                  enabledConfig(),
-                  provider,
-                  fakeBudget(),
-                ),
-              },
-              (event) => {
-                console.info("M2_15H_RESPONSE_OUTCOME_" + event.outcome);
-              },
-            );
+            const response = createNpcResponseOrchestrator({
+              read,
+              build: createNpcContextBuilder(savepoint),
+              store: createResponseStore(savepoint),
+              generate: createTextGenerator(
+                enabledConfig(),
+                provider,
+                fakeBudget(),
+              ),
+            });
             const repository = createDeliveryRepository(savepoint);
             const dispatch = createDeliveryDispatcher(
               repository,
