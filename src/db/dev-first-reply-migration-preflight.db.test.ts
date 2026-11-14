@@ -1,9 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { createDatabaseClient } from "./client.js";
-import {
-  inspectMigration0019Preflight,
-} from "../admin/dev-first-reply-migration-preflight.js";
+import { inspectMigration0019Preflight } from "../admin/dev-first-reply-migration-preflight.js";
 
 const client = createDatabaseClient();
 afterAll(async () => client.close());
@@ -31,9 +29,11 @@ describe("M2.15N migration 0019 read-only PostgreSQL 17 inspection", () => {
     await expect(
       client.db.transaction(async (tx) => {
         await tx.execute(sql.raw("set transaction read only"));
-        await tx.execute(sql.raw(
-          "create temporary table migration_0019_forbidden_write (id uuid)",
-        ));
+        await tx.execute(
+          sql.raw(
+            "create temporary table migration_0019_forbidden_write (id uuid)",
+          ),
+        );
       }),
     ).rejects.toThrow();
   });
