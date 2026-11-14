@@ -527,7 +527,7 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
                 }
               },
             });
-            expect(await run(actionScope)).toBe("delivered");
+            expect(await run({ worldId, npcId, interactionId: actionScope.interactionId })).toBe("delivered");
             expect(transport.sent).toHaveLength(1);
             expect(transport.sent[0]!.payload.scope).toMatchObject({
               worldId,
@@ -546,7 +546,7 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
                 .from(responseDeliveries)
                 .where(eq(responseDeliveries.worldId, worldId)),
             ).toEqual([{ status: "delivered" }]);
-            expect(await run(actionScope)).toBe("ineligible");
+            expect(await run({ worldId, npcId, interactionId: actionScope.interactionId })).toBe("ineligible");
             expect(transport.sent).toHaveLength(1);
             throw new RollbackTest();
           }),
