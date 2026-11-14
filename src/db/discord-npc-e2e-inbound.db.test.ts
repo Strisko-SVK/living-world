@@ -499,35 +499,102 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
             expect(await gate("prepared")).not.toBeNull();
 
             const fake = fakeProvider();
+            let fakeModelCalls = 0;
+            const guardedGenerate = async (
+              request: Parameters<TextProvider["generate"]>[0],
+              signal: Parameters<TextProvider["generate"]>[1],
+              check: () => ReturnType<typeof gate>,
+            ) => {
+              if (!(await check()))
+                throw Error("host scene policy not valid at generation");
+              fakeModelCalls++;
+              const result = await fake.generate(request, signal);
+              return {
+                ...result,
+                text: JSON.stringify({
+                  speech: "Acknowledged. Standing by.",
+                }),
+              };
+            };
             const provider: TextProvider = {
               ...fake,
               generate: async (request, signal) => {
-                // Checked at the actual fake model-call boundary.
-                if (!(await gate("dispatched")))
-                  throw Error("host scene policy not valid at generation");
-                const result = await fake.generate(request, signal);
-                return {
-                  ...result,
-                  // The real NPC speech validator requires a strict JSON
-                  // shape. The shared fakeProvider returns plain text.
-                  text: JSON.stringify({
-                    speech: "Acknowledged. Standing by.",
+                // A route change between dispatch and model invocation must
+                // deny generation. Undo it before the positive fake attempt.
+                await expect(
+                  savepoint.transaction(async (race) => {
+                    await race
+                      .update(discordContextMappings)
+                      .set({
+                        updatedAt: sql`clock_timestamp() + interval '5 seconds'`,
+                      })
+                      .where(eq(discordContextMappings.worldId, worldId));
+                    await expect(
+                      guardedGenerate(request, signal, () =>
+                        readVerifiedOfflineSpeechPhaseSnapshot(
+                          race,
+                          actionScope,
+                          "dispatched",
+                        ),
+                      ),
+                    ).rejects.toThrow(
+                      "host scene policy not valid at generation",
+                    );
+                    expect(fakeModelCalls).toBe(0);
+                    throw new RollbackTest();
                   }),
-                };
+                ).rejects.toThrow(RollbackTest);
+                return guardedGenerate(request, signal, () =>
+                  gate("dispatched"),
+                );
               },
             };
             const transport = fakeDeliveryTransport(new Set([worldId]));
+            const guardedSend = async (
+              request: Parameters<DeliveryTransport["send"]>[0],
+              check: () => ReturnType<typeof gate>,
+            ) => {
+              if (!(await check()))
+                return {
+                  kind: "not_sent" as const,
+                  retryable: false,
+                  retryAfterMs: 0,
+                };
+              return transport.send(request);
+            };
             const guardedTransport: DeliveryTransport = {
               send: async (request) => {
-                // Recheck the current host decision immediately before the
-                // fake transport call, AFTER delivery preflight/claim.
-                if (!(await gate("sending")))
-                  return {
-                    kind: "not_sent",
-                    retryable: false,
-                    retryAfterMs: 0,
-                  };
-                return transport.send(request);
+                // Revoking host approval after outbox preflight must prevent
+                // the fake network boundary. Never retry an uncertain send.
+                await expect(
+                  savepoint.transaction(async (race) => {
+                    expect(
+                      await revokeHostSceneSpeechPolicy(race, {
+                        worldId,
+                        npcId,
+                        contextId,
+                        presenceId: config.presenceId,
+                      }),
+                    ).toMatchObject({ status: "revoked" });
+                    expect(
+                      await guardedSend(request, () =>
+                        readVerifiedOfflineSpeechPhaseSnapshot(
+                          race,
+                          actionScope,
+                          "sending",
+                        ),
+                      ),
+                    ).toMatchObject({
+                      kind: "not_sent",
+                      retryable: false,
+                    });
+                    expect(transport.sent).toHaveLength(0);
+                    throw new RollbackTest();
+                  }),
+                ).rejects.toThrow(RollbackTest);
+                // Approval still holds only because the negative probe
+                // rolled back. Check again immediately before fake send.
+                return guardedSend(request, () => gate("sending"));
               },
             };
             const read = (scope: ResponseScope) =>
