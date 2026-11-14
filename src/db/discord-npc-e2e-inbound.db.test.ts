@@ -32,6 +32,9 @@ import {
 } from "../communication/scene-speech-policies.repository.js";
 import { assessOfflineSpeechReadiness } from "../communication/scene-speech-readiness.js";
 import { sceneSpeechPolicies } from "./schema/scene-speech-policies.js";
+import { discordContextMappings } from "./schema/discord-context-mappings.js";
+import { readVerifiedOfflineSpeechSnapshot } from "../offline/npc-pg-speech-snapshot.js";
+import { createOfflineSpeechRehearsal } from "../offline/npc-speech-rehearsal.js";
 
 const database = createDatabaseClient();
 afterAll(async () => database.close());
@@ -221,8 +224,11 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           ),
         ).rejects.toThrow("Trusted Sentinel local presence");
 
+        // This is a NEW synthetic CI event after the host policy. Never
+        // replay the owner's consumed Sentinel message or backdate a grant.
+        await tx.execute(sql`select pg_sleep(0.05)`);
         const sourceMessageId = (
-          (BigInt(Date.now() + 1000) - 1420070400000n) <<
+          (BigInt(Date.now()) - 1420070400000n) <<
           22n
         ).toString();
         const requestText = "<@" + botId + "> [Sentinel] Report readiness.";
@@ -242,6 +248,72 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           .select()
           .from(interactions)
           .where(eq(interactions.worldId, worldId));
+        const speechScope = {
+          worldId,
+          npcId,
+          contextId,
+          interactionId: beforePreview[0]!.id,
+        };
+        const trustedSnapshot = await readVerifiedOfflineSpeechSnapshot(
+          tx,
+          speechScope,
+        );
+        expect(trustedSnapshot).toMatchObject({
+          ...speechScope,
+          presenceId: config.presenceId,
+          sourceMessageId,
+          approval: {
+            issuedByRole: "host_operator",
+            decision: "allow_direct_speech",
+            activity: "free",
+            perception: "aware",
+            otherScene: "none",
+          },
+        });
+        // Existing fake-only M2.15D coordinator now reads the actual
+        // PostgreSQL-backed policy, route, identity and presence snapshot.
+        // The in-memory fake receives no source text and cannot send.
+        const fakeSpeech: string[] = [];
+        const rehearsal = createOfflineSpeechRehearsal({
+          readTrustedSnapshot: (scope) =>
+            readVerifiedOfflineSpeechSnapshot(tx, scope),
+          runFake: async () => {
+            fakeSpeech.push("Sentinel-001: Acknowledged. Standing by.");
+            return "ack";
+          },
+        });
+        expect(await rehearsal(speechScope)).toBe("fake_ack");
+        expect(fakeSpeech).toEqual([
+          "Sentinel-001: Acknowledged. Standing by.",
+        ]);
+        expect(
+          await readVerifiedOfflineSpeechSnapshot(tx, {
+            ...speechScope,
+            worldId: randomUUID(),
+          }),
+        ).toBeNull();
+        expect(
+          await readVerifiedOfflineSpeechSnapshot(tx, {
+            ...speechScope,
+            claimedDmRole: "world_dm",
+          }),
+        ).toBeNull();
+
+        await expect(
+          tx.transaction(async (savepoint) => {
+            await savepoint
+              .update(discordContextMappings)
+              .set({ updatedAt: sql`clock_timestamp() + interval '5 seconds'` })
+              .where(eq(discordContextMappings.worldId, worldId));
+            expect(
+              await readVerifiedOfflineSpeechSnapshot(savepoint, speechScope),
+            ).toBeNull();
+            throw new RollbackTest();
+          }),
+        ).rejects.toThrow(RollbackTest);
+        expect(
+          await readVerifiedOfflineSpeechSnapshot(tx, speechScope),
+        ).not.toBeNull();
         expect(await inspectPostInboundPreviewFacts(tx, config)).toMatchObject({
           status: "needs_availability_review",
           availability: "unknown",
@@ -332,6 +404,9 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
             contextId,
             presenceId: config.presenceId,
           }),
+        ).toBeNull();
+        expect(
+          await readVerifiedOfflineSpeechSnapshot(tx, speechScope),
         ).toBeNull();
         // A revoked authoritative grant must never be treated as a summon
         // or as a valid direct-scene speech candidate.
