@@ -147,7 +147,9 @@ async function assertLocalDatabaseIdentity(tx: Database): Promise<void> {
     row.createrole !== false ||
     row.consent_table !== "npc_dev_first_reply_consents"
   )
-    throw new Error("The exact migrated, isolated local DEV database is required.");
+    throw new Error(
+      "The exact migrated, isolated local DEV database is required.",
+    );
 
   const guards = await tx.execute(sql`
     select tgname from pg_trigger
@@ -155,10 +157,10 @@ async function assertLocalDatabaseIdentity(tx: Database): Promise<void> {
       and tgname in ('discord_route_revision',
         'scene_speech_policy_immutable', 'scene_speech_policy_no_truncate')
   `);
-  if (
-    new Set(guards.rows.map((row) => row.tgname)).size !== 3
-  )
-    throw new Error("Required Discord routing and host-policy guards are missing.");
+  if (new Set(guards.rows.map((row) => row.tgname)).size !== 3)
+    throw new Error(
+      "Required Discord routing and host-policy guards are missing.",
+    );
 }
 
 // One owner-approved transaction: new synthetic world -> one mapped human ->
@@ -182,7 +184,9 @@ export async function prepareFirstReplyFixture(
       .where(eq(worlds.key, firstReplyWorldKey))
       .limit(1);
     if (existing)
-      throw new Error("First-reply fixture already exists; no automatic replay.");
+      throw new Error(
+        "First-reply fixture already exists; no automatic replay.",
+      );
 
     const created = await provisionDevFixture(
       tx,
@@ -207,10 +211,7 @@ export async function prepareFirstReplyFixture(
       .select()
       .from(interactionContexts)
       .where(eq(interactionContexts.id, ids.contextId));
-    if (
-      !scene?.linkedLocationEntityId ||
-      scene.npcIntakePolicy !== "disabled"
-    )
+    if (!scene?.linkedLocationEntityId || scene.npcIntakePolicy !== "disabled")
       throw new Error("First-reply scene must start default-deny.");
 
     const enrolled = await reconcilePilotPlayer(tx, {
