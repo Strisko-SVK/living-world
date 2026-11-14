@@ -80,7 +80,9 @@ export function validateFirstReplySessionEnvironment(
     env.LW_FIRST_REPLY_PRIVILEGED_CONTENT_APPROVED === "true" ||
     env.NODE_ENV === "production"
   )
-    throw Error("A scoped operator session and fixed-text send need approvals.");
+    throw Error(
+      "A scoped operator session and fixed-text send need approvals.",
+    );
   return route;
 }
 
@@ -155,8 +157,7 @@ export async function runFirstReplySessionCommand(
 
     // Verify OS key ownership, location and 0600 *before* the source exists;
     // proof for this dummy snowflake is discarded and never authorizes a send.
-    const checkOperator =
-      deps.operator ?? authenticateLocalFirstReplyOperator;
+    const checkOperator = deps.operator ?? authenticateLocalFirstReplyOperator;
     const operator = await checkOperator(env, "1888888888888888999");
     if (!operator || !isLocalOperatorApproved(operator))
       return report("blocked");
@@ -220,10 +221,8 @@ export async function runFirstReplySessionCommand(
       ],
       env,
     );
-    if (outcome.status === "acknowledged")
-      return report("acknowledged", true);
-    if (outcome.status === "uncertain")
-      return report("uncertain", true);
+    if (outcome.status === "acknowledged") return report("acknowledged", true);
+    if (outcome.status === "uncertain") return report("uncertain", true);
     return report("blocked", outcome.attempted);
   } catch {
     // If send began, ambiguity is terminal; never retry or rearm.
