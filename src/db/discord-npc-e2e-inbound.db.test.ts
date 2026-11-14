@@ -14,8 +14,21 @@ import {
 } from "../admin/discord-dev-fixture.js";
 import {
   grantLocalPresence,
+  prepareLocalInteraction,
   revokeLocalPresence,
 } from "../communication/local.repository.js";
+import { getInteraction } from "../domains/interaction/interaction.repository.js";
+import { createNpcContextBuilder } from "../context/context.repository.js";
+import { createNpcResponseOrchestrator } from "../response/orchestrator.js";
+import { createResponseStore } from "../response/response.repository.js";
+import { createTextGenerator } from "../llm/generation.js";
+import { enabledConfig, fakeBudget, fakeProvider } from "../llm/llm.test-fixture.js";
+import type { TextProvider } from "../llm/contracts.js";
+import type { DeliveryTransport } from "../delivery/contracts.js";
+import { createDeliveryRepository } from "../delivery/delivery.repository.js";
+import { createDeliveryDispatcher } from "../delivery/dispatch.js";
+import { fakeDeliveryTransport } from "../delivery/delivery.test-fixture.js";
+import { createOfflineNpcWorkflow } from "../offline/npc-e2e.js";
 import { updateNpcState } from "../domains/npc/npc.repository.js";
 import { createDiscordIntake } from "../intake/discord-intake.js";
 import { createDatabaseClient } from "./client.js";
@@ -33,7 +46,11 @@ import {
 import { assessOfflineSpeechReadiness } from "../communication/scene-speech-readiness.js";
 import { sceneSpeechPolicies } from "./schema/scene-speech-policies.js";
 import { discordContextMappings } from "./schema/discord-context-mappings.js";
-import { readVerifiedOfflineSpeechSnapshot } from "../offline/npc-pg-speech-snapshot.js";
+import {
+  readVerifiedOfflineSpeechSnapshot,
+  readVerifiedOfflineSpeechPhaseSnapshot,
+  type OfflineSpeechPhase,
+} from "../offline/npc-pg-speech-snapshot.js";
 import { createOfflineSpeechRehearsal } from "../offline/npc-speech-rehearsal.js";
 
 const database = createDatabaseClient();
@@ -389,6 +406,128 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           .from(responseDeliveries)
           .where(eq(responseDeliveries.worldId, worldId));
         expect(deliveries).toHaveLength(0);
+
+        // M2.15H: full, one-shot fake generation and durable fake ACK,
+        // inside a nested SAVEPOINT which rolls back before the original
+        // M2.15G revocation/integrity assertions proceed.
+        await expect(
+          tx.transaction(async (savepoint) => {
+            const gate = (phase: OfflineSpeechPhase) =>
+              readVerifiedOfflineSpeechPhaseSnapshot(
+                savepoint,
+                speechScope,
+                phase,
+              );
+            expect(await gate("received")).not.toBeNull();
+            const prepared = await prepareLocalInteraction(savepoint, {
+              ...speechScope,
+              evidenceId: config.presenceId,
+            });
+            expect(prepared.status).toBe("prepared");
+            expect(await gate("received")).toBeNull();
+            expect(await gate("prepared")).not.toBeNull();
+
+            const fake = fakeProvider();
+            const provider: TextProvider = {
+              ...fake,
+              generate: async (request) => {
+                // Checked at the actual fake model-call boundary.
+                if (!(await gate("dispatched")))
+                  throw Error("host scene policy not valid at generation");
+                return fake.generate(request);
+              },
+            };
+            const transport = fakeDeliveryTransport(new Set([worldId]));
+            const guardedTransport: DeliveryTransport = {
+              send: async (request) => {
+                // Recheck the current host decision immediately before the
+                // fake transport call, AFTER delivery preflight/claim.
+                if (!(await gate("sending")))
+                  return { kind: "not_sent", retryable: false, retryAfterMs: 0 };
+                return transport.send(request);
+              },
+            };
+            const read = (scope: typeof speechScope) =>
+              getInteraction(
+                savepoint,
+                scope.worldId,
+                scope.npcId,
+                scope.interactionId,
+              );
+            const response = createNpcResponseOrchestrator({
+              read,
+              build: createNpcContextBuilder(savepoint),
+              store: createResponseStore(savepoint),
+              generate: createTextGenerator(
+                enabledConfig(),
+                provider,
+                fakeBudget(),
+              ),
+            });
+            const repository = createDeliveryRepository(savepoint);
+            const dispatch = createDeliveryDispatcher(
+              repository,
+              guardedTransport,
+            );
+            const run = createOfflineNpcWorkflow({
+              read,
+              generate: (scope) =>
+                response(scope.worldId, scope.npcId, scope.interactionId),
+              deliver: async (scope) => {
+                if (!(await gate("responded"))) return "blocked";
+                const outbox = await repository.prepare(scope);
+                if (outbox.status !== "prepared" && outbox.status !== "existing")
+                  return "blocked";
+                const result = await dispatch(scope);
+                switch (result.status) {
+                  case "delivered":
+                    return "delivered";
+                  case "retryable":
+                    return "retryable";
+                  case "failed":
+                    return "failed";
+                  case "uncertain":
+                    return "uncertain";
+                  default:
+                    return "blocked";
+                }
+              },
+            });
+            expect(await run(speechScope)).toBe("delivered");
+            expect(transport.sent).toHaveLength(1);
+            expect(transport.sent[0]!.payload.scope).toMatchObject({
+              worldId,
+              npcId,
+              interactionId: speechScope.interactionId,
+            });
+            expect(transport.sent[0]!.payload.destination).toMatchObject({
+              provider: "discord",
+              guildId: route.guildId,
+              channelId: route.channelId,
+              threadId: route.threadId,
+            });
+            expect(
+              await savepoint
+                .select({ status: responseDeliveries.status })
+                .from(responseDeliveries)
+                .where(eq(responseDeliveries.worldId, worldId)),
+            ).toEqual([{ status: "delivered" }]);
+            expect(await run(speechScope)).toBe("ineligible");
+            expect(transport.sent).toHaveLength(1);
+            throw new RollbackTest();
+          }),
+        ).rejects.toThrow(RollbackTest);
+        // Even successfully acknowledged fake delivery leaves no record in
+        // the outer synthetic test, much less in the owner's real DEV DB.
+        expect(await readVerifiedOfflineSpeechSnapshot(tx, speechScope))
+          .not.toBeNull();
+        expect(
+          await tx
+            .select()
+            .from(responseDeliveries)
+            .where(eq(responseDeliveries.worldId, worldId)),
+        ).toHaveLength(0);
+
         expect(
           await revokeHostSceneSpeechPolicy(tx, {
             worldId,
