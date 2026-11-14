@@ -62,7 +62,7 @@ describe("M2.15N migration 0019 read-only PostgreSQL 17 inspection", () => {
         guardEqual: guards.rows[0]?.source === expectedBody,
         guardTrimEqual: typeof guards.rows[0]?.source === "string" &&
           guards.rows[0].source.trim() === expectedBody?.trim(),
-        guardLengths: [guards.rows[0]?.source?.length, expectedBody?.length],
+        guardLengths: [String(guards.rows[0]?.source ?? "").length, expectedBody?.length],
       }));
     }
     expect(verdict).toEqual({
