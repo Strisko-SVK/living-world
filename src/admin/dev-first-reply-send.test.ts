@@ -14,7 +14,7 @@ const fixed = "Acknowledged. Standing by.";
 const flags = [
   "--send",
   "--confirm-world",
-  "lw-dev-first-reply-001",
+  "lw-dev-first-reply-002",
   "--confirm-guild",
   route.guildId,
   "--confirm-parent",
@@ -69,7 +69,7 @@ describe("M2.15O independent owner-controlled fixed send CLI", () => {
       DISCORD_ENABLED: "false",
       DISCORD_OUTBOUND_ENABLED: "false",
       LLM_PROVIDER: "disabled",
-      LW_FIRST_REPLY_WORLD_KEY: "lw-dev-first-reply-001",
+      LW_FIRST_REPLY_WORLD_KEY: "lw-dev-first-reply-002",
       LW_FIRST_REPLY_GUILD_ID: route.guildId,
       LW_FIRST_REPLY_PARENT_ID: route.channelId,
       LW_FIRST_REPLY_THREAD_ID: route.threadId,
@@ -81,6 +81,8 @@ describe("M2.15O independent owner-controlled fixed send CLI", () => {
       LW_PILOT_THREAD_ID: "1777777777777777714",
       LW_NPC_E2E_PARENT_CHANNEL_ID: "1777777777777777715",
       LW_NPC_E2E_THREAD_ID: "1777777777777777716",
+      LW_FIRST_REPLY_PREVIOUS_PARENT_ID: "1777777777777777721",
+      LW_FIRST_REPLY_PREVIOUS_THREAD_ID: "1777777777777777722",
     };
     await expect(
       runFirstReplySendCommand(flags, env, {
