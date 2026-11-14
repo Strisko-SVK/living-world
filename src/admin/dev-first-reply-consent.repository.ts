@@ -167,10 +167,7 @@ async function validatedOriginal(tx: Database, t: Target): Promise<boolean> {
     .select({ id: entities.id, status: entities.status })
     .from(entities)
     .where(
-      and(
-        eq(entities.worldId, t.worldId),
-        eq(entities.id, t.operatorEntityId),
-      ),
+      and(eq(entities.worldId, t.worldId), eq(entities.id, t.operatorEntityId)),
     )
     .limit(1);
   if (operator?.status !== "active") return false;
@@ -188,8 +185,9 @@ async function validatedOriginal(tx: Database, t: Target): Promise<boolean> {
       ),
     )
     .limit(2);
-  return policies.length === 1 &&
-    policies[0]!.operatorId === t.operatorEntityId;
+  return (
+    policies.length === 1 && policies[0]!.operatorId === t.operatorEntityId
+  );
 }
 
 // Persist an event-bound host consent only after fresh authenticated intake
@@ -226,9 +224,7 @@ export async function issueDevOneShotConsent(
         })
         .onConflictDoNothing()
         .returning({ id: devFirstReplyConsents.id });
-      return row
-        ? output("issued", row.id)
-        : output("already_reserved");
+      return row ? output("issued", row.id) : output("already_reserved");
     });
   } catch {
     // A DB failure cannot become authority to send or leak stored content.
