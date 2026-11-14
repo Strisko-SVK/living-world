@@ -33,7 +33,9 @@ const flags = [
 
 describe("M2.15O independent owner-controlled fixed send CLI", () => {
   it("defaults to preview and accepts only the exact irreversible one-shot flags", () => {
-    expect(parseFirstReplySendArguments([], route)).toEqual({ mode: "preview" });
+    expect(parseFirstReplySendArguments([], route)).toEqual({
+      mode: "preview",
+    });
     expect(parseFirstReplySendArguments(["--preview"], route)).toEqual({
       mode: "preview",
     });
@@ -47,9 +49,7 @@ describe("M2.15O independent owner-controlled fixed send CLI", () => {
       ["--retry"],
       ["--approve"],
       flags.slice(0, -1),
-      flags.map((value) =>
-        value === fixed ? "Unapproved text." : value,
-      ),
+      flags.map((value) => (value === fixed ? "Unapproved text." : value)),
       flags.map((value) =>
         value === route.threadId ? "1777777777777777799" : value,
       ),
