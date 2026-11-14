@@ -60,6 +60,7 @@ import {
   type OfflineSpeechPhase,
 } from "../offline/npc-pg-speech-snapshot.js";
 import { createOfflineSpeechRehearsal } from "../offline/npc-speech-rehearsal.js";
+import { inspectDevFirstReplyFacts } from "../admin/npc-dev-first-reply-preview.js";
 import {
   createOfflineFirstReplyPreflight,
   firstReplyText,
@@ -341,6 +342,32 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           contextId,
           interactionId: beforePreview[0]!.id,
         };
+        const devPreviewTarget = {
+          worldKey: key,
+          guildId: route.guildId,
+          channelId: route.channelId,
+          threadId: route.threadId,
+          playerId: humanId,
+        };
+        // M2.15L: an actual PostgreSQL-backed DEV-style read-only projection
+        // recognizes the original inbound, policy, route and presence.
+        expect(await inspectDevFirstReplyFacts(tx, devPreviewTarget)).toMatchObject({
+          status: "fake_only_candidate",
+          reason: "validated_fake_only",
+          readOnly: true,
+          canGenerate: false,
+          canSend: false,
+          wouldSend: false,
+        });
+        expect(
+          await inspectDevFirstReplyFacts(tx, {
+            ...devPreviewTarget,
+            threadId: route.channelId,
+          }),
+        ).toMatchObject({
+          status: "blocked",
+          canSend: false,
+        });
         const trustedSnapshot = await readVerifiedOfflineSpeechSnapshot(
           tx,
           speechScope,
@@ -770,6 +797,11 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
               }),
             ).toBe("ineligible");
             expect(transport.sent).toHaveLength(1);
+            expect(await inspectDevFirstReplyFacts(savepoint, devPreviewTarget)).toMatchObject({
+              status: "blocked",
+              reason: "outbox_exists",
+              canSend: false,
+            });
             expect(await firstReplyPreview(previewTarget)).toMatchObject({
               status: "blocked",
               reason: "unverified",
