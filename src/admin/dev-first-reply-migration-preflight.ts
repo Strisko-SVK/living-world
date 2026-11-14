@@ -14,7 +14,6 @@ import { validateGatewayDevDatabaseEnv } from "./gateway-dev-db.js";
 const migration = "0019_dev_first_reply_consents" as const;
 const expectedDatabase = "living_world_gateway_dev";
 const expectedRole = "lw_gateway_dev";
-const tableName = "npc_dev_first_reply_consents";
 const expectedConstraints: ReadonlyArray<readonly [string, string]> = [
   ["npc_dev_first_reply_consents_pkey", "p"],
   ["dev_reply_one_event_per_world", "u"],
