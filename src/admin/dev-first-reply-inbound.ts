@@ -12,7 +12,10 @@ import { localPresence } from "../db/schema/local-presence.js";
 import { sceneSpeechPolicies } from "../db/schema/scene-speech-policies.js";
 import { worlds } from "../db/schema/worlds.js";
 import { createDiscordIntake } from "../intake/discord-intake.js";
-import { connectOnePilotMessage, type PilotInboundConfig } from "./discord-pilot-gateway.js";
+import {
+  connectOnePilotMessage,
+  type PilotInboundConfig,
+} from "./discord-pilot-gateway.js";
 import {
   isFreshNpcE2eSource,
   npcE2eGatewayIntents,
@@ -38,14 +41,24 @@ export function parseFirstReplyInboundArguments(
   if (args.length === 0 || (args.length === 1 && args[0] === "--preflight"))
     return "preflight";
   const required = [
-    "--connect", "--confirm-world", firstReplyWorldKey,
-    "--confirm-guild", route.guildId,
-    "--confirm-parent", route.channelId,
-    "--confirm-thread", route.threadId,
-    "--confirm-database", dbName,
-    "--inbound-only", "--one-message",
+    "--connect",
+    "--confirm-world",
+    firstReplyWorldKey,
+    "--confirm-guild",
+    route.guildId,
+    "--confirm-parent",
+    route.channelId,
+    "--confirm-thread",
+    route.threadId,
+    "--confirm-database",
+    dbName,
+    "--inbound-only",
+    "--one-message",
   ];
-  if (args.length === required.length && required.every((v, i) => args[i] === v))
+  if (
+    args.length === required.length &&
+    required.every((v, i) => args[i] === v)
+  )
     return "connect";
   if (
     args.length === required.length + 1 &&
@@ -53,7 +66,9 @@ export function parseFirstReplyInboundArguments(
     args[required.length] === "--confirm-message-content-intent"
   )
     return "connect_content";
-  throw Error("First-reply live Gateway requires exact one-message confirmation.");
+  throw Error(
+    "First-reply live Gateway requires exact one-message confirmation.",
+  );
 }
 
 export function validateFirstReplyInboundEnvironment(
@@ -61,13 +76,13 @@ export function validateFirstReplyInboundEnvironment(
   mode: FirstReplyInboundMode,
 ) {
   const smoke = validateGatewaySmokeConfig(env);
-  const { route, userId } = validateFirstReplyProvisionEnvironment(env, "prepare");
+  const { route, userId } = validateFirstReplyProvisionEnvironment(
+    env,
+    "prepare",
+  );
   if (!userId || smoke.guildId !== route.guildId)
     throw Error("Only the approved synthetic DEV human is allowed.");
-  if (
-    mode !== "preflight" &&
-    env.LW_FIRST_REPLY_GATEWAY_APPROVED !== "true"
-  )
+  if (mode !== "preflight" && env.LW_FIRST_REPLY_GATEWAY_APPROVED !== "true")
     throw Error("A separate owner Gateway approval is required.");
   if (
     mode === "connect_content" &&
@@ -118,7 +133,9 @@ export async function loadFirstReplyInboundScope(
     const npc = await tx
       .select()
       .from(entities)
-      .where(and(eq(entities.worldId, world.id), eq(entities.entityType, "npc")));
+      .where(
+        and(eq(entities.worldId, world.id), eq(entities.entityType, "npc")),
+      );
     const identities = await tx
       .select()
       .from(discordIdentities)
@@ -155,7 +172,9 @@ export async function loadFirstReplyInboundScope(
       policies[0]!.contextId !== scene.id ||
       policies[0]!.presenceId !== presences[0]!.id
     )
-      throw Error("First-reply player, presence, audit or host policy is unsafe.");
+      throw Error(
+        "First-reply player, presence, audit or host policy is unsafe.",
+      );
 
     const scope: PilotInboundConfig["scope"] = {
       worldKey: firstReplyWorldKey,
@@ -182,25 +201,40 @@ export async function runFirstReplyInboundCommand(
   args: readonly string[],
   env: NodeJS.ProcessEnv = process.env,
   connect: typeof createDatabaseClient = createDatabaseClient,
-): Promise<{event:"npc_first_reply_inbound";status:"ready"|"received";canSend:false}> {
-  const { route, userId, botId, token } =
-    validateFirstReplyInboundEnvironment(env, "preflight");
+): Promise<{
+  event: "npc_first_reply_inbound";
+  status: "ready" | "received";
+  canSend: false;
+}> {
+  const { route, userId, botId, token } = validateFirstReplyInboundEnvironment(
+    env,
+    "preflight",
+  );
   const mode = parseFirstReplyInboundArguments(args, route);
   validateFirstReplyInboundEnvironment(env, mode);
   const client = connect(env);
   try {
     const config = await loadFirstReplyInboundScope(
-      client.db, route, userId, botId, token,
+      client.db,
+      route,
+      userId,
+      botId,
+      token,
     );
     await verifyNpcE2eInboundDatabase(client.db, config, "before");
     if (mode === "preflight")
-      return { event: "npc_first_reply_inbound", status: "ready", canSend: false };
+      return {
+        event: "npc_first_reply_inbound",
+        status: "ready",
+        canSend: false,
+      };
 
     const armedAt = Date.now();
     const intake = createDiscordIntake(createDiscordPersistence(client.db));
-    const gateway = mode === "connect_content"
-      ? new Client({ intents: npcE2eGatewayIntents(true) })
-      : undefined;
+    const gateway =
+      mode === "connect_content"
+        ? new Client({ intents: npcE2eGatewayIntents(true) })
+        : undefined;
     await connectOnePilotMessage(
       config,
       async (message, targetBot) => {
@@ -209,25 +243,43 @@ export async function runFirstReplyInboundCommand(
         return intake(message, targetBot);
       },
       (sourceMessageId) =>
-        verifyNpcE2eInboundDatabase(client.db, config, "after", sourceMessageId),
+        verifyNpcE2eInboundDatabase(
+          client.db,
+          config,
+          "after",
+          sourceMessageId,
+        ),
       gateway,
       90_000,
-      (stage) => console.info(
-        JSON.stringify({event:"npc_first_reply_inbound_diagnostic",stage}),
-      ),
+      (stage) =>
+        console.info(
+          JSON.stringify({
+            event: "npc_first_reply_inbound_diagnostic",
+            stage,
+          }),
+        ),
     );
-    return { event: "npc_first_reply_inbound", status: "received", canSend: false };
+    return {
+      event: "npc_first_reply_inbound",
+      status: "received",
+      canSend: false,
+    };
   } finally {
     await client.close();
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   void runFirstReplyInboundCommand(process.argv.slice(2)).then(
     (result) => console.info(JSON.stringify(result)),
     () => {
       // Fixed category only: never leak token, IDs or player content.
-      console.error(JSON.stringify({event:"npc_first_reply_inbound_failed_safely"}));
+      console.error(
+        JSON.stringify({ event: "npc_first_reply_inbound_failed_safely" }),
+      );
       process.exitCode = 1;
     },
   );
