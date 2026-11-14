@@ -62,6 +62,12 @@ import {
 import { createOfflineSpeechRehearsal } from "../offline/npc-speech-rehearsal.js";
 import { inspectDevFirstReplyFacts } from "../admin/npc-dev-first-reply-preview.js";
 import {
+  issueDevOneShotConsent,
+  claimDevOneShotConsent,
+  revokeDevOneShotConsent,
+} from "../admin/dev-first-reply-consent.repository.js";
+import { devFirstReplyConsents } from "./schema/dev-first-reply-consents.js";
+import {
   createOfflineFirstReplyPreflight,
   firstReplyText,
 } from "../offline/npc-first-reply-preflight.js";
@@ -370,6 +376,130 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           status: "blocked",
           canSend: false,
         });
+        // M2.15M: the real PostgreSQL 17 schema/host-only repository
+        // persist one original event across consent IDs. All writes here
+        // are in isolated, rollback-only CI savepoints, NEVER owner DEV.
+        const consentTarget = {
+          worldKey: key,
+          worldId,
+          npcId,
+          contextId,
+          interactionId: speechScope.interactionId,
+          playerEntityId: beforePreview[0]!.speakerEntityId!,
+          playerDiscordId: humanId,
+          sourceMessageId,
+          guildId: route.guildId,
+          parentId: route.channelId,
+          threadId: route.threadId,
+          operatorEntityId: operatorEntity!.id,
+        };
+        expect(
+          await issueDevOneShotConsent(tx, {
+            ...consentTarget,
+            threadId: route.channelId,
+            ttlSeconds: 60,
+          }),
+        ).toMatchObject({
+          status: "blocked",
+          canSend: false,
+        });
+        await expect(
+          tx.transaction(async (oneShot) => {
+            const grant = await issueDevOneShotConsent(oneShot, {
+              ...consentTarget,
+              ttlSeconds: 60,
+            });
+            expect(grant).toMatchObject({
+              status: "issued",
+              canSend: false,
+              canGenerate: false,
+              wouldSend: false,
+            });
+            if (!grant.consentId) throw Error("missing CI-only grant");
+            const consume = { ...consentTarget, consentId: grant.consentId };
+            expect(
+              await issueDevOneShotConsent(oneShot, {
+                ...consentTarget,
+                ttlSeconds: 60,
+              }),
+            ).toMatchObject({ status: "already_reserved" });
+            expect(
+              await claimDevOneShotConsent(oneShot, consume),
+            ).toMatchObject({
+              status: "claimed",
+              canSend: false,
+            });
+            expect(
+              await claimDevOneShotConsent(oneShot, consume),
+            ).toMatchObject({ status: "blocked" });
+            expect(
+              await revokeDevOneShotConsent(oneShot, consume),
+            ).toMatchObject({ status: "blocked" });
+            // A NEW consent ID on the same event may never rearm a claim.
+            expect(
+              await issueDevOneShotConsent(oneShot, {
+                ...consentTarget,
+                ttlSeconds: 60,
+              }),
+            ).toMatchObject({ status: "already_reserved" });
+            const grants = await oneShot
+              .select()
+              .from(devFirstReplyConsents)
+              .where(eq(devFirstReplyConsents.worldId, worldId));
+            expect(grants).toHaveLength(1);
+            expect(grants[0]).toMatchObject({
+              status: "claimed",
+              sourceMessageId,
+              fixedReply: firstReplyText,
+            });
+            expect(grants[0]!.attemptId).toBeTruthy();
+            await expect(
+              oneShot.transaction(async (bad) => {
+                await bad.update(devFirstReplyConsents)
+                  .set({ fixedReply: "Forged response" })
+                  .where(eq(devFirstReplyConsents.id, grant.consentId!));
+              }),
+            ).rejects.toThrow();
+            await expect(
+              oneShot.transaction(async (bad) => {
+                await bad.delete(devFirstReplyConsents)
+                  .where(eq(devFirstReplyConsents.id, grant.consentId!));
+              }),
+            ).rejects.toThrow();
+            await expect(
+              oneShot.transaction(async (bad) => {
+                await bad.execute(
+                  sql.raw('truncate table "npc_dev_first_reply_consents"'),
+                );
+              }),
+            ).rejects.toThrow();
+            throw new RollbackTest();
+          }),
+        ).rejects.toThrow(RollbackTest);
+        expect(
+          await tx.select().from(devFirstReplyConsents)
+            .where(eq(devFirstReplyConsents.worldId, worldId)),
+        ).toHaveLength(0);
+        await expect(
+          tx.transaction(async (oneShot) => {
+            const grant = await issueDevOneShotConsent(oneShot, {
+              ...consentTarget, ttlSeconds: 60,
+            });
+            if (!grant.consentId) throw Error("missing CI-only grant");
+            const scope = { ...consentTarget, consentId: grant.consentId };
+            expect(await revokeDevOneShotConsent(oneShot, scope)).toMatchObject({
+              status: "revoked",
+            });
+            expect(await claimDevOneShotConsent(oneShot, scope)).toMatchObject({
+              status: "blocked",
+            });
+            expect(await issueDevOneShotConsent(oneShot, {
+              ...consentTarget, ttlSeconds: 60,
+            })).toMatchObject({ status: "already_reserved" });
+            throw new RollbackTest();
+          }),
+        ).rejects.toThrow(RollbackTest);
+
         const trustedSnapshot = await readVerifiedOfflineSpeechSnapshot(
           tx,
           speechScope,
