@@ -198,6 +198,51 @@ describe("Step 14 inbound-only pilot offline guards", () => {
       expect(pickPilotInboundMessage(message(invalid), config)).toBeNull();
   });
 
+  it("accepts private threads only when scoped config explicitly opts in", () => {
+    const privateMessage = message({
+      channel: {
+        type: ChannelType.PrivateThread,
+        isThread: () => true,
+        parentId,
+      },
+    });
+    const log = vi.fn();
+    expect(pickPilotInboundMessage(privateMessage, config, log)).toBeNull();
+    expect(log).toHaveBeenCalledWith("thread_shape_rejected");
+    const privateConfig: PilotInboundConfig = {
+      ...config,
+      scope: { ...config.scope, worldKey: "lw-dev-first-reply-002" },
+      threadType: ChannelType.PrivateThread,
+    };
+    expect(pickPilotInboundMessage(privateMessage, privateConfig)).toMatchObject({
+      authorId: playerId,
+      guildId,
+      channelId: parentId,
+      threadId,
+    });
+    // The new route is private-only, and cannot accept an event in a public
+    // thread or in a different parent even if the message ID is in-scope.
+    expect(pickPilotInboundMessage(message(), privateConfig)).toBeNull();
+    expect(
+      pickPilotInboundMessage(
+        message({
+          channel: {
+            type: ChannelType.PrivateThread,
+            isThread: () => true,
+            parentId: "1666666666666666666",
+          },
+        }),
+        privateConfig,
+      ),
+    ).toBeNull();
+    expect(
+      pickPilotInboundMessage(
+        message({ author: { id: botId, bot: true } }),
+        privateConfig,
+      ),
+    ).toBeNull();
+  });
+
   it("accepts exactly one eligible event with an offline fake Client, audits it and never sends", async () => {
     const client = fakeClient();
     const first = message();
