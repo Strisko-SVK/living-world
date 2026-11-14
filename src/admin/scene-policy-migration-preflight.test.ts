@@ -57,10 +57,16 @@ describe("M2.15F read-only 0018 migration preflight", () => {
       ),
     );
     const originalSql = await readFile(
-      new URL("../db/migrations/0018_scene_speech_policies.sql", import.meta.url),
+      new URL(
+        "../db/migrations/0018_scene_speech_policies.sql",
+        import.meta.url,
+      ),
     );
     const appendedSql = await readFile(
-      new URL("../db/migrations/0019_dev_first_reply_consents.sql", import.meta.url),
+      new URL(
+        "../db/migrations/0019_dev_first_reply_consents.sql",
+        import.meta.url,
+      ),
     );
     expect(isReviewedMigrationPlan(journal, originalSql, appendedSql)).toBe(
       true,
@@ -75,10 +81,11 @@ describe("M2.15F read-only 0018 migration preflight", () => {
     // An appended journal cannot be trusted unless its exact SQL is pinned.
     expect(isReviewedMigrationPlan(journal, originalSql)).toBe(false);
     expect(
-      isReviewedMigrationPlan(journal, originalSql, Buffer.concat([
-        appendedSql,
-        Buffer.from("\n-- unapproved append\n"),
-      ])),
+      isReviewedMigrationPlan(
+        journal,
+        originalSql,
+        Buffer.concat([appendedSql, Buffer.from("\n-- unapproved append\n")]),
+      ),
     ).toBe(false);
     expect(
       isReviewedMigrationPlan(
@@ -109,10 +116,7 @@ describe("M2.15F read-only 0018 migration preflight", () => {
     expect(
       isReviewedMigrationPlan(
         journal,
-        Buffer.concat([
-          originalSql,
-          Buffer.from("\n-- unreviewed addition\n"),
-        ]),
+        Buffer.concat([originalSql, Buffer.from("\n-- unreviewed addition\n")]),
         appendedSql,
       ),
     ).toBe(false);
