@@ -4,9 +4,7 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { createDiscordPersistence } from "../adapters/discord/persistence.js";
 import { createDiscordIntake } from "../intake/discord-intake.js";
-import {
-  prepareFirstReplyFixture,
-} from "../admin/dev-first-reply-provision.js";
+import { prepareFirstReplyFixture } from "../admin/dev-first-reply-provision.js";
 import {
   reserveFirstReplyExactlyOnce,
   finalizeFirstReplyAttempt,
@@ -46,7 +44,12 @@ describe("M2.15O one-shot consent, sending fence and durable outcome on disposab
         // Migration 0019 accepts npc-gateway-ci-* on disposable CI only.
         // The production CLI is always pinned to lw-dev-first-reply-001.
         const key = "npc-gateway-ci-" + randomUUID();
-        const prepared = await prepareFirstReplyFixture(tx, route, humanId, key);
+        const prepared = await prepareFirstReplyFixture(
+          tx,
+          route,
+          humanId,
+          key,
+        );
         expect(prepared.status).toBe("prepared");
         const worldId = prepared.worldId!;
         const contextId = prepared.contextId!;
