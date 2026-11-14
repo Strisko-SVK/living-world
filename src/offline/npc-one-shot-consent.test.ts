@@ -57,13 +57,13 @@ function fixture() {
   const consumed = new Set<string>();
   const preflight = vi.fn(async () => currentPreview);
   const readTrustedConsent = vi.fn(async () => current);
-  const claimOnce = vi.fn(async (_id: string, requested: OfflinePilotTarget) => {
+  const claimOnce = vi.fn(async (_id: string, scope: OfflinePilotTarget) => {
     // The real database must uniquely bind a send to its original event.
     // Reissuing a fresh consent ID must never reset this latch.
     const key = [
-      requested.worldId,
-      requested.interactionId,
-      requested.sourceMessageId,
+      scope.worldId,
+      scope.interactionId,
+      scope.sourceMessageId,
     ].join(":");
     if (consumed.has(key)) return false;
     consumed.add(key);
