@@ -51,6 +51,9 @@ export type PilotInboundConfig = {
   threadId: string;
   playerId: string;
   scope: PilotInboundScope;
+  // Legacy pilots remain public-thread only; the new Sentinel DEV scene
+  // explicitly opts into its DB-verified private thread.
+  threadType?: ChannelType.PublicThread | ChannelType.PrivateThread;
 };
 
 export const pilotInboundScope: PilotInboundScope = {
@@ -171,7 +174,7 @@ export function pickPilotInboundMessage(
   if (
     !message.channel.isThread() ||
     message.channel.parentId !== config.parentId ||
-    message.channel.type !== ChannelType.PublicThread
+    message.channel.type !== (config.threadType ?? ChannelType.PublicThread)
   ) {
     diagnose?.("thread_shape_rejected");
     return null;
