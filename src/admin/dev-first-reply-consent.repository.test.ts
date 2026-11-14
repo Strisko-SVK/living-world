@@ -103,9 +103,11 @@ describe("M2.15M persisted DEV one-shot operator boundary", () => {
   });
 
   it("sanitizes any unexpected DB failure without granting send permission", async () => {
-    const transaction = vi.fn().mockRejectedValue(
-      new Error("SECRET: local DEV password and player message"),
-    );
+    const transaction = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("SECRET: local DEV password and player message"),
+      );
     const db = { transaction } as unknown as Parameters<
       typeof issueDevOneShotConsent
     >[0];
