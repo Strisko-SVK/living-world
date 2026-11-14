@@ -47,8 +47,9 @@ export interface OfflinePilotDependencies {
   // storage in a future implementation, never user/Discord message content.
   preflight(target: FirstReplyRequest): Promise<FirstReplyPreview>;
   readTrustedConsent(target: FirstReplyRequest): Promise<unknown>;
-  // Test double MUST atomically consume the first attempt before fakeSend.
-  // An uncertain claim is never retried automatically.
+  // Test double MUST atomically consume the first attempt, UNIQUE BY
+  // original (world, interaction, source event), NOT just by consent ID.
+  // Reissuing consent must never rearm a consumed original. No auto retry.
   claimOnce(consentId: string, target: FirstReplyRequest): Promise<boolean>;
   fakeSend(input: {
     target: FirstReplyRequest;
@@ -198,6 +199,7 @@ export function createOfflineOneShotPilot(deps: OfflinePilotDependencies) {
         !eligiblePreview(preview) ||
         !current ||
         current.id !== consent.id ||
+        current.issuedByOperatorId !== consent.issuedByOperatorId ||
         current.issuedAt.getTime() !== consent.issuedAt.getTime() ||
         current.expiresAt.getTime() !== consent.expiresAt.getTime()
       )
