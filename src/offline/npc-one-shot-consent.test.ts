@@ -57,9 +57,16 @@ function fixture() {
   const consumed = new Set<string>();
   const preflight = vi.fn(async () => currentPreview);
   const readTrustedConsent = vi.fn(async () => current);
-  const claimOnce = vi.fn(async (id: string) => {
-    if (consumed.has(id)) return false;
-    consumed.add(id);
+  const claimOnce = vi.fn(async (_id: string, requested: OfflinePilotTarget) => {
+    // The real database must uniquely bind a send to its original event.
+    // Reissuing a fresh consent ID must never reset this latch.
+    const key = [
+      requested.worldId,
+      requested.interactionId,
+      requested.sourceMessageId,
+    ].join(":");
+    if (consumed.has(key)) return false;
+    consumed.add(key);
     return true;
   });
   const fakeSend = vi.fn(async () => "ack" as const);
@@ -126,6 +133,20 @@ describe("M2.15K disposable one-shot owner consent contract", () => {
     );
     expect(outcomes.sort()).toEqual(["already_consumed", "fake_ack"]);
     expect(f.claimOnce).toHaveBeenCalledTimes(2);
+    expect(f.fakeSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("cannot rearm an already-used event by replacing consent ID", async () => {
+    const f = fixture();
+    expect(await f.run(target)).toMatchObject({ outcome: "fake_ack" });
+    f.setConsent({
+      ...consent(),
+      id: "88888888-8888-4888-8888-888888888888",
+    });
+    expect(await f.run(target)).toMatchObject({
+      outcome: "already_consumed",
+      canSend: false,
+    });
     expect(f.fakeSend).toHaveBeenCalledTimes(1);
   });
 
@@ -262,6 +283,22 @@ describe("M2.15K disposable one-shot owner consent contract", () => {
     });
     expect(await f.run(target)).toMatchObject({
       outcome: "revoked_after_claim",
+    });
+    expect(f.fakeSend).not.toHaveBeenCalled();
+  });
+
+  it("denies operator attribution substitution after claim", async () => {
+    const f = fixture();
+    f.claimOnce.mockImplementationOnce(async () => {
+      f.setConsent({
+        ...consent(),
+        issuedByOperatorId: "99999999-9999-4999-8999-999999999999",
+      });
+      return true;
+    });
+    expect(await f.run(target)).toMatchObject({
+      outcome: "revoked_after_claim",
+      canSend: false,
     });
     expect(f.fakeSend).not.toHaveBeenCalled();
   });
