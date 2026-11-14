@@ -64,9 +64,10 @@ export type DevFirstReplyPreview = {
   wouldSend: false;
 };
 function report(reason: DevFirstReplyReason): DevFirstReplyPreview {
+  const candidate = reason === "validated_fake_only";
   return {
     event: "npc_dev_first_reply_preview",
-    status: reason === "validated_fake_only" ? "fake_only_candidate" : "blocked",
+    status: candidate ? "fake_only_candidate" : "blocked",
     reason,
     readOnly: true,
     canGenerate: false,
