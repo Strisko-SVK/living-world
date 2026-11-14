@@ -6,7 +6,6 @@ import { createDiscordPersistence } from "../adapters/discord/persistence.js";
 import { createDiscordIntake } from "../intake/discord-intake.js";
 import {
   prepareFirstReplyFixture,
-  disableFirstReplyFixture,
 } from "../admin/dev-first-reply-provision.js";
 import {
   reserveFirstReplyExactlyOnce,
@@ -44,7 +43,10 @@ describe("M2.15O one-shot consent, sending fence and durable outcome on disposab
     await expect(
       db.db.transaction(async (tx) => {
         const route = freshRoute();
-        const prepared = await prepareFirstReplyFixture(tx, route, humanId);
+        // Migration 0019 accepts npc-gateway-ci-* on disposable CI only.
+        // The production CLI is always pinned to lw-dev-first-reply-001.
+        const key = "npc-gateway-ci-" + randomUUID();
+        const prepared = await prepareFirstReplyFixture(tx, route, humanId, key);
         expect(prepared.status).toBe("prepared");
         const worldId = prepared.worldId!;
         const contextId = prepared.contextId!;
@@ -86,7 +88,7 @@ describe("M2.15O one-shot consent, sending fence and durable outcome on disposab
           .where(eq(sceneSpeechPolicies.worldId, worldId));
         expect(interaction).toBeTruthy();
         const input = {
-          worldKey: "lw-dev-first-reply-001",
+          worldKey: key,
           worldId,
           npcId,
           contextId,
@@ -172,9 +174,6 @@ describe("M2.15O one-shot consent, sending fence and durable outcome on disposab
             messageId: "1888888888888888666",
           }),
         ).toBe(false);
-        const disabled = await disableFirstReplyFixture(tx, route);
-        expect(disabled.status).toBe("disabled");
-
         throw new RollbackTest();
       }),
     ).rejects.toThrow(RollbackTest);
