@@ -23,7 +23,11 @@ import { createNpcResponseOrchestrator } from "../response/orchestrator.js";
 import type { ResponseScope } from "../response/contracts.js";
 import { createResponseStore } from "../response/response.repository.js";
 import { createTextGenerator } from "../llm/generation.js";
-import { enabledConfig, fakeBudget, fakeProvider } from "../llm/llm.test-fixture.js";
+import {
+  enabledConfig,
+  fakeBudget,
+  fakeProvider,
+} from "../llm/llm.test-fixture.js";
 import type { TextProvider } from "../llm/contracts.js";
 import type { DeliveryTransport } from "../delivery/contracts.js";
 import { createDeliveryRepository } from "../delivery/delivery.repository.js";
@@ -421,7 +425,8 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
             // Never claim this row came from a live Discord SDK event.
             const actionTime = Date.now();
             const testMessageId = (
-              (BigInt(actionTime - 10) - 1420070400000n) << 22n
+              (BigInt(actionTime - 10) - 1420070400000n) <<
+              22n
             ).toString();
             const [synthetic] = await savepoint
               .insert(interactions)
@@ -445,7 +450,10 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
               })
               .returning({ id: interactions.id });
             expect(synthetic).toBeTruthy();
-            const actionScope = { ...speechScope, interactionId: synthetic!.id };
+            const actionScope = {
+              ...speechScope,
+              interactionId: synthetic!.id,
+            };
             const gate = (phase: OfflineSpeechPhase) =>
               readVerifiedOfflineSpeechPhaseSnapshot(
                 savepoint,
@@ -477,7 +485,11 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
                 // Recheck the current host decision immediately before the
                 // fake transport call, AFTER delivery preflight/claim.
                 if (!(await gate("sending")))
-                  return { kind: "not_sent", retryable: false, retryAfterMs: 0 };
+                  return {
+                    kind: "not_sent",
+                    retryable: false,
+                    retryAfterMs: 0,
+                  };
                 return transport.send(request);
               },
             };
@@ -510,7 +522,10 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
               deliver: async (scope) => {
                 if (!(await gate("responded"))) return "blocked";
                 const outbox = await repository.prepare(scope);
-                if (outbox.status !== "prepared" && outbox.status !== "existing")
+                if (
+                  outbox.status !== "prepared" &&
+                  outbox.status !== "existing"
+                )
                   return "blocked";
                 const result = await dispatch(scope);
                 switch (result.status) {
@@ -527,7 +542,7 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
                 }
               },
             });
-            expect(await run({ worldId, npcId, interactionId: actionScope.interactionId })).toBe("delivered");
+            expect(await run(actionScope)).toBe("delivered");
             expect(transport.sent).toHaveLength(1);
             expect(transport.sent[0]!.payload.scope).toMatchObject({
               worldId,
@@ -546,15 +561,16 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
                 .from(responseDeliveries)
                 .where(eq(responseDeliveries.worldId, worldId)),
             ).toEqual([{ status: "delivered" }]);
-            expect(await run({ worldId, npcId, interactionId: actionScope.interactionId })).toBe("ineligible");
+            expect(await run(actionScope)).toBe("ineligible");
             expect(transport.sent).toHaveLength(1);
             throw new RollbackTest();
           }),
         ).rejects.toThrow(RollbackTest);
         // Even successfully acknowledged fake delivery leaves no record in
         // the outer synthetic test, much less in the owner's real DEV DB.
-        expect(await readVerifiedOfflineSpeechSnapshot(tx, speechScope))
-          .not.toBeNull();
+        expect(
+          await readVerifiedOfflineSpeechSnapshot(tx, speechScope),
+        ).not.toBeNull();
         expect(
           await tx
             .select()
