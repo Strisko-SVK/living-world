@@ -3,9 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  firstReplyWorldKey,
-} from "./dev-first-reply-provision.js";
+import { firstReplyWorldKey } from "./dev-first-reply-provision.js";
 import {
   parseFirstReplySessionArguments,
   runFirstReplySessionCommand,
@@ -80,7 +78,9 @@ async function operatorConfig() {
   };
 }
 afterEach(async () => {
-  await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true })));
+  await Promise.all(
+    dirs.splice(0).map((dir) => rm(dir, { recursive: true })),
+  );
 });
 
 describe("M2.15P one-session, no-retry first-reply cutover", () => {
@@ -91,7 +91,9 @@ describe("M2.15P one-session, no-retry first-reply cutover", () => {
       ["--run"],
       [...flags, "--force"],
       flags.slice(0, -1),
-      flags.map((x) => (x === firstReplyWorldKey ? "lw-dev-first-reply-001" : x)),
+      flags.map((x) =>
+        x === firstReplyWorldKey ? "lw-dev-first-reply-001" : x,
+      ),
       flags.map((x) =>
         x === route.threadId ? "1777777777777777799" : x,
       ),
@@ -100,7 +102,7 @@ describe("M2.15P one-session, no-retry first-reply cutover", () => {
       expect(() => parseFirstReplySessionArguments(bad, route)).toThrow();
   });
 
-  it("requires all three approvals, original thread isolation and disabled runtime", () => {
+  it("requires approvals, route isolation and disabled runtime", () => {
     expect(validateFirstReplySessionEnvironment(env)).toEqual(route);
     for (const bad of [
       { LW_FIRST_REPLY_SESSION_APPROVED: undefined },
@@ -119,7 +121,7 @@ describe("M2.15P one-session, no-retry first-reply cutover", () => {
       ).toThrow();
   });
 
-  it("fails closed without local owner key or live-approval flags", async () => {
+  it("blocks absent local operator key", async () => {
     const inbound = vi.fn();
     const send = vi.fn();
     expect(
@@ -133,7 +135,7 @@ describe("M2.15P one-session, no-retry first-reply cutover", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("receives once and sends exactly once using the new SDK-persisted source", async () => {
+  it("sends once after one fresh SDK inbound", async () => {
     const scopedEnv = await operatorConfig();
     const inbound = vi
       .fn()
@@ -194,7 +196,7 @@ describe("M2.15P one-session, no-retry first-reply cutover", () => {
     expect(args).not.toContain("lw-dev-first-reply-001");
   });
 
-  it("never sends if received source is absent or already stale", async () => {
+  it("blocks absent or stale received sources", async () => {
     const scopedEnv = await operatorConfig();
     const inbound = vi
       .fn()
@@ -215,7 +217,7 @@ describe("M2.15P one-session, no-retry first-reply cutover", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("a failed or uncertain send stays terminal, without any retry", async () => {
+  it("does not retry failed or uncertain send", async () => {
     const scopedEnv = await operatorConfig();
     const inbound = vi
       .fn()
@@ -236,7 +238,7 @@ describe("M2.15P one-session, no-retry first-reply cutover", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
-  it("does not consume an event without an interactive terminal", async () => {
+  it("requires an interactive terminal", async () => {
     const scopedEnv = await operatorConfig();
     const inbound = vi.fn();
     const result = await runFirstReplySessionCommand(flags, scopedEnv, {
