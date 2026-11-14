@@ -431,11 +431,11 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
             const fake = fakeProvider();
             const provider: TextProvider = {
               ...fake,
-              generate: async (request) => {
+              generate: async (request, signal) => {
                 // Checked at the actual fake model-call boundary.
                 if (!(await gate("dispatched")))
                   throw Error("host scene policy not valid at generation");
-                return fake.generate(request);
+                return fake.generate(request, signal);
               },
             };
             const transport = fakeDeliveryTransport(new Set([worldId]));
