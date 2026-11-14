@@ -38,7 +38,6 @@ import {
 } from "./dev-first-reply-transport.js";
 
 type Database = Omit<DatabaseClient["db"], "$client">;
-const databaseName = "living_world_gateway_dev";
 const snowflake = /^[1-9][0-9]{16,19}$/u;
 type Route = { guildId:string; channelId:string; threadId:string };
 
@@ -383,6 +382,7 @@ export async function runFirstReplySendCommand(
       operator.sourceMessageId!==sourceId)
     return result("blocked",false);
 
+  let claimed = false;
   const db = (deps.connect??createDatabaseClient)(env);
   try {
     const source = await resolveFirstReplySource(db.db,route,userId,sourceId);
@@ -405,6 +405,7 @@ export async function runFirstReplySendCommand(
     if (!confirmed) return result("blocked",false);
     const reserved = await reserveFirstReplyExactlyOnce(db.db,source);
     if (!reserved) return result("blocked",false);
+    claimed = true;
 
     const post = await postFirstReplyOnce({
       ...beforeClaimTarget,attemptId:reserved.attemptId,
@@ -419,7 +420,7 @@ export async function runFirstReplySendCommand(
     // A claimed event stays terminal even when no POST was sent.
     return result(post.status==="uncertain"?"uncertain":"blocked",true);
   } catch {
-    return result("uncertain",true);
+    return result(claimed ? "uncertain" : "blocked",claimed);
   } finally {
     await db.close();
   }
