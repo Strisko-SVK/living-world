@@ -167,12 +167,12 @@ describe("M2.15J offline first-reply operator preflight", () => {
     }, "unverified"],
     ["presence already assigned", {
       ...evidence(),
-      source: { ...evidence().source, localPresenceId: presenceId as null },
+      source: { ...evidence().source, localPresenceId: presenceId },
     }, "unverified"],
   ] as const)(
     "blocks %s evidence",
     async (_label, value, reason) => {
-      const f = fixture(value as FirstReplyFacts | null);
+      const f = fixture(value as unknown as FirstReplyFacts | null);
       expect(await f.preview(request)).toMatchObject({
         status: "blocked",
         reason,
