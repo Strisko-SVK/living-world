@@ -134,16 +134,21 @@ export function classifyMigration0019Preflight(
   if (applied.length === 19) {
     // rlsDisabled and the structural booleans are meaningful only when
     // the new table exists. "schema partial" catches a stray guard too.
-    if (facts.consentTablePresent || facts.guardFunctionPresent ||
-        facts.immutableTriggerIntact || facts.truncateTriggerIntact ||
-        facts.constraintsIntact || facts.columnsIntact || facts.indexIntact ||
-        facts.guardFunctionIntact)
+    if (
+      facts.consentTablePresent ||
+      facts.guardFunctionPresent ||
+      facts.immutableTriggerIntact ||
+      facts.truncateTriggerIntact ||
+      facts.constraintsIntact ||
+      facts.columnsIntact ||
+      facts.indexIntact ||
+      facts.guardFunctionIntact
+    )
       return result("blocked", "schema_partial");
     return result("ready_for_backup", "pending_exactly_0019");
   }
 
-  if (objects.some((value) => value !== true) ||
-      !facts.guardFunctionIntact)
+  if (objects.some((value) => value !== true) || !facts.guardFunctionIntact)
     return result("blocked", "schema_partial");
   return result("already_applied", "already_applied_verified");
 }
@@ -152,59 +157,94 @@ async function reviewedLocalMigration(): Promise<string | null> {
   try {
     const [journalBytes, sql0018, sql0019] = await Promise.all([
       readFile(new URL("../db/migrations/meta/_journal.json", import.meta.url)),
-      readFile(new URL("../db/migrations/0018_scene_speech_policies.sql", import.meta.url)),
-      readFile(new URL("../db/migrations/0019_dev_first_reply_consents.sql", import.meta.url)),
+      readFile(
+        new URL(
+          "../db/migrations/0018_scene_speech_policies.sql",
+          import.meta.url,
+        ),
+      ),
+      readFile(
+        new URL(
+          "../db/migrations/0019_dev_first_reply_consents.sql",
+          import.meta.url,
+        ),
+      ),
     ]);
-    if (!isReviewedMigrationPlan(JSON.parse(journalBytes.toString("utf8")), sql0018, sql0019))
+    if (
+      !isReviewedMigrationPlan(
+        JSON.parse(journalBytes.toString("utf8")),
+        sql0018,
+        sql0019,
+      )
+    )
       return null;
     // Exact source is compared with pg_proc.prosrc, not only trigger names.
     // The SQL bytes are already pinned by M2.15M's reviewed Git blob.
     const sqlText = sql0019.toString("utf8");
-    const match = sqlText.match(/CREATE FUNCTION public\.guard_dev_first_reply_consent\(\) RETURNS trigger LANGUAGE plpgsql AS \$\$([\s\S]*?)\$\$;/u);
+    const match = sqlText.match(
+      /CREATE FUNCTION public\.guard_dev_first_reply_consent\(\) RETURNS trigger LANGUAGE plpgsql AS \$\$([\s\S]*?)\$\$;/u,
+    );
     return match?.[1] ?? null;
   } catch {
     return null;
   }
 }
 
-function matchConstraints(
-  rows: readonly Record<string, unknown>[],
-): boolean {
+function matchConstraints(rows: readonly Record<string, unknown>[]): boolean {
   if (rows.length !== expectedConstraints.length) return false;
   const expected = new Map(expectedConstraints);
   for (const row of rows) {
-    if (typeof row.conname !== "string" ||
-        typeof row.contype !== "string" ||
-        typeof row.definition !== "string" ||
-        expected.get(row.conname) !== row.contype)
+    if (
+      typeof row.conname !== "string" ||
+      typeof row.contype !== "string" ||
+      typeof row.definition !== "string" ||
+      expected.get(row.conname) !== row.contype
+    )
       return false;
     const def = row.definition;
-    if (row.conname === "dev_reply_one_event_per_world" &&
-        !def.includes("UNIQUE (world_id, source_message_id)")) return false;
-    if (row.conname === "dev_reply_one_consent_per_interaction" &&
-        !def.includes("UNIQUE (world_id, interaction_id)")) return false;
-    if (row.conname === "dev_reply_fixed_text" &&
-        !def.includes("Acknowledged. Standing by.")) return false;
-    if (row.conname === "dev_reply_time_window" &&
-        !def.includes("5 minutes")) return false;
-    if (row.conname === "dev_reply_terminal_shape" &&
-        (!def.includes("claimed") || !def.includes("revoked"))) return false;
-    if (row.conname === "dev_reply_snowflakes" &&
-        !def.includes("17,20")) return false;
-    if (row.contype === "f" &&
-        (!def.includes("FOREIGN KEY") || !def.includes("ON DELETE RESTRICT")))
+    if (
+      row.conname === "dev_reply_one_event_per_world" &&
+      !def.includes("UNIQUE (world_id, source_message_id)")
+    )
+      return false;
+    if (
+      row.conname === "dev_reply_one_consent_per_interaction" &&
+      !def.includes("UNIQUE (world_id, interaction_id)")
+    )
+      return false;
+    if (
+      row.conname === "dev_reply_fixed_text" &&
+      !def.includes("Acknowledged. Standing by.")
+    )
+      return false;
+    if (row.conname === "dev_reply_time_window" && !def.includes("5 minutes"))
+      return false;
+    if (
+      row.conname === "dev_reply_terminal_shape" &&
+      (!def.includes("claimed") || !def.includes("revoked"))
+    )
+      return false;
+    if (row.conname === "dev_reply_snowflakes" && !def.includes("17,20"))
+      return false;
+    if (
+      row.contype === "f" &&
+      (!def.includes("FOREIGN KEY") || !def.includes("ON DELETE RESTRICT"))
+    )
       return false;
   }
   return true;
 }
 
 function matchColumns(rows: readonly Record<string, unknown>[]): boolean {
-  return rows.length === expectedColumns.length &&
-    expectedColumns.every(([name, type, notNull], i) =>
-      rows[i]?.column_name === name &&
-      rows[i]?.data_type === type &&
-      rows[i]?.required === notNull
-    );
+  return (
+    rows.length === expectedColumns.length &&
+    expectedColumns.every(
+      ([name, type, notNull], i) =>
+        rows[i]?.column_name === name &&
+        rows[i]?.data_type === type &&
+        rows[i]?.required === notNull,
+    )
+  );
 }
 
 type Database = DatabaseClient["db"];
@@ -219,9 +259,12 @@ export async function inspectMigration0019Preflight(
   database: Database,
   ciIdentity?: Migration0019TestIdentity,
 ): Promise<Migration0019Preview> {
-  if (ciIdentity && (process.env.NODE_ENV !== "test" ||
+  if (
+    ciIdentity &&
+    (process.env.NODE_ENV !== "test" ||
       ciIdentity.database !== "living_world_ci" ||
-      ciIdentity.role !== "living_world_ci"))
+      ciIdentity.role !== "living_world_ci")
+  )
     return result("blocked", "unsafe_environment");
   const expectedGuard = await reviewedLocalMigration();
   if (!expectedGuard) return result("blocked", "local_migration_plan_drift");
@@ -232,58 +275,71 @@ export async function inspectMigration0019Preflight(
       // First SQL in this transaction; PostgreSQL itself rejects writes.
       await tx.execute(sql.raw("set transaction read only"));
       await tx.execute(sql.raw("set local statement_timeout = '8s'"));
-      const identity = await tx.execute(sql.raw(
-        "select current_database() as database, current_user as db_role, " +
-        "current_setting('server_version_num')::int as version, " +
-        "(select pg_get_userbyid(datdba) from pg_database where datname=current_database()) as db_owner, " +
-        "(select rolsuper from pg_roles where rolname=current_user) as superuser, " +
-        "(select rolcreatedb from pg_roles where rolname=current_user) as createdb, " +
-        "(select rolcreaterole from pg_roles where rolname=current_user) as createrole",
-      ));
+      const identity = await tx.execute(
+        sql.raw(
+          "select current_database() as database, current_user as db_role, " +
+            "current_setting('server_version_num')::int as version, " +
+            "(select pg_get_userbyid(datdba) from pg_database where datname=current_database()) as db_owner, " +
+            "(select rolsuper from pg_roles where rolname=current_user) as superuser, " +
+            "(select rolcreatedb from pg_roles where rolname=current_user) as createdb, " +
+            "(select rolcreaterole from pg_roles where rolname=current_user) as createrole",
+        ),
+      );
       const id = identity.rows[0];
       const identityValid =
-        !!id && id.database === expectedDb &&
-        id.db_role === expectedUser && id.db_owner === expectedUser &&
+        !!id &&
+        id.database === expectedDb &&
+        id.db_role === expectedUser &&
+        id.db_owner === expectedUser &&
         typeof id.version === "number" &&
-        id.version >= 170000 && id.version < 180000 &&
+        id.version >= 170000 &&
+        id.version < 180000 &&
         (ciIdentity
-          ? id.superuser === true && id.createdb === true && id.createrole === true
-          : id.superuser === false && id.createdb === false && id.createrole === false);
+          ? id.superuser === true &&
+            id.createdb === true &&
+            id.createrole === true
+          : id.superuser === false &&
+            id.createdb === false &&
+            id.createrole === false);
       if (!identityValid)
         return result("blocked", "database_identity_mismatch");
 
       // Catalog-only checks; no private Discord content is read or output.
-      const metadata = await tx.execute(sql.raw(
-        "select " +
-        "to_regclass('drizzle.__drizzle_migrations') is not null as migration_table, " +
-        "to_regclass('public.npc_dev_first_reply_consents') is not null as consent_table, " +
-        "to_regprocedure('public.guard_dev_first_reply_consent()') is not null as guard_function, " +
-        "to_regclass('public.npc_scene_speech_policies') is not null as policy_table, " +
-        "exists (select 1 from pg_trigger t where t.tgrelid=to_regclass('public.discord_context_mappings') " +
-        "and t.tgname='discord_route_revision' and t.tgenabled='O' and not t.tgisinternal) as route_guard, " +
-        "exists (select 1 from pg_trigger t where t.tgrelid=to_regclass('public.npc_scene_speech_policies') " +
-        "and t.tgname='scene_speech_policy_immutable' and t.tgenabled='O' and not t.tgisinternal) as policy_guard, " +
-        "exists (select 1 from pg_trigger t where t.tgrelid=to_regclass('public.npc_scene_speech_policies') " +
-        "and t.tgname='scene_speech_policy_no_truncate' and t.tgenabled='O' and not t.tgisinternal) as policy_truncate, " +
-        "(select count(*)=11 from pg_constraint pc " +
-        "where pc.conrelid=to_regclass('public.npc_scene_speech_policies') " +
-        "and pc.conname in ('npc_scene_speech_policies_pkey', 'scene_speech_presence_scope_fk', " +
-        "'scene_speech_issuer_world_fk','scene_speech_role_host_only','scene_speech_decision_values'," +
-        "'scene_speech_activity_values','scene_speech_perception_values','scene_speech_occupancy_values'," +
-        "'scene_speech_positive_revision','scene_speech_bounded_window','scene_speech_revocation_shape')) " +
-        "and to_regclass('public.scene_speech_one_open_policy') is not null " +
-        "and to_regclass('public.scene_speech_world_presence_idx') is not null as policy_objects, " +
-        "(select not relrowsecurity from pg_class where oid=to_regclass('public.npc_dev_first_reply_consents')) as rls_disabled, " +
-        "to_regclass('public.dev_reply_world_status_idx') is not null as consent_index",
-      ));
+      const metadata = await tx.execute(
+        sql.raw(
+          "select " +
+            "to_regclass('drizzle.__drizzle_migrations') is not null as migration_table, " +
+            "to_regclass('public.npc_dev_first_reply_consents') is not null as consent_table, " +
+            "to_regprocedure('public.guard_dev_first_reply_consent()') is not null as guard_function, " +
+            "to_regclass('public.npc_scene_speech_policies') is not null as policy_table, " +
+            "exists (select 1 from pg_trigger t where t.tgrelid=to_regclass('public.discord_context_mappings') " +
+            "and t.tgname='discord_route_revision' and t.tgenabled='O' and not t.tgisinternal) as route_guard, " +
+            "exists (select 1 from pg_trigger t where t.tgrelid=to_regclass('public.npc_scene_speech_policies') " +
+            "and t.tgname='scene_speech_policy_immutable' and t.tgenabled='O' and not t.tgisinternal) as policy_guard, " +
+            "exists (select 1 from pg_trigger t where t.tgrelid=to_regclass('public.npc_scene_speech_policies') " +
+            "and t.tgname='scene_speech_policy_no_truncate' and t.tgenabled='O' and not t.tgisinternal) as policy_truncate, " +
+            "(select count(*)=11 from pg_constraint pc " +
+            "where pc.conrelid=to_regclass('public.npc_scene_speech_policies') " +
+            "and pc.conname in ('npc_scene_speech_policies_pkey', 'scene_speech_presence_scope_fk', " +
+            "'scene_speech_issuer_world_fk','scene_speech_role_host_only','scene_speech_decision_values'," +
+            "'scene_speech_activity_values','scene_speech_perception_values','scene_speech_occupancy_values'," +
+            "'scene_speech_positive_revision','scene_speech_bounded_window','scene_speech_revocation_shape')) " +
+            "and to_regclass('public.scene_speech_one_open_policy') is not null " +
+            "and to_regclass('public.scene_speech_world_presence_idx') is not null as policy_objects, " +
+            "(select not relrowsecurity from pg_class where oid=to_regclass('public.npc_dev_first_reply_consents')) as rls_disabled, " +
+            "to_regclass('public.dev_reply_world_status_idx') is not null as consent_index",
+        ),
+      );
       const m = metadata.rows[0];
       if (!m?.migration_table)
         return result("blocked", "migration_history_missing");
 
-      const migrations = await tx.execute(sql.raw(
-        "select created_at::text as applied_at " +
-        "from drizzle.__drizzle_migrations order by id",
-      ));
+      const migrations = await tx.execute(
+        sql.raw(
+          "select created_at::text as applied_at " +
+            "from drizzle.__drizzle_migrations order by id",
+        ),
+      );
       const history = migrations.rows.map((x) =>
         typeof x.applied_at === "string" ? x.applied_at : "",
       );
@@ -292,40 +348,53 @@ export async function inspectMigration0019Preflight(
       const exists = m.consent_table === true;
       const [columns, constraints, triggers, functions, indexes] =
         await Promise.all([
-          tx.execute(sql.raw(
-            "select attname as column_name, format_type(atttypid,atttypmod) as data_type, " +
-            "attnotnull as required from pg_attribute " +
-            "where attrelid=to_regclass('public.npc_dev_first_reply_consents') " +
-            "and attnum>0 and not attisdropped order by attnum",
-          )),
-          tx.execute(sql.raw(
-            "select conname, contype, pg_get_constraintdef(oid) as definition " +
-            "from pg_constraint where conrelid=to_regclass('public.npc_dev_first_reply_consents') order by conname",
-          )),
-          tx.execute(sql.raw(
-            "select tgname, tgenabled, tgtype::int as flags, tgisinternal, " +
-            "tgfoid=to_regprocedure('public.guard_dev_first_reply_consent()') as correct_function " +
-            "from pg_trigger where tgrelid=to_regclass('public.npc_dev_first_reply_consents') " +
-            "and not tgisinternal order by tgname",
-          )),
-          tx.execute(sql.raw(
-            "select p.prosrc as source, l.lanname as language, p.prosecdef as security_definer " +
-            "from pg_proc p join pg_namespace n on n.oid=p.pronamespace " +
-            "join pg_language l on l.oid=p.prolang " +
-            "where n.nspname='public' and p.proname='guard_dev_first_reply_consent' and p.pronargs=0",
-          )),
-          tx.execute(sql.raw(
-            "select pg_get_indexdef(to_regclass('public.dev_reply_world_status_idx')) as index_definition",
-          )),
+          tx.execute(
+            sql.raw(
+              "select attname as column_name, format_type(atttypid,atttypmod) as data_type, " +
+                "attnotnull as required from pg_attribute " +
+                "where attrelid=to_regclass('public.npc_dev_first_reply_consents') " +
+                "and attnum>0 and not attisdropped order by attnum",
+            ),
+          ),
+          tx.execute(
+            sql.raw(
+              "select conname, contype, pg_get_constraintdef(oid) as definition " +
+                "from pg_constraint where conrelid=to_regclass('public.npc_dev_first_reply_consents') order by conname",
+            ),
+          ),
+          tx.execute(
+            sql.raw(
+              "select tgname, tgenabled, tgtype::int as flags, tgisinternal, " +
+                "tgfoid=to_regprocedure('public.guard_dev_first_reply_consent()') as correct_function " +
+                "from pg_trigger where tgrelid=to_regclass('public.npc_dev_first_reply_consents') " +
+                "and not tgisinternal order by tgname",
+            ),
+          ),
+          tx.execute(
+            sql.raw(
+              "select p.prosrc as source, l.lanname as language, p.prosecdef as security_definer " +
+                "from pg_proc p join pg_namespace n on n.oid=p.pronamespace " +
+                "join pg_language l on l.oid=p.prolang " +
+                "where n.nspname='public' and p.proname='guard_dev_first_reply_consent' and p.pronargs=0",
+            ),
+          ),
+          tx.execute(
+            sql.raw(
+              "select pg_get_indexdef(to_regclass('public.dev_reply_world_status_idx')) as index_definition",
+            ),
+          ),
         ]);
 
       const triggerRows = triggers.rows;
       const byName = (name: string, flags: number): boolean =>
         triggerRows.length === 2 &&
-        triggerRows.some((x) =>
-          x.tgname === name && x.tgenabled === "O" &&
-          x.flags === flags && x.tgisinternal === false &&
-          x.correct_function === true
+        triggerRows.some(
+          (x) =>
+            x.tgname === name &&
+            x.tgenabled === "O" &&
+            x.flags === flags &&
+            x.tgisinternal === false &&
+            x.correct_function === true,
         );
       const functionRow = functions.rows[0];
       const functionPresent = functions.rows.length === 1;
@@ -335,20 +404,27 @@ export async function inspectMigration0019Preflight(
         migrationTablePresent: true,
         appliedTimes: history,
         baseline0018Intact:
-          m.policy_table === true && m.route_guard === true &&
-          m.policy_guard === true && m.policy_truncate === true &&
+          m.policy_table === true &&
+          m.route_guard === true &&
+          m.policy_guard === true &&
+          m.policy_truncate === true &&
           m.policy_objects === true,
         consentTablePresent: exists,
         guardFunctionPresent: m.guard_function === true && functionPresent,
-        guardFunctionIntact: functionPresent &&
+        guardFunctionIntact:
+          functionPresent &&
           functionRow?.source === expectedGuard &&
           functionRow.language === "plpgsql" &&
           functionRow.security_definer === false,
         immutableTriggerIntact: byName("dev_first_reply_consent_immutable", 31),
-        truncateTriggerIntact: byName("dev_first_reply_consent_no_truncate", 34),
+        truncateTriggerIntact: byName(
+          "dev_first_reply_consent_no_truncate",
+          34,
+        ),
         constraintsIntact: matchConstraints(constraints.rows),
         columnsIntact: matchColumns(columns.rows),
-        indexIntact: typeof indexDefinition === "string" &&
+        indexIntact:
+          typeof indexDefinition === "string" &&
           indexDefinition.includes("USING btree (world_id, status)"),
         rlsDisabled: m.rls_disabled === true,
       });
