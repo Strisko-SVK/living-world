@@ -31,6 +31,12 @@ function fakeHttp(
     sourceGuild?: string;
     ackGuild?: string;
     ackNonce?: string;
+    threadType?: 11 | 12;
+    missingThreadMember?: boolean;
+    wrongThreadMember?: boolean;
+    wrongThreadMemberId?: boolean;
+    archived?: boolean;
+    locked?: boolean;
   } = {},
 ) {
   const calls: Array<{ url: string; method: string; body?: string }> = [];
@@ -68,9 +74,26 @@ function fakeHttp(
           id: target.threadId,
           guild_id: target.guildId,
           parent_id: target.parentId,
-          type: 11,
-          thread_metadata: { archived: false, locked: false },
+          type: options.threadType ?? 11,
+          thread_metadata: {
+            archived: options.archived ?? false,
+            locked: options.locked ?? false,
+          },
         });
+      if (url.endsWith("/thread-members/" + target.botId)) {
+        if (options.missingThreadMember)
+          return response({ message: "Not Found" }, 404);
+        return response({
+          id: options.wrongThreadMemberId
+            ? "1777777777777777776"
+            : target.threadId,
+          user_id: options.wrongThreadMember
+            ? "1777777777777777777"
+            : target.botId,
+          join_timestamp: "2026-11-14T10:00:00+00:00",
+          flags: 0,
+        });
+      }
       if (url.includes("/permissions/member/"))
         return response({ permissions: options.perms ?? allBits });
       if (url.endsWith("/messages/" + target.sourceMessageId))
@@ -109,6 +132,82 @@ describe("M2.15O no-retry Discord bot HTTP send boundary", () => {
     expect(fake.calls).toHaveLength(5);
     expect(fake.calls.filter((x) => x.method === "POST")).toHaveLength(0);
     expect(fence).toHaveBeenCalledOnce();
+  });
+
+  it("allows private thread GET-only preview after verifying explicit bot membership", async () => {
+    const fake = fakeHttp({ threadType: 12 });
+    const fence = vi.fn().mockResolvedValue(true);
+    const result = await postFirstReplyOnce(target, {
+      http: fake.http,
+      token,
+      dryRun: true,
+      revalidateAtBoundary: fence,
+    });
+    expect(result).toMatchObject({
+      status: "prechecked",
+      attempts: 0,
+      canRetry: false,
+    });
+    expect(fake.calls).toHaveLength(6);
+    expect(
+      fake.calls.filter((x) => x.url.endsWith("/thread-members/" + target.botId)),
+    ).toHaveLength(1);
+    expect(fake.calls.every((x) => x.method === "GET")).toBe(true);
+    expect(fence).toHaveBeenCalledOnce();
+  });
+
+  it("sends exactly once inside an explicitly joined private thread", async () => {
+    const fake = fakeHttp({ threadType: 12 });
+    const result = await postFirstReplyOnce(target, {
+      http: fake.http,
+      token,
+      revalidateAtBoundary: async () => true,
+    });
+    expect(result).toMatchObject({
+      status: "acknowledged",
+      attempts: 1,
+      canRetry: false,
+      messageId: "1888888888888888666",
+    });
+    expect(fake.calls.filter((x) => x.method === "POST")).toHaveLength(1);
+    expect(fake.calls.filter((x) => x.method === "GET")).toHaveLength(6);
+  });
+
+  it.each([
+    ["no explicit membership", { missingThreadMember: true }],
+    ["member is another user", { wrongThreadMember: true }],
+    ["membership points to another thread", { wrongThreadMemberId: true }],
+    ["private thread is archived", { archived: true }],
+    ["private thread is locked", { locked: true }],
+    ["thread permission missing", { perms: String((1n << 10n) | (1n << 16n)) }],
+  ])("never sends in private thread when %s", async (_label, bad) => {
+    const fake = fakeHttp({ threadType: 12, ...bad });
+    const fence = vi.fn().mockResolvedValue(true);
+    const result = await postFirstReplyOnce(target, {
+      http: fake.http,
+      token,
+      revalidateAtBoundary: fence,
+    });
+    expect(result).toMatchObject({
+      status: "blocked",
+      attempts: 0,
+      canRetry: false,
+    });
+    expect(fake.calls.filter((x) => x.method === "POST")).toHaveLength(0);
+    expect(fence).not.toHaveBeenCalled();
+  });
+
+  it("still never sends private-thread messages on missing membership even during dry run", async () => {
+    const fake = fakeHttp({ threadType: 12, missingThreadMember: true });
+    const result = await postFirstReplyOnce(target, {
+      http: fake.http,
+      token,
+      dryRun: true,
+      revalidateAtBoundary: async () => true,
+    });
+    expect(result.status).toBe("blocked");
+    expect(result.attempts).toBe(0);
+    expect(fake.calls.every((x) => x.method === "GET")).toBe(true);
   });
 
   it("posts EXACT fixed text once with no mentions and source reference", async () => {
