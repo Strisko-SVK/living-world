@@ -146,10 +146,12 @@ export async function reserveFirstReplyExactlyOnce(
   db: Database,
   input: Resolved,
 ): Promise<Reservation | null> {
+  let stage = "initial";
   try {
     return await db.transaction(async (tx) => {
       await tx.execute(sql.raw("set local lock_timeout='2s'"));
       await tx.execute(sql.raw("set local statement_timeout='8s'"));
+      stage = "issue";
       const issued = await issueDevOneShotConsent(tx,input);
       if (issued.status!=="issued" || !issued.consentId)
         throw Error("Consent not issued.");
@@ -168,6 +170,7 @@ export async function reserveFirstReplyExactlyOnce(
         operatorEntityId:input.operatorEntityId,
         consentId:issued.consentId,
       };
+      stage = "claim";
       const claimed = await claimDevOneShotConsent(tx,claimInput);
       if (claimed.status!=="claimed" || !claimed.attemptId)
         throw Error("One-shot source could not be claimed.");
@@ -188,6 +191,7 @@ export async function reserveFirstReplyExactlyOnce(
         content:firstReplyText,
         allowedMentions:{parse:[],users:[],roles:[],repliedUser:false},
       });
+      stage = "outbox";
       const [delivery] = await tx.insert(responseDeliveries).values({
         id:randomUUID(),
         worldId:input.worldId,
@@ -207,6 +211,9 @@ export async function reserveFirstReplyExactlyOnce(
       return {consentId:issued.consentId,attemptId:claimed.attemptId};
     });
   } catch {
+    if (process.env.NODE_ENV === "test") {
+      console.info(JSON.stringify({event:"npc_first_reply_ci_stage",stage}));
+    }
     // No partial claim/outbox writes can survive a failed outer transaction.
     return null;
   }
