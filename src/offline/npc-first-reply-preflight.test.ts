@@ -16,9 +16,7 @@ const request: FirstReplyRequest = {
   guildId: "1566911648701223053",
   parentId: "1568349822505717830",
   threadId: "1568350458026786886",
-  sourceMessageId: String(
-    (1_800_000_000_000n - 1_420_070_400_000n) << 22n,
-  ),
+  sourceMessageId: String((1_800_000_000_000n - 1_420_070_400_000n) << 22n),
 };
 const presenceId = "66666666-6666-4666-8666-666666666666";
 const issuedAt = new Date(1_800_000_000_000 - 60_000);
@@ -132,15 +130,18 @@ describe("M2.15J offline first-reply operator preflight", () => {
     ["guild", { guildId: request.threadId }],
     ["parent", { parentId: request.threadId }],
     ["thread", { threadId: request.parentId }],
-  ])("rejects a substituted %s and cannot grant a real send", async (_, patch) => {
-    const f = fixture();
-    expect(await f.preview({ ...request, ...patch })).toMatchObject({
-      status: "blocked",
-      reason: "source_mismatch",
-      canSend: false,
-      wouldSend: false,
-    });
-  });
+  ])(
+    "rejects a substituted %s and cannot grant a real send",
+    async (_, patch) => {
+      const f = fixture();
+      expect(await f.preview({ ...request, ...patch })).toMatchObject({
+        status: "blocked",
+        reason: "source_mismatch",
+        canSend: false,
+        wouldSend: false,
+      });
+    },
+  );
 
   it.each([
     { ...request, dm: true },
@@ -148,60 +149,87 @@ describe("M2.15J offline first-reply operator preflight", () => {
     { ...request, execute: true },
     { ...request, sourceMessageId: "not-a-snowflake" },
     { ...request, threadId: null },
-  ])("rejects forged permissions or malformed request before reading anything", async (input) => {
-    const f = fixture();
-    expect(await f.preview(input)).toMatchObject({
-      status: "blocked",
-      reason: "invalid_request",
-    });
-    expect(f.read).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["missing", null, "unverified"],
-    ["existing outbox", { ...evidence(), deliveryCount: 1 }, "delivery_exists"],
-    ["negative outbox count", { ...evidence(), deliveryCount: -1 }, "delivery_exists"],
-    ["response already started", {
-      ...evidence(),
-      source: { ...evidence().source, status: "processing" as const },
-    }, "unverified"],
-    ["presence already assigned", {
-      ...evidence(),
-      source: { ...evidence().source, localPresenceId: presenceId },
-    }, "unverified"],
-  ] as const)(
-    "blocks %s evidence",
-    async (_label, value, reason) => {
-      const f = fixture(value as unknown as FirstReplyFacts | null);
-      expect(await f.preview(request)).toMatchObject({
+  ])(
+    "rejects forged permissions or malformed request before reading anything",
+    async (input) => {
+      const f = fixture();
+      expect(await f.preview(input)).toMatchObject({
         status: "blocked",
-        reason,
-        canRehearseFake: false,
+        reason: "invalid_request",
       });
+      expect(f.read).not.toHaveBeenCalled();
     },
   );
 
   it.each([
-    ["missing host approval", { approval: null }],
-    ["revoked approval", {
-      approval: { ...speech().approval!, revokedAt: new Date(eventMs) },
-    }],
-    ["inferred DM identity", {
-      approval: { ...speech().approval!, issuedByRole: "world_dm" as const },
-    }],
-    ["busy NPC", {
-      approval: { ...speech().approval!, activity: "busy" as const },
-    }],
-    ["cross-scene conflict", {
-      approval: { ...speech().approval!, otherScene: "active" as const },
-    }],
-    ["expired policy", { nowMs: eventMs + 61_000 }],
-    ["event predates consent", {
-      approval: {
-        ...speech().approval!,
-        issuedAt: new Date(eventMs + 1),
+    ["missing", null, "unverified"],
+    ["existing outbox", { ...evidence(), deliveryCount: 1 }, "delivery_exists"],
+    [
+      "negative outbox count",
+      { ...evidence(), deliveryCount: -1 },
+      "delivery_exists",
+    ],
+    [
+      "response already started",
+      {
+        ...evidence(),
+        source: { ...evidence().source, status: "processing" as const },
       },
-    }],
+      "unverified",
+    ],
+    [
+      "presence already assigned",
+      {
+        ...evidence(),
+        source: { ...evidence().source, localPresenceId: presenceId },
+      },
+      "unverified",
+    ],
+  ] as const)("blocks %s evidence", async (_label, value, reason) => {
+    const f = fixture(value as unknown as FirstReplyFacts | null);
+    expect(await f.preview(request)).toMatchObject({
+      status: "blocked",
+      reason,
+      canRehearseFake: false,
+    });
+  });
+
+  it.each([
+    ["missing host approval", { approval: null }],
+    [
+      "revoked approval",
+      {
+        approval: { ...speech().approval!, revokedAt: new Date(eventMs) },
+      },
+    ],
+    [
+      "inferred DM identity",
+      {
+        approval: { ...speech().approval!, issuedByRole: "world_dm" as const },
+      },
+    ],
+    [
+      "busy NPC",
+      {
+        approval: { ...speech().approval!, activity: "busy" as const },
+      },
+    ],
+    [
+      "cross-scene conflict",
+      {
+        approval: { ...speech().approval!, otherScene: "active" as const },
+      },
+    ],
+    ["expired policy", { nowMs: eventMs + 61_000 }],
+    [
+      "event predates consent",
+      {
+        approval: {
+          ...speech().approval!,
+          issuedAt: new Date(eventMs + 1),
+        },
+      },
+    ],
   ] as const)("blocks %s without a side effect", async (_label, patch) => {
     const base = evidence();
     const f = fixture({ ...base, speech: { ...base.speech, ...patch } });
@@ -243,7 +271,9 @@ describe("M2.15J offline first-reply operator preflight", () => {
   });
 
   it("does not expose a private repository failure or authorize a send", async () => {
-    const read = vi.fn().mockRejectedValue(new Error("private SQL and user content"));
+    const read = vi
+      .fn()
+      .mockRejectedValue(new Error("private SQL and user content"));
     const preview = createOfflineFirstReplyPreflight(read);
     const result = await preview(request);
     expect(result).toMatchObject({
