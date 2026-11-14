@@ -177,8 +177,10 @@ export async function prepareFirstReplyFixture(
   // CLI does not expose this argument; no operator may change owner world.
   if (
     worldKey !== firstReplyWorldKey &&
-    !(process.env.NODE_ENV === "test" &&
-      /^npc-gateway-ci-[a-f0-9-]{36}$/u.test(worldKey))
+    !(
+      process.env.NODE_ENV === "test" &&
+      /^npc-gateway-ci-[a-f0-9-]{36}$/u.test(worldKey)
+    )
   )
     throw Error("Only the fixed first-reply DEV world is allowed.");
   if (
@@ -198,12 +200,7 @@ export async function prepareFirstReplyFixture(
         "First-reply fixture already exists; no automatic replay.",
       );
 
-    const created = await provisionDevFixture(
-      tx,
-      route,
-      true,
-      worldKey,
-    );
+    const created = await provisionDevFixture(tx, route, true, worldKey);
     if (
       created.status !== "created" ||
       !created.worldId ||
