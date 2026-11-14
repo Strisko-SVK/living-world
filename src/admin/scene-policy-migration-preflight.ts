@@ -20,6 +20,11 @@ export const expectedMigrationTimes = [
   1793535587173, 1793647173083, 1793972100000, 1794611200000,
 ] as const;
 
+// A reviewed append-only migration may follow 0018, but its exact SQL
+// and journal entry must also be pinned before this legacy preflight runs.
+export const expectedMigration0019When = 1794660075032;
+const approvedMigration0019Blob = "f018a1373ff596969b2c5dc100672eb009637fff";
+
 // SHA-1 is the reviewed Git blob content ID of migration 0018 in merged
 // M2.15E main. This protects against accidental local file/source drift,
 // not against an attacker who already controls repository code.
@@ -49,6 +54,7 @@ const expectedMigrationTags = [
 export function isReviewedMigrationPlan(
   rawJournal: unknown,
   rawSql: Uint8Array,
+  appendedSql?: Uint8Array,
 ): boolean {
   if (
     !rawJournal ||
@@ -63,7 +69,8 @@ export function isReviewedMigrationPlan(
     journal.version !== "7" ||
     journal.dialect !== "postgresql" ||
     !Array.isArray(journal.entries) ||
-    journal.entries.length !== expectedMigrationTimes.length
+    (journal.entries.length !== expectedMigrationTimes.length &&
+      journal.entries.length !== expectedMigrationTimes.length + 1)
   )
     return false;
 
@@ -81,6 +88,26 @@ export function isReviewedMigrationPlan(
     )
       return false;
   }
+  if (entries.length === expectedMigrationTimes.length + 1) {
+    const extra = entries[expectedMigrationTimes.length] as
+      | Record<string, unknown>
+      | undefined;
+    if (
+      !extra ||
+      extra.idx !== 19 ||
+      extra.version !== "7" ||
+      extra.when !== expectedMigration0019When ||
+      extra.tag !== "0019_dev_first_reply_consents" ||
+      extra.breakpoints !== true ||
+      !appendedSql
+    )
+      return false;
+    const nextHash = createHash("sha1")
+      .update("blob " + appendedSql.byteLength + String.fromCharCode(0))
+      .update(appendedSql)
+      .digest("hex");
+    if (nextHash !== approvedMigration0019Blob) return false;
+  }
   const hash = createHash("sha1")
     .update("blob " + rawSql.byteLength + String.fromCharCode(0))
     .update(rawSql)
@@ -90,7 +117,7 @@ export function isReviewedMigrationPlan(
 
 async function localMigrationPlanReviewed(): Promise<boolean> {
   try {
-    const [journalBytes, sqlBytes] = await Promise.all([
+    const [journalBytes, sqlBytes, appendedBytes] = await Promise.all([
       readFile(new URL("../db/migrations/meta/_journal.json", import.meta.url)),
       readFile(
         new URL(
@@ -98,10 +125,17 @@ async function localMigrationPlanReviewed(): Promise<boolean> {
           import.meta.url,
         ),
       ),
+      readFile(
+        new URL(
+          "../db/migrations/0019_dev_first_reply_consents.sql",
+          import.meta.url,
+        ),
+      ),
     ]);
     return isReviewedMigrationPlan(
       JSON.parse(journalBytes.toString("utf8")),
       sqlBytes,
+      appendedBytes,
     );
   } catch {
     return false;
@@ -163,10 +197,13 @@ export function classifyMigration0018Preflight(
   if (!f.migrationTablePresent)
     return report("blocked", "migration_history_missing");
   const known = f.appliedTimes.length;
-  if (known !== 18 && known !== 19)
+  if (known !== 18 && known !== 19 && known !== 20)
     return report("blocked", "migration_history_drift");
   for (let i = 0; i < known; i += 1) {
-    if (f.appliedTimes[i] !== String(expectedMigrationTimes[i]))
+    const expected = i === 19
+      ? expectedMigration0019When
+      : expectedMigrationTimes[i];
+    if (f.appliedTimes[i] !== String(expected))
       return report("blocked", "migration_history_drift");
   }
   if (!f.routeTriggerInstalled)
