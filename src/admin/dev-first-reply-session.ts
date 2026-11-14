@@ -80,7 +80,7 @@ export function validateFirstReplySessionEnvironment(
     env.LW_FIRST_REPLY_PRIVILEGED_CONTENT_APPROVED === "true" ||
     env.NODE_ENV === "production"
   )
-    throw Error("One operator session and one fixed-text send need approvals.");
+    throw Error("A scoped operator session and fixed-text send need approvals.");
   return route;
 }
 
@@ -148,16 +148,16 @@ export async function runFirstReplySessionCommand(
   try {
     const route = validateFirstReplySessionEnvironment(env);
     parseFirstReplySessionArguments(args, route);
-    if (
-      !(deps.interactive?.() ??
-        (process.stdin.isTTY === true && process.stdout.isTTY === true))
-    )
-      return report("blocked");
+    const interactive =
+      deps.interactive?.() ??
+      (process.stdin.isTTY === true && process.stdout.isTTY === true);
+    if (!interactive) return report("blocked");
 
     // Verify OS key ownership, location and 0600 *before* the source exists;
     // proof for this dummy snowflake is discarded and never authorizes a send.
-    const operator = await (deps.operator ??
-      authenticateLocalFirstReplyOperator)(env, "1888888888888888999");
+    const checkOperator =
+      deps.operator ?? authenticateLocalFirstReplyOperator;
+    const operator = await checkOperator(env, "1888888888888888999");
     if (!operator || !isLocalOperatorApproved(operator))
       return report("blocked");
 
@@ -197,7 +197,8 @@ export async function runFirstReplySessionCommand(
       return report("blocked");
 
     sendStarted = true;
-    const outcome = await (deps.send ?? runFirstReplySendCommand)(
+    const send = deps.send ?? runFirstReplySendCommand;
+    const outcome = await send(
       [
         "--send",
         "--confirm-world",
