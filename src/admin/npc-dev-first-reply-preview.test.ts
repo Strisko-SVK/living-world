@@ -91,11 +91,7 @@ describe("M2.15L real DEV first-reply read-only operator preview", () => {
   });
 
   it("sets the real PostgreSQL transaction read only before any identity query", async () => {
-    const statements: string[] = [];
-    const execute = vi.fn(async (query: unknown) => {
-      statements.push(String(query));
-      return { rows: [] };
-    });
+    const execute = vi.fn(async () => ({ rows: [] }));
     const transaction = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
       callback({ execute }),
     );
