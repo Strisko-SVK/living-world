@@ -28,6 +28,9 @@ function fakeHttp(
     postStatus?: number;
     badAck?: boolean;
     thrownPost?: boolean;
+    sourceGuild?: string;
+    ackGuild?: string;
+    ackNonce?: string;
   } = {},
 ) {
   const calls: Array<{ url: string; method: string; body?: string }> = [];
@@ -45,11 +48,11 @@ function fakeHttp(
           return response({ message: "private error" }, options.postStatus);
         return response({
           id: "1888888888888888666",
-          guild_id: target.guildId,
+          ...(options.ackGuild ? { guild_id: options.ackGuild } : {}),
           channel_id: target.threadId,
           content: "Acknowledged. Standing by.",
           author: { id: options.badAck ? "1888888888888888008" : target.botId },
-          nonce,
+          ...(options.ackNonce ? { nonce: options.ackNonce } : {}),
           message_reference: { message_id: target.sourceMessageId },
         });
       }
@@ -73,7 +76,7 @@ function fakeHttp(
       if (url.endsWith("/messages/" + target.sourceMessageId))
         return response({
           id: target.sourceMessageId,
-          guild_id: target.guildId,
+          ...(options.sourceGuild ? { guild_id: options.sourceGuild } : {}),
           channel_id: target.threadId,
           content:
             options.sourceText ??
@@ -151,6 +154,7 @@ describe("M2.15O no-retry Discord bot HTTP send boundary", () => {
     ["missing thread permission", { perms: String((1n << 10n) | (1n << 16n)) }],
     ["wrong parent guild", { badParent: true }],
     ["mismatched source message", { sourceText: "wrong message" }],
+    ["contradictory REST guild ID", { sourceGuild: "1777777777777777755" }],
   ])("fails closed before POST on %s", async (_label, bad) => {
     const fake = fakeHttp(bad);
     const fence = vi.fn().mockResolvedValue(true);
@@ -184,6 +188,8 @@ describe("M2.15O no-retry Discord bot HTTP send boundary", () => {
     ["5xx terminal", { postStatus: 502 }],
     ["lost ACK", { thrownPost: true }],
     ["incorrect ACK author", { badAck: true }],
+    ["contradictory ACK guild", { ackGuild: "1777777777777777755" }],
+    ["contradictory ACK nonce", { ackNonce: "bad-nonce" }],
   ])("%s is never retried", async (_label, bad) => {
     const fake = fakeHttp(bad);
     const result = await postFirstReplyOnce(target, {
