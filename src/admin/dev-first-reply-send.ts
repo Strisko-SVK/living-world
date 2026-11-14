@@ -173,9 +173,6 @@ export async function reserveFirstReplyExactlyOnce(
       await tx.execute(sql.raw("set local lock_timeout='2s'"));
       await tx.execute(sql.raw("set local statement_timeout='8s'"));
       const issued = await issueDevOneShotConsent(tx, input);
-      if (process.env.NODE_ENV === "test") {
-        console.info(JSON.stringify({ event: "npc_first_reply_ci_issue_status", status: issued.status }));
-      }
       if (issued.status !== "issued" || !issued.consentId)
         throw Error("Consent not issued.");
       const claimInput: DevOneShotClaimRequest = {
