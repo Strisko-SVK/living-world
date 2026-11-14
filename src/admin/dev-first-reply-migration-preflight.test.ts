@@ -18,8 +18,10 @@ const env: NodeJS.ProcessEnv = {
   NODE_ENV: "development",
   LW_GATEWAY_DEV_ADMIN_PASSWORD: adminPassword,
   LW_GATEWAY_DEV_ROLE_PASSWORD: rolePassword,
-  DATABASE_URL: "postgresql://lw_gateway_dev:" +
-    rolePassword + "@127.0.0.1:55432/living_world_gateway_dev",
+  DATABASE_URL:
+    "postgresql://lw_gateway_dev:" +
+    rolePassword +
+    "@127.0.0.1:55432/living_world_gateway_dev",
   DISCORD_ENABLED: "false",
   DISCORD_OUTBOUND_ENABLED: "false",
   LLM_PROVIDER: "disabled",
@@ -88,8 +90,16 @@ describe("M2.15N read-only 0019 migration preflight", () => {
 
   it.each([
     ["wrong identity", { identityValid: false }, "database_identity_mismatch"],
-    ["absent journal", { migrationTablePresent: false }, "migration_history_missing"],
-    ["missing 0018 guards", { baseline0018Intact: false }, "baseline_0018_invalid"],
+    [
+      "absent journal",
+      { migrationTablePresent: false },
+      "migration_history_missing",
+    ],
+    [
+      "missing 0018 guards",
+      { baseline0018Intact: false },
+      "baseline_0018_invalid",
+    ],
     ["half schema", { consentTablePresent: true }, "schema_partial"],
     ["stray function", { guardFunctionPresent: true }, "schema_partial"],
     ["stray trigger", { truncateTriggerIntact: true }, "schema_partial"],
@@ -145,8 +155,12 @@ describe("M2.15N read-only 0019 migration preflight", () => {
     expect(parseMigration0019Arguments([])).toBeUndefined();
     expect(parseMigration0019Arguments(["--preview"])).toBeUndefined();
     for (const flags of [
-      ["migrate"], ["--apply"], ["--reset"], ["--force"],
-      ["--preview", "--apply"], ["--confirm-database", "living_world_gateway_dev"],
+      ["migrate"],
+      ["--apply"],
+      ["--reset"],
+      ["--force"],
+      ["--preview", "--apply"],
+      ["--confirm-database", "living_world_gateway_dev"],
     ])
       expect(() => parseMigration0019Arguments(flags)).toThrow();
   });
@@ -160,26 +174,32 @@ describe("M2.15N read-only 0019 migration preflight", () => {
     { DATABASE_URL: env.DATABASE_URL!.replace("127.0.0.1", "example.org") },
     { LW_GATEWAY_DEV_ROLE_PASSWORD: "short" },
     { DATABASE_URL: "not a database URL" },
-  ])("refuses an unsafe environment before opening any DB connection", async (patch) => {
-    const connect = vi.fn();
-    expect(await runMigration0019Preflight(
-      ["--preview"],
-      { ...env, ...patch },
-      connect as unknown as Parameters<typeof runMigration0019Preflight>[2],
-    )).toMatchObject({
-      status: "blocked",
-      reason: "unsafe_environment",
-      canMigrate: false,
-      canSend: false,
-    });
-    expect(connect).not.toHaveBeenCalled();
-  });
+  ])(
+    "refuses an unsafe environment before opening any DB connection",
+    async (patch) => {
+      const connect = vi.fn();
+      expect(
+        await runMigration0019Preflight(
+          ["--preview"],
+          { ...env, ...patch },
+          connect as unknown as Parameters<typeof runMigration0019Preflight>[2],
+        ),
+      ).toMatchObject({
+        status: "blocked",
+        reason: "unsafe_environment",
+        canMigrate: false,
+        canSend: false,
+      });
+      expect(connect).not.toHaveBeenCalled();
+    },
+  );
 
   it("blocks --send and --apply even with valid DEV credentials", async () => {
     const connect = vi.fn();
     for (const flag of ["--send", "--apply"]) {
       const v = await runMigration0019Preflight(
-        [flag], env,
+        [flag],
+        env,
         connect as unknown as Parameters<typeof runMigration0019Preflight>[2],
       );
       expect(v.reason).toBe("unsafe_environment");
@@ -190,8 +210,9 @@ describe("M2.15N read-only 0019 migration preflight", () => {
 
   it("enforces PostgreSQL read-only as the first statement and stops on DB identity mismatch", async () => {
     const execute = vi.fn(async () => ({ rows: [] }));
-    const transaction = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
-      callback({ execute }),
+    const transaction = vi.fn(
+      async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback({ execute }),
     );
     const close = vi.fn(async () => undefined);
     const connect = vi.fn(() => ({ db: { transaction }, close }));
@@ -216,7 +237,9 @@ describe("M2.15N read-only 0019 migration preflight", () => {
     vi.stubEnv("NODE_ENV", "production");
     const transaction = vi.fn();
     const v = await inspectMigration0019Preflight(
-      { transaction } as unknown as Parameters<typeof inspectMigration0019Preflight>[0],
+      { transaction } as unknown as Parameters<
+        typeof inspectMigration0019Preflight
+      >[0],
       { database: "living_world_ci", role: "living_world_ci" },
     );
     expect(v.reason).toBe("unsafe_environment");
@@ -224,15 +247,18 @@ describe("M2.15N read-only 0019 migration preflight", () => {
   });
 
   it("redacts unexpected DB errors and never returns migration permission", async () => {
-    const execute = vi.fn().mockRejectedValue(
-      new Error("private database password or Discord player text"),
+    const execute = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("private database password or Discord player text"),
+      );
+    const transaction = vi.fn(
+      async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback({ execute }),
     );
-    const transaction = vi.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
-      callback({ execute }),
-    );
-    const v = await inspectMigration0019Preflight(
-      { transaction } as unknown as Parameters<typeof inspectMigration0019Preflight>[0],
-    );
+    const v = await inspectMigration0019Preflight({
+      transaction,
+    } as unknown as Parameters<typeof inspectMigration0019Preflight>[0]);
     expect(v).toMatchObject({ status: "blocked", reason: "read_failed" });
     assertInert(v);
     expect(JSON.stringify(v)).not.toContain("private");
