@@ -109,28 +109,3 @@ test("CodeQL gate remains local alongside GitHub default setup", async () => {
   assert.match(workflow, /upload: never/);
   assert.match(workflow, /Fail closed on CodeQL findings or missing results/);
 });
-
-// M2.15P temporary formatting diagnostic (remove before PR approval).
-test("M2.15P temporary formatting diagnostic", async () => {
-  const filepath = "src/admin/dev-first-reply-session.ts";
-  const prettier = await import("prettier");
-  const before = await readFile(filepath, "utf8");
-  const after = await prettier.format(before, {
-    ...(await prettier.resolveConfig(filepath)),
-    filepath,
-  });
-  const { mkdtemp, rm, writeFile } = await import("node:fs/promises");
-  const { tmpdir } = await import("node:os");
-  const { spawnSync } = await import("node:child_process");
-  const dir = await mkdtemp(join(tmpdir(), "lw-pr54-diff-"));
-  try {
-    const formattedFile = join(dir, "formatted.ts");
-    await writeFile(formattedFile, after, "utf8");
-    const diff = spawnSync("diff", ["-u", filepath, formattedFile], {
-      encoding: "utf8",
-    });
-    console.log("START_M2_15P_FORMAT_DIFF\\n" + diff.stdout + "END_M2_15P_FORMAT_DIFF");
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
