@@ -129,6 +129,7 @@ export function validateDevFirstReplyEnvironment(
 export async function inspectDevFirstReplyFacts(
   db: Database,
   input: unknown,
+  expectedSendingAttemptId?: string,
 ): Promise<DevFirstReplyPreview> {
   const parsed = configSchema.safeParse(input);
   if (!parsed.success) return report("unsafe_environment");
@@ -201,12 +202,23 @@ export async function inspectDevFirstReplyFacts(
         .where(eq(interactions.worldId, scope.worldId))
         .limit(2),
       db
-        .select({ id: responseDeliveries.id })
+        .select()
         .from(responseDeliveries)
         .where(eq(responseDeliveries.worldId, scope.worldId))
-        .limit(1),
+        .limit(2),
     ]);
-    if (outbox.length) return report("outbox_exists");
+    if (
+      expectedSendingAttemptId === undefined
+        ? outbox.length !== 0
+        : !z.string().uuid().safeParse(expectedSendingAttemptId).success ||
+          outbox.length !== 1 ||
+          outbox[0]!.status !== "sending" ||
+          outbox[0]!.attempts !== 1 ||
+          outbox[0]!.attemptId !== expectedSendingAttemptId ||
+          outbox[0]!.ackMessageId !== null ||
+          !outbox[0]!.dispatchedAt
+    )
+      return report("outbox_exists");
     if (scenes.length !== 1 || routes.length !== 1)
       return report("scene_denied");
     const scene = scenes[0]!;
@@ -257,6 +269,22 @@ export async function inspectDevFirstReplyFacts(
       source.createdAt.getTime() > nowMs
     )
       return report("source_denied");
+
+    if (expectedSendingAttemptId !== undefined) {
+      const d = outbox[0]!;
+      if (
+        d.worldId !== world.id ||
+        d.npcId !== source.npcId ||
+        d.contextId !== scene.id ||
+        d.interactionId !== source.id ||
+        d.payload?.content !== "Acknowledged. Standing by." ||
+        d.payload?.replyToMessageId !== source.sourceMessageId ||
+        d.payload?.destination?.guildId !== config.guildId ||
+        d.payload?.destination?.channelId !== config.channelId ||
+        d.payload?.destination?.threadId !== config.threadId
+      )
+        return report("outbox_exists");
+    }
 
     const trigger = parseDiscordTrigger(source.requestText, gatewaySmokeBotId, [
       gatewaySmokeBotId,
