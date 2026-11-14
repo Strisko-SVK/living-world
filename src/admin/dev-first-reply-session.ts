@@ -69,9 +69,11 @@ export function parseFirstReplySessionArguments(
     throw Error("Exact owner-scoped single-session approval is required.");
 }
 
-export function validateFirstReplySessionEnvironment(
-  env: NodeJS.ProcessEnv,
-): { guildId: string; channelId: string; threadId: string } {
+export function validateFirstReplySessionEnvironment(env: NodeJS.ProcessEnv): {
+  guildId: string;
+  channelId: string;
+  threadId: string;
+} {
   const { route } = validateFirstReplyProvisionEnvironment(env, "prepare");
   validateFirstReplyInboundEnvironment(env, "connect");
   if (
