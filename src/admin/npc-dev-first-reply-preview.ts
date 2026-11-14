@@ -56,7 +56,7 @@ export type DevFirstReplyReason =
   | "validated_fake_only";
 export type DevFirstReplyPreview = {
   event: "npc_dev_first_reply_preview";
-  status: "blocked" | "awaiting_fresh_event" | "fake_only_candidate";
+  status: "blocked" | "fake_only_candidate";
   reason: DevFirstReplyReason;
   readOnly: true;
   canGenerate: false;
@@ -66,12 +66,7 @@ export type DevFirstReplyPreview = {
 function report(reason: DevFirstReplyReason): DevFirstReplyPreview {
   return {
     event: "npc_dev_first_reply_preview",
-    status:
-      reason === "validated_fake_only"
-        ? "fake_only_candidate"
-        : reason === "source_missing"
-          ? "awaiting_fresh_event"
-          : "blocked",
+    status: reason === "validated_fake_only" ? "fake_only_candidate" : "blocked",
     reason,
     readOnly: true,
     canGenerate: false,
