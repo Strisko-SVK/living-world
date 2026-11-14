@@ -53,10 +53,7 @@ export const devFirstReplyConsents = pgTable(
   (t) => [
     // Prevent re-issuing consent after *any* terminal outcome or a new
     // consent UUID, including after the attempt is uncertain.
-    unique("dev_reply_one_event_per_world").on(
-      t.worldId,
-      t.sourceMessageId,
-    ),
+    unique("dev_reply_one_event_per_world").on(t.worldId, t.sourceMessageId),
     unique("dev_reply_one_consent_per_interaction").on(
       t.worldId,
       t.interactionId,
