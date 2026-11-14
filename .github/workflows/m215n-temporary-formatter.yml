@@ -1,0 +1,34 @@
+name: M2.15N temporary canonical formatter
+
+on:
+  push:
+    branches:
+      - feat/m2.15n-readonly-migration-0019-preflight
+
+permissions:
+  contents: read
+
+jobs:
+  canonical:
+    name: Read-only prettier export (temporary)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Setup pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
+        with:
+          version: 10.17.1
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Format only in disposable CI checkout
+        run: |
+          pnpm exec prettier --write src/admin/dev-first-reply-migration-preflight.ts src/admin/dev-first-reply-migration-preflight.test.ts src/db/dev-first-reply-migration-preflight.db.test.ts docs/m2.15n-migration-0019-read-only-handoff.md
+          node -e 'const fs=require("node:fs"); for(const path of ["src/admin/dev-first-reply-migration-preflight.ts","src/admin/dev-first-reply-migration-preflight.test.ts","src/db/dev-first-reply-migration-preflight.db.test.ts","docs/m2.15n-migration-0019-read-only-handoff.md"]) console.log("M215N_CANONICAL:"+JSON.stringify({path,content:fs.readFileSync(path,"utf8")}));'
