@@ -250,6 +250,10 @@ export async function claimDevOneShotConsent(
   try {
     return await db.transaction(async (tx) => {
       if (!(await trustedHost(tx))) return output("operator_only");
+      // Same lock order as issuance: original interaction first, then
+      // consent row. Prevent competing issue/claim transactions inverting
+      // their lock ordering while preserving one-event uniqueness.
+      if (!(await validatedOriginal(tx, input))) return output("blocked");
       const [row] = await tx
         .select()
         .from(devFirstReplyConsents)
@@ -257,7 +261,6 @@ export async function claimDevOneShotConsent(
         .for("update");
       if (!row || !matching(row, input) || row.status !== "approved")
         return output("blocked");
-      if (!(await validatedOriginal(tx, input))) return output("blocked");
       const attemptId = randomUUID();
       const [claimed] = await tx
         .update(devFirstReplyConsents)
