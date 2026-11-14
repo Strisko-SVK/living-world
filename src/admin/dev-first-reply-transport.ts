@@ -47,12 +47,16 @@ const thread = z.object({
   id: snowflake,
   guild_id: snowflake,
   parent_id: snowflake,
-  type: z.literal(11),
+  type: z.union([z.literal(11), z.literal(12)]),
   thread_metadata: z.object({
     archived: z.literal(false),
     locked: z.literal(false),
   }),
 });
+// Private threads have an independent membership gate in addition to parent
+// permissions. A bot with MANAGE_THREADS is not automatically authorized by
+// this one-shot DEV pilot: explicit membership is required.
+const threadMember = z.object({ id: snowflake, user_id: snowflake });
 const perms = z.object({ permissions: z.string().regex(/^\d+$/u) });
 const source = z.object({
   id: snowflake,
@@ -144,6 +148,17 @@ export async function postFirstReplyOnce(
     );
     const bitset = BigInt(acl.permissions);
     if ((bitset & needed) !== needed) return reply("blocked", 0);
+
+    // A Private Thread (type 12) must explicitly contain the DEV bot.
+    // No auto-join, membership mutation, or MANAGE_THREADS bypass.
+    // Re-checked on every preclaim and postclaim HTTP boundary.
+    if (th.type === 12) {
+      const membership = threadMember.parse(
+        await get("/channels/" + t.threadId + "/thread-members/" + t.botId),
+      );
+      if (membership.id !== t.threadId || membership.user_id !== t.botId)
+        return reply("blocked", 0);
+    }
 
     const message = source.parse(
       await get("/channels/" + t.threadId + "/messages/" + t.sourceMessageId),
