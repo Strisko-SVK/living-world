@@ -90,8 +90,7 @@ export function isReviewedMigrationPlan(
   }
   if (entries.length === expectedMigrationTimes.length + 1) {
     const extra = entries[expectedMigrationTimes.length] as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     if (
       !extra ||
       extra.idx !== 19 ||
@@ -200,9 +199,8 @@ export function classifyMigration0018Preflight(
   if (known !== 18 && known !== 19 && known !== 20)
     return report("blocked", "migration_history_drift");
   for (let i = 0; i < known; i += 1) {
-    const expected = i === 19
-      ? expectedMigration0019When
-      : expectedMigrationTimes[i];
+    const expected =
+      i === 19 ? expectedMigration0019When : expectedMigrationTimes[i];
     if (f.appliedTimes[i] !== String(expected))
       return report("blocked", "migration_history_drift");
   }
