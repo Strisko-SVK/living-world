@@ -217,7 +217,12 @@ function matchConstraints(rows: readonly Record<string, unknown>[]): boolean {
       !def.includes("Acknowledged. Standing by.")
     )
       return false;
-    if (row.conname === "dev_reply_time_window" && !def.includes("5 minutes"))
+    // pg_get_constraintdef can normalize '5 minutes' as '00:05:00'.
+    if (
+      row.conname === "dev_reply_time_window" &&
+      !def.includes("5 minutes") &&
+      !def.includes("00:05:00")
+    )
       return false;
     if (
       row.conname === "dev_reply_terminal_shape" &&
