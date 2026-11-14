@@ -159,6 +159,11 @@ export async function createInteraction(
       npcId,
       ...value,
       traceId: value.traceId ?? randomUUID(),
+      // Record the actual receipt time, not the enclosing transaction start.
+      // The independent Discord snowflake still bounds source-event time.
+      ...(value.sourceProvider === "discord"
+        ? { createdAt: sql`clock_timestamp()` }
+        : {}),
       status: "received",
     })
     .onConflictDoNothing({
