@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import { Client } from "discord.js";
+import { ChannelType, Client } from "discord.js";
 import { and, eq, sql } from "drizzle-orm";
 
 import { createDiscordPersistence } from "../adapters/discord/persistence.js";
@@ -192,6 +192,7 @@ export async function loadFirstReplyInboundScope(
       threadId: route.threadId,
       playerId: userId,
       scope,
+      threadType: ChannelType.PrivateThread,
       presenceId: presences[0]!.id,
     };
   });
