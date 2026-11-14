@@ -474,8 +474,10 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
               ...fake,
               generate: async (request, signal) => {
                 // Checked at the actual fake model-call boundary.
-                if (!(await gate("dispatched")))
+                if (!(await gate("dispatched"))) {
+                  console.info("M2_15H_GUARD_DISPATCHED_DENIED");
                   throw Error("host scene policy not valid at generation");
+                }
                 return fake.generate(request, signal);
               },
             };
@@ -509,6 +511,8 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
                 provider,
                 fakeBudget(),
               ),
+            }, (event) => {
+              console.info("M2_15H_RESPONSE_OUTCOME_" + event.outcome);
             });
             const repository = createDeliveryRepository(savepoint);
             const dispatch = createDeliveryDispatcher(
