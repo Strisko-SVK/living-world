@@ -56,7 +56,7 @@ const thread = z.object({
 const perms = z.object({ permissions: z.string().regex(/^\d+$/u) });
 const source = z.object({
   id: snowflake,
-  guild_id: snowflake,
+  guild_id: snowflake.optional(),
   channel_id: snowflake,
   content: z.string(),
   author: user,
@@ -66,7 +66,7 @@ const source = z.object({
 });
 const ackSchema = z.object({
   id: snowflake,
-  guild_id: snowflake,
+  guild_id: snowflake.optional(),
   channel_id: snowflake,
   content: z.literal(firstReplyText),
   author: user,
@@ -151,7 +151,7 @@ export async function postFirstReplyOnce(
     const literal = message.content.replace(/^<@!(\d+)>/u, "<@$1>");
     if (
       message.id !== t.sourceMessageId ||
-      message.guild_id !== t.guildId ||
+      (message.guild_id !== undefined && message.guild_id !== t.guildId) ||
       message.channel_id !== t.threadId ||
       message.author.id !== t.playerId ||
       message.webhook_id != null ||
@@ -168,7 +168,10 @@ export async function postFirstReplyOnce(
     return reply("blocked", 0);
   }
 
-  // A separately authenticated preclaim dry-run verifies current Discord ACL\n  // and exact original message without consuming the one-shot or POSTing.\n  if (deps.dryRun === true) return reply("prechecked",0);\n\n  // From this line on, even a 429/500, failed POST or lost ACK is terminal.
+  // Authenticated GET-only precheck; never consume consent or POST.
+  if (deps.dryRun === true) return reply("prechecked", 0);
+
+  // From this line on, even a 429/500, failed POST or lost ACK is terminal.
   // The caller MUST durably claim the exact event before invoking this adapter.
   const url = api + "/channels/" + t.threadId + "/messages";
   const nonce = t.attemptId.replaceAll("-", "").slice(0, 24);
@@ -202,11 +205,11 @@ export async function postFirstReplyOnce(
     if (
       !ack.success ||
       ack.data.id === t.sourceMessageId ||
-      ack.data.guild_id !== t.guildId ||
+      (ack.data.guild_id !== undefined && ack.data.guild_id !== t.guildId) ||
       ack.data.channel_id !== t.threadId ||
       ack.data.author.id !== t.botId ||
       ack.data.webhook_id != null ||
-      String(ack.data.nonce) !== nonce ||
+      (ack.data.nonce !== undefined && String(ack.data.nonce) !== nonce) ||
       ack.data.message_reference?.message_id !== t.sourceMessageId
     )
       return reply("uncertain", 1);
