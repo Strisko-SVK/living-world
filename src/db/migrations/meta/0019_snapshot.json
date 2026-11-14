@@ -61,14 +61,8 @@
           "name": "context_intake_policy_audit_context_world_fk",
           "tableFrom": "context_intake_policy_audit",
           "tableTo": "interaction_contexts",
-          "columnsFrom": [
-            "world_id",
-            "context_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "context_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -235,18 +229,8 @@
           "name": "dev_reply_original_interaction_scope_fk",
           "tableFrom": "npc_dev_first_reply_consents",
           "tableTo": "interactions",
-          "columnsFrom": [
-            "world_id",
-            "npc_id",
-            "context_id",
-            "interaction_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "npc_id",
-            "context_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "npc_id", "context_id", "interaction_id"],
+          "columnsTo": ["world_id", "npc_id", "context_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -254,14 +238,8 @@
           "name": "dev_reply_player_world_fk",
           "tableFrom": "npc_dev_first_reply_consents",
           "tableTo": "entities",
-          "columnsFrom": [
-            "world_id",
-            "player_entity_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "player_entity_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -269,14 +247,8 @@
           "name": "dev_reply_operator_world_fk",
           "tableFrom": "npc_dev_first_reply_consents",
           "tableTo": "entities",
-          "columnsFrom": [
-            "world_id",
-            "operator_entity_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "operator_entity_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -286,18 +258,12 @@
         "dev_reply_one_event_per_world": {
           "name": "dev_reply_one_event_per_world",
           "nullsNotDistinct": false,
-          "columns": [
-            "world_id",
-            "source_message_id"
-          ]
+          "columns": ["world_id", "source_message_id"]
         },
         "dev_reply_one_consent_per_interaction": {
           "name": "dev_reply_one_consent_per_interaction",
           "nullsNotDistinct": false,
-          "columns": [
-            "world_id",
-            "interaction_id"
-          ]
+          "columns": ["world_id", "interaction_id"]
         }
       },
       "policies": {},
@@ -474,12 +440,8 @@
           "name": "discord_context_mappings_world_id_worlds_id_fk",
           "tableFrom": "discord_context_mappings",
           "tableTo": "worlds",
-          "columnsFrom": [
-            "world_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["world_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -487,12 +449,8 @@
           "name": "discord_context_mappings_context_id_interaction_contexts_id_fk",
           "tableFrom": "discord_context_mappings",
           "tableTo": "interaction_contexts",
-          "columnsFrom": [
-            "context_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["context_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -500,12 +458,8 @@
           "name": "discord_context_mappings_npc_id_npcs_entity_id_fk",
           "tableFrom": "discord_context_mappings",
           "tableTo": "npcs",
-          "columnsFrom": [
-            "npc_id"
-          ],
-          "columnsTo": [
-            "entity_id"
-          ],
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -513,14 +467,8 @@
           "name": "discord_context_world_fk",
           "tableFrom": "discord_context_mappings",
           "tableTo": "interaction_contexts",
-          "columnsFrom": [
-            "world_id",
-            "context_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "context_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -528,14 +476,8 @@
           "name": "discord_npc_world_fk",
           "tableFrom": "discord_context_mappings",
           "tableTo": "entities",
-          "columnsFrom": [
-            "world_id",
-            "npc_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "npc_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -545,12 +487,7 @@
         "discord_context_mappings_location_unique": {
           "name": "discord_context_mappings_location_unique",
           "nullsNotDistinct": true,
-          "columns": [
-            "world_id",
-            "guild_id",
-            "channel_id",
-            "thread_id"
-          ]
+          "columns": ["world_id", "guild_id", "channel_id", "thread_id"]
         }
       },
       "policies": {},
@@ -732,12 +669,8 @@
           "name": "discord_identities_world_id_worlds_id_fk",
           "tableFrom": "discord_identities",
           "tableTo": "worlds",
-          "columnsFrom": [
-            "world_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["world_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -745,12 +678,8 @@
           "name": "discord_identities_entity_id_entities_id_fk",
           "tableFrom": "discord_identities",
           "tableTo": "entities",
-          "columnsFrom": [
-            "entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["entity_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -758,14 +687,8 @@
           "name": "discord_identity_world_fk",
           "tableFrom": "discord_identities",
           "tableTo": "entities",
-          "columnsFrom": [
-            "world_id",
-            "entity_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "entity_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -907,12 +830,8 @@
           "name": "entities_world_id_worlds_id_fk",
           "tableFrom": "entities",
           "tableTo": "worlds",
-          "columnsFrom": [
-            "world_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["world_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -922,10 +841,7 @@
         "entities_world_id_unique": {
           "name": "entities_world_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "world_id",
-            "id"
-          ]
+          "columns": ["world_id", "id"]
         }
       },
       "policies": {},
@@ -1019,12 +935,8 @@
           "name": "entity_aliases_entity_id_entities_id_fk",
           "tableFrom": "entity_aliases",
           "tableTo": "entities",
-          "columnsFrom": [
-            "entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["entity_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -1180,12 +1092,8 @@
           "name": "interaction_contexts_world_id_worlds_id_fk",
           "tableFrom": "interaction_contexts",
           "tableTo": "worlds",
-          "columnsFrom": [
-            "world_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["world_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1193,12 +1101,8 @@
           "name": "interaction_contexts_linked_location_entity_id_entities_id_fk",
           "tableFrom": "interaction_contexts",
           "tableTo": "entities",
-          "columnsFrom": [
-            "linked_location_entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["linked_location_entity_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1206,14 +1110,8 @@
           "name": "context_location_world_fk",
           "tableFrom": "interaction_contexts",
           "tableTo": "entities",
-          "columnsFrom": [
-            "world_id",
-            "linked_location_entity_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "linked_location_entity_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -1223,10 +1121,7 @@
         "interactionContexts_world_id_unique": {
           "name": "interactionContexts_world_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "world_id",
-            "id"
-          ]
+          "columns": ["world_id", "id"]
         }
       },
       "policies": {},
@@ -1516,12 +1411,8 @@
           "name": "interactions_world_id_worlds_id_fk",
           "tableFrom": "interactions",
           "tableTo": "worlds",
-          "columnsFrom": [
-            "world_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["world_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1529,12 +1420,8 @@
           "name": "interactions_context_id_interaction_contexts_id_fk",
           "tableFrom": "interactions",
           "tableTo": "interaction_contexts",
-          "columnsFrom": [
-            "context_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["context_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1542,12 +1429,8 @@
           "name": "interactions_npc_id_npcs_entity_id_fk",
           "tableFrom": "interactions",
           "tableTo": "npcs",
-          "columnsFrom": [
-            "npc_id"
-          ],
-          "columnsTo": [
-            "entity_id"
-          ],
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1555,12 +1438,8 @@
           "name": "interactions_speaker_entity_id_entities_id_fk",
           "tableFrom": "interactions",
           "tableTo": "entities",
-          "columnsFrom": [
-            "speaker_entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["speaker_entity_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1574,12 +1453,7 @@
             "context_id",
             "local_presence_id"
           ],
-          "columnsTo": [
-            "world_id",
-            "npc_id",
-            "context_id",
-            "id"
-          ],
+          "columnsTo": ["world_id", "npc_id", "context_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1587,14 +1461,8 @@
           "name": "interaction_context_world_fk",
           "tableFrom": "interactions",
           "tableTo": "interaction_contexts",
-          "columnsFrom": [
-            "world_id",
-            "context_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "context_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1602,14 +1470,8 @@
           "name": "interaction_npc_world_fk",
           "tableFrom": "interactions",
           "tableTo": "entities",
-          "columnsFrom": [
-            "world_id",
-            "npc_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "npc_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1617,14 +1479,8 @@
           "name": "interaction_speaker_world_fk",
           "tableFrom": "interactions",
           "tableTo": "entities",
-          "columnsFrom": [
-            "world_id",
-            "speaker_entity_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "speaker_entity_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -1634,20 +1490,12 @@
         "interaction_delivery_scope_unique": {
           "name": "interaction_delivery_scope_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "world_id",
-            "npc_id",
-            "context_id",
-            "id"
-          ]
+          "columns": ["world_id", "npc_id", "context_id", "id"]
         },
         "interactions_world_id_unique": {
           "name": "interactions_world_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "world_id",
-            "id"
-          ]
+          "columns": ["world_id", "id"]
         }
       },
       "policies": {},
@@ -1782,12 +1630,8 @@
           "name": "knowledge_conflicts_world_id_worlds_id_fk",
           "tableFrom": "knowledge_conflicts",
           "tableTo": "worlds",
-          "columnsFrom": [
-            "world_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["world_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1795,12 +1639,8 @@
           "name": "knowledge_conflicts_npc_id_npcs_entity_id_fk",
           "tableFrom": "knowledge_conflicts",
           "tableTo": "npcs",
-          "columnsFrom": [
-            "npc_id"
-          ],
-          "columnsTo": [
-            "entity_id"
-          ],
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1808,12 +1648,8 @@
           "name": "knowledge_conflicts_claim_a_id_npc_knowledge_id_fk",
           "tableFrom": "knowledge_conflicts",
           "tableTo": "npc_knowledge",
-          "columnsFrom": [
-            "claim_a_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["claim_a_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1821,12 +1657,8 @@
           "name": "knowledge_conflicts_claim_b_id_npc_knowledge_id_fk",
           "tableFrom": "knowledge_conflicts",
           "tableTo": "npc_knowledge",
-          "columnsFrom": [
-            "claim_b_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["claim_b_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -1935,12 +1767,8 @@
           "name": "knowledge_sources_knowledge_id_npc_knowledge_id_fk",
           "tableFrom": "knowledge_sources",
           "tableTo": "npc_knowledge",
-          "columnsFrom": [
-            "knowledge_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["knowledge_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1948,12 +1776,8 @@
           "name": "knowledge_sources_source_entity_id_entities_id_fk",
           "tableFrom": "knowledge_sources",
           "tableTo": "entities",
-          "columnsFrom": [
-            "source_entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["source_entity_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -1961,12 +1785,8 @@
           "name": "knowledge_sources_source_knowledge_id_npc_knowledge_id_fk",
           "tableFrom": "knowledge_sources",
           "tableTo": "npc_knowledge",
-          "columnsFrom": [
-            "source_knowledge_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["source_knowledge_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1974,12 +1794,8 @@
           "name": "knowledge_sources_source_memory_id_npc_memories_id_fk",
           "tableFrom": "knowledge_sources",
           "tableTo": "npc_memories",
-          "columnsFrom": [
-            "source_memory_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["source_memory_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -2032,12 +1848,8 @@
           "name": "memory_relations_parent_memory_id_npc_memories_id_fk",
           "tableFrom": "memory_relations",
           "tableTo": "npc_memories",
-          "columnsFrom": [
-            "parent_memory_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["parent_memory_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -2045,12 +1857,8 @@
           "name": "memory_relations_child_memory_id_npc_memories_id_fk",
           "tableFrom": "memory_relations",
           "tableTo": "npc_memories",
-          "columnsFrom": [
-            "child_memory_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["child_memory_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -2058,11 +1866,7 @@
       "compositePrimaryKeys": {
         "memory_relations_parent_memory_id_child_memory_id_relation_type_pk": {
           "name": "memory_relations_parent_memory_id_child_memory_id_relation_type_pk",
-          "columns": [
-            "parent_memory_id",
-            "child_memory_id",
-            "relation_type"
-          ]
+          "columns": ["parent_memory_id", "child_memory_id", "relation_type"]
         }
       },
       "uniqueConstraints": {},
@@ -2152,12 +1956,8 @@
           "name": "memory_sources_memory_id_npc_memories_id_fk",
           "tableFrom": "memory_sources",
           "tableTo": "npc_memories",
-          "columnsFrom": [
-            "memory_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["memory_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -2165,12 +1965,8 @@
           "name": "memory_sources_source_entity_id_entities_id_fk",
           "tableFrom": "memory_sources",
           "tableTo": "entities",
-          "columnsFrom": [
-            "source_entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["source_entity_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -2178,12 +1974,8 @@
           "name": "memory_sources_source_interaction_id_interactions_id_fk",
           "tableFrom": "memory_sources",
           "tableTo": "interactions",
-          "columnsFrom": [
-            "source_interaction_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["source_interaction_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -2244,12 +2036,8 @@
           "name": "npc_capabilities_npc_id_npcs_entity_id_fk",
           "tableFrom": "npc_capabilities",
           "tableTo": "npcs",
-          "columnsFrom": [
-            "npc_id"
-          ],
-          "columnsTo": [
-            "entity_id"
-          ],
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -2257,10 +2045,7 @@
       "compositePrimaryKeys": {
         "npc_capabilities_npc_id_capability_key_pk": {
           "name": "npc_capabilities_npc_id_capability_key_pk",
-          "columns": [
-            "npc_id",
-            "capability_key"
-          ]
+          "columns": ["npc_id", "capability_key"]
         }
       },
       "uniqueConstraints": {},
@@ -2365,12 +2150,8 @@
           "name": "npc_game_profiles_npc_id_npcs_entity_id_fk",
           "tableFrom": "npc_game_profiles",
           "tableTo": "npcs",
-          "columnsFrom": [
-            "npc_id"
-          ],
-          "columnsTo": [
-            "entity_id"
-          ],
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -2546,12 +2327,8 @@
           "name": "npc_knowledge_world_id_worlds_id_fk",
           "tableFrom": "npc_knowledge",
           "tableTo": "worlds",
-          "columnsFrom": [
-            "world_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["world_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -2559,12 +2336,8 @@
           "name": "npc_knowledge_npc_id_npcs_entity_id_fk",
           "tableFrom": "npc_knowledge",
           "tableTo": "npcs",
-          "columnsFrom": [
-            "npc_id"
-          ],
-          "columnsTo": [
-            "entity_id"
-          ],
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -2572,12 +2345,8 @@
           "name": "npc_knowledge_subject_entity_id_entities_id_fk",
           "tableFrom": "npc_knowledge",
           "tableTo": "entities",
-          "columnsFrom": [
-            "subject_entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["subject_entity_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         },
@@ -2585,12 +2354,8 @@
           "name": "npc_knowledge_object_entity_id_entities_id_fk",
           "tableFrom": "npc_knowledge",
           "tableTo": "entities",
-          "columnsFrom": [
-            "object_entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["object_entity_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -2752,12 +2517,8 @@
           "name": "npc_memories_world_id_worlds_id_fk",
           "tableFrom": "npc_memories",
           "tableTo": "worlds",
-          "columnsFrom": [
-            "world_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["world_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -2765,12 +2526,8 @@
           "name": "npc_memories_npc_id_npcs_entity_id_fk",
           "tableFrom": "npc_memories",
           "tableTo": "npcs",
-          "columnsFrom": [
-            "npc_id"
-          ],
-          "columnsTo": [
-            "entity_id"
-          ],
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -2858,12 +2615,8 @@
           "name": "npc_state_npc_id_npcs_entity_id_fk",
           "tableFrom": "npc_state",
           "tableTo": "npcs",
-          "columnsFrom": [
-            "npc_id"
-          ],
-          "columnsTo": [
-            "entity_id"
-          ],
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -2968,12 +2721,8 @@
           "name": "relationship_events_relationship_id_relationships_id_fk",
           "tableFrom": "relationship_events",
           "tableTo": "relationships",
-          "columnsFrom": [
-            "relationship_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["relationship_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -2981,12 +2730,8 @@
           "name": "relationship_events_source_interaction_id_interactions_id_fk",
           "tableFrom": "relationship_events",
           "tableTo": "interactions",
-          "columnsFrom": [
-            "source_interaction_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["source_interaction_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -2994,12 +2739,8 @@
           "name": "relationship_events_source_memory_id_npc_memories_id_fk",
           "tableFrom": "relationship_events",
           "tableTo": "npc_memories",
-          "columnsFrom": [
-            "source_memory_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["source_memory_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -3007,12 +2748,8 @@
           "name": "relationship_events_source_knowledge_id_npc_knowledge_id_fk",
           "tableFrom": "relationship_events",
           "tableTo": "npc_knowledge",
-          "columnsFrom": [
-            "source_knowledge_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["source_knowledge_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -3176,12 +2913,8 @@
           "name": "relationships_world_id_worlds_id_fk",
           "tableFrom": "relationships",
           "tableTo": "worlds",
-          "columnsFrom": [
-            "world_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["world_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -3189,12 +2922,8 @@
           "name": "relationships_source_entity_id_entities_id_fk",
           "tableFrom": "relationships",
           "tableTo": "entities",
-          "columnsFrom": [
-            "source_entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["source_entity_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -3202,12 +2931,8 @@
           "name": "relationships_target_entity_id_entities_id_fk",
           "tableFrom": "relationships",
           "tableTo": "entities",
-          "columnsFrom": [
-            "target_entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["target_entity_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -3350,12 +3075,8 @@
           "name": "task_reports_task_id_tasks_id_fk",
           "tableFrom": "task_reports",
           "tableTo": "tasks",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -3363,12 +3084,8 @@
           "name": "task_reports_recipient_entity_id_entities_id_fk",
           "tableFrom": "task_reports",
           "tableTo": "entities",
-          "columnsFrom": [
-            "recipient_entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["recipient_entity_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -3376,12 +3093,8 @@
           "name": "task_reports_context_id_interaction_contexts_id_fk",
           "tableFrom": "task_reports",
           "tableTo": "interaction_contexts",
-          "columnsFrom": [
-            "context_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["context_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -3563,12 +3276,8 @@
           "name": "tasks_world_id_worlds_id_fk",
           "tableFrom": "tasks",
           "tableTo": "worlds",
-          "columnsFrom": [
-            "world_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["world_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -3576,12 +3285,8 @@
           "name": "tasks_assignee_entity_id_entities_id_fk",
           "tableFrom": "tasks",
           "tableTo": "entities",
-          "columnsFrom": [
-            "assignee_entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["assignee_entity_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -3589,12 +3294,8 @@
           "name": "tasks_requester_entity_id_entities_id_fk",
           "tableFrom": "tasks",
           "tableTo": "entities",
-          "columnsFrom": [
-            "requester_entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["requester_entity_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -3602,12 +3303,8 @@
           "name": "tasks_origin_interaction_id_interactions_id_fk",
           "tableFrom": "tasks",
           "tableTo": "interactions",
-          "columnsFrom": [
-            "origin_interaction_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["origin_interaction_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -3615,12 +3312,8 @@
           "name": "tasks_origin_context_id_interaction_contexts_id_fk",
           "tableFrom": "tasks",
           "tableTo": "interaction_contexts",
-          "columnsFrom": [
-            "origin_context_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["origin_context_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -3628,14 +3321,8 @@
           "name": "task_assignee_world_fk",
           "tableFrom": "tasks",
           "tableTo": "entities",
-          "columnsFrom": [
-            "world_id",
-            "assignee_entity_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "assignee_entity_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -3643,14 +3330,8 @@
           "name": "task_requester_world_fk",
           "tableFrom": "tasks",
           "tableTo": "entities",
-          "columnsFrom": [
-            "world_id",
-            "requester_entity_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "requester_entity_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -3658,14 +3339,8 @@
           "name": "task_interaction_world_fk",
           "tableFrom": "tasks",
           "tableTo": "interactions",
-          "columnsFrom": [
-            "world_id",
-            "origin_interaction_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "origin_interaction_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -3673,14 +3348,8 @@
           "name": "task_context_world_fk",
           "tableFrom": "tasks",
           "tableTo": "interaction_contexts",
-          "columnsFrom": [
-            "world_id",
-            "origin_context_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "origin_context_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -3766,12 +3435,8 @@
           "name": "npcs_entity_id_entities_id_fk",
           "tableFrom": "npcs",
           "tableTo": "entities",
-          "columnsFrom": [
-            "entity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["entity_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -4079,12 +3744,8 @@
           "name": "llm_usage_account_id_llm_budget_id_fk",
           "tableFrom": "llm_usage",
           "tableTo": "llm_budget",
-          "columnsFrom": [
-            "account_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["account_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -4218,12 +3879,8 @@
           "name": "local_presence_npc_id_npcs_entity_id_fk",
           "tableFrom": "local_presence",
           "tableTo": "npcs",
-          "columnsFrom": [
-            "npc_id"
-          ],
-          "columnsTo": [
-            "entity_id"
-          ],
+          "columnsFrom": ["npc_id"],
+          "columnsTo": ["entity_id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -4231,14 +3888,8 @@
           "name": "local_presence_npc_world_fk",
           "tableFrom": "local_presence",
           "tableTo": "entities",
-          "columnsFrom": [
-            "world_id",
-            "npc_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "npc_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -4246,14 +3897,8 @@
           "name": "local_presence_context_world_fk",
           "tableFrom": "local_presence",
           "tableTo": "interaction_contexts",
-          "columnsFrom": [
-            "world_id",
-            "context_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "context_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -4261,14 +3906,8 @@
           "name": "local_presence_location_world_fk",
           "tableFrom": "local_presence",
           "tableTo": "entities",
-          "columnsFrom": [
-            "world_id",
-            "location_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "location_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -4278,12 +3917,7 @@
         "local_presence_binding_unique": {
           "name": "local_presence_binding_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "world_id",
-            "npc_id",
-            "context_id",
-            "id"
-          ]
+          "columns": ["world_id", "npc_id", "context_id", "id"]
         }
       },
       "policies": {},
@@ -4476,18 +4110,8 @@
           "name": "scene_speech_presence_scope_fk",
           "tableFrom": "npc_scene_speech_policies",
           "tableTo": "local_presence",
-          "columnsFrom": [
-            "world_id",
-            "npc_id",
-            "context_id",
-            "presence_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "npc_id",
-            "context_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "npc_id", "context_id", "presence_id"],
+          "columnsTo": ["world_id", "npc_id", "context_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -4495,14 +4119,8 @@
           "name": "scene_speech_issuer_world_fk",
           "tableFrom": "npc_scene_speech_policies",
           "tableTo": "entities",
-          "columnsFrom": [
-            "world_id",
-            "issuer_entity_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "issuer_entity_id"],
+          "columnsTo": ["world_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -4703,18 +4321,8 @@
           "name": "response_delivery_scope_fk",
           "tableFrom": "npc_response_deliveries",
           "tableTo": "interactions",
-          "columnsFrom": [
-            "world_id",
-            "npc_id",
-            "context_id",
-            "interaction_id"
-          ],
-          "columnsTo": [
-            "world_id",
-            "npc_id",
-            "context_id",
-            "id"
-          ],
+          "columnsFrom": ["world_id", "npc_id", "context_id", "interaction_id"],
+          "columnsTo": ["world_id", "npc_id", "context_id", "id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -4724,9 +4332,7 @@
         "response_delivery_interaction_unique": {
           "name": "response_delivery_interaction_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "interaction_id"
-          ]
+          "columns": ["interaction_id"]
         }
       },
       "policies": {},
@@ -4759,78 +4365,42 @@
     "public.capability_level": {
       "name": "capability_level",
       "schema": "public",
-      "values": [
-        "untrained",
-        "basic",
-        "competent",
-        "experienced",
-        "expert"
-      ]
+      "values": ["untrained", "basic", "competent", "experienced", "expert"]
     },
     "public.capability_source": {
       "name": "capability_source",
       "schema": "public",
-      "values": [
-        "profile",
-        "game_system",
-        "background",
-        "manual",
-        "derived"
-      ]
+      "values": ["profile", "game_system", "background", "manual", "derived"]
     },
     "public.communication_mode": {
       "name": "communication_mode",
       "schema": "public",
-      "values": [
-        "local",
-        "remote",
-        "unknown"
-      ]
+      "values": ["local", "remote", "unknown"]
     },
     "public.discord_context_mapping_status": {
       "name": "discord_context_mapping_status",
       "schema": "public",
-      "values": [
-        "active",
-        "inactive"
-      ]
+      "values": ["active", "inactive"]
     },
     "public.discord_context_mapping_type": {
       "name": "discord_context_mapping_type",
       "schema": "public",
-      "values": [
-        "scene",
-        "npc_primary",
-        "direct",
-        "system"
-      ]
+      "values": ["scene", "npc_primary", "direct", "system"]
     },
     "public.discord_identity_mapping_type": {
       "name": "discord_identity_mapping_type",
       "schema": "public",
-      "values": [
-        "player_character",
-        "npc_operator",
-        "observer",
-        "other"
-      ]
+      "values": ["player_character", "npc_operator", "observer", "other"]
     },
     "public.discord_identity_status": {
       "name": "discord_identity_status",
       "schema": "public",
-      "values": [
-        "active",
-        "inactive"
-      ]
+      "values": ["active", "inactive"]
     },
     "public.entity_status": {
       "name": "entity_status",
       "schema": "public",
-      "values": [
-        "active",
-        "inactive",
-        "archived"
-      ]
+      "values": ["active", "inactive", "archived"]
     },
     "public.entity_type": {
       "name": "entity_type",
@@ -4851,33 +4421,17 @@
     "public.interaction_context_status": {
       "name": "interaction_context_status",
       "schema": "public",
-      "values": [
-        "active",
-        "inactive",
-        "archived"
-      ]
+      "values": ["active", "inactive", "archived"]
     },
     "public.interaction_context_type": {
       "name": "interaction_context_type",
       "schema": "public",
-      "values": [
-        "direct",
-        "scene",
-        "npc_primary",
-        "group",
-        "system"
-      ]
+      "values": ["direct", "scene", "npc_primary", "group", "system"]
     },
     "public.interaction_status": {
       "name": "interaction_status",
       "schema": "public",
-      "values": [
-        "received",
-        "processing",
-        "responded",
-        "completed",
-        "failed"
-      ]
+      "values": ["received", "processing", "responded", "completed", "failed"]
     },
     "public.interaction_type": {
       "name": "interaction_type",
@@ -4905,21 +4459,12 @@
     "public.knowledge_conflict_status": {
       "name": "knowledge_conflict_status",
       "schema": "public",
-      "values": [
-        "unresolved",
-        "reviewed",
-        "resolved"
-      ]
+      "values": ["unresolved", "reviewed", "resolved"]
     },
     "public.knowledge_secrecy": {
       "name": "knowledge_secrecy",
       "schema": "public",
-      "values": [
-        "public",
-        "private",
-        "restricted",
-        "secret"
-      ]
+      "values": ["public", "private", "restricted", "secret"]
     },
     "public.knowledge_source_type": {
       "name": "knowledge_source_type",
@@ -4941,32 +4486,17 @@
     "public.knowledge_status": {
       "name": "knowledge_status",
       "schema": "public",
-      "values": [
-        "current",
-        "outdated",
-        "disputed",
-        "invalidated"
-      ]
+      "values": ["current", "outdated", "disputed", "invalidated"]
     },
     "public.location_certainty": {
       "name": "location_certainty",
       "schema": "public",
-      "values": [
-        "certain",
-        "probable",
-        "uncertain",
-        "unknown"
-      ]
+      "values": ["certain", "probable", "uncertain", "unknown"]
     },
     "public.memory_detail_level": {
       "name": "memory_detail_level",
       "schema": "public",
-      "values": [
-        "high",
-        "medium",
-        "low",
-        "gist"
-      ]
+      "values": ["high", "medium", "low", "gist"]
     },
     "public.memory_relation_type": {
       "name": "memory_relation_type",
@@ -4982,12 +4512,7 @@
     "public.memory_retention_class": {
       "name": "memory_retention_class",
       "schema": "public",
-      "values": [
-        "temporary",
-        "normal",
-        "important",
-        "permanent"
-      ]
+      "values": ["temporary", "normal", "important", "permanent"]
     },
     "public.memory_source_type": {
       "name": "memory_source_type",
@@ -5008,12 +4533,7 @@
     "public.memory_status": {
       "name": "memory_status",
       "schema": "public",
-      "values": [
-        "active",
-        "consolidated",
-        "archived",
-        "invalidated"
-      ]
+      "values": ["active", "consolidated", "archived", "invalidated"]
     },
     "public.memory_type": {
       "name": "memory_type",
@@ -5033,10 +4553,7 @@
     "public.npc_intake_policy": {
       "name": "npc_intake_policy",
       "schema": "public",
-      "values": [
-        "disabled",
-        "mapped_players"
-      ]
+      "values": ["disabled", "mapped_players"]
     },
     "public.npc_lifecycle_state": {
       "name": "npc_lifecycle_state",
@@ -5086,12 +4603,7 @@
     "public.task_report_delivery_status": {
       "name": "task_report_delivery_status",
       "schema": "public",
-      "values": [
-        "pending",
-        "delivered",
-        "failed",
-        "skipped"
-      ]
+      "values": ["pending", "delivered", "failed", "skipped"]
     },
     "public.task_report_type": {
       "name": "task_report_type",
@@ -5122,20 +4634,12 @@
     "public.task_urgency": {
       "name": "task_urgency",
       "schema": "public",
-      "values": [
-        "low",
-        "normal",
-        "high",
-        "critical"
-      ]
+      "values": ["low", "normal", "high", "critical"]
     },
     "public.world_status": {
       "name": "world_status",
       "schema": "public",
-      "values": [
-        "active",
-        "archived"
-      ]
+      "values": ["active", "archived"]
     }
   },
   "schemas": {},
