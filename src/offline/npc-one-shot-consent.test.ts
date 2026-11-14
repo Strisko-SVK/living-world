@@ -218,7 +218,7 @@ describe("M2.15K disposable one-shot owner consent contract", () => {
 
   it("never accepts a preview as real authority or user-forged send permission", async () => {
     const f = fixture();
-    f.setPreview({ ...preview(), canSend: true });
+    f.setPreview({ ...preview(), canSend: true } as unknown as FirstReplyPreview);
     expect(await f.run(target)).toMatchObject({ outcome: "preflight_denied" });
     f.setPreview({ ...preview(), fixedReply: undefined });
     expect(await f.run(target)).toMatchObject({ outcome: "preflight_denied" });
