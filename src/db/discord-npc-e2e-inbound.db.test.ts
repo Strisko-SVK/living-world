@@ -455,14 +455,16 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
             expect(grants[0]!.attemptId).toBeTruthy();
             await expect(
               oneShot.transaction(async (bad) => {
-                await bad.update(devFirstReplyConsents)
+                await bad
+                  .update(devFirstReplyConsents)
                   .set({ fixedReply: "Forged response" })
                   .where(eq(devFirstReplyConsents.id, grant.consentId!));
               }),
             ).rejects.toThrow();
             await expect(
               oneShot.transaction(async (bad) => {
-                await bad.delete(devFirstReplyConsents)
+                await bad
+                  .delete(devFirstReplyConsents)
                   .where(eq(devFirstReplyConsents.id, grant.consentId!));
               }),
             ).rejects.toThrow();
@@ -477,25 +479,33 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           }),
         ).rejects.toThrow(RollbackTest);
         expect(
-          await tx.select().from(devFirstReplyConsents)
+          await tx
+            .select()
+            .from(devFirstReplyConsents)
             .where(eq(devFirstReplyConsents.worldId, worldId)),
         ).toHaveLength(0);
         await expect(
           tx.transaction(async (oneShot) => {
             const grant = await issueDevOneShotConsent(oneShot, {
-              ...consentTarget, ttlSeconds: 60,
+              ...consentTarget,
+              ttlSeconds: 60,
             });
             if (!grant.consentId) throw Error("missing CI-only grant");
             const scope = { ...consentTarget, consentId: grant.consentId };
-            expect(await revokeDevOneShotConsent(oneShot, scope)).toMatchObject({
-              status: "revoked",
-            });
+            expect(await revokeDevOneShotConsent(oneShot, scope)).toMatchObject(
+              {
+                status: "revoked",
+              },
+            );
             expect(await claimDevOneShotConsent(oneShot, scope)).toMatchObject({
               status: "blocked",
             });
-            expect(await issueDevOneShotConsent(oneShot, {
-              ...consentTarget, ttlSeconds: 60,
-            })).toMatchObject({ status: "already_reserved" });
+            expect(
+              await issueDevOneShotConsent(oneShot, {
+                ...consentTarget,
+                ttlSeconds: 60,
+              }),
+            ).toMatchObject({ status: "already_reserved" });
             throw new RollbackTest();
           }),
         ).rejects.toThrow(RollbackTest);
