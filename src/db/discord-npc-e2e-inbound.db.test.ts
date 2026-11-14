@@ -1,6 +1,9 @@
+import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { afterAll, describe, expect, it } from "vitest";
+import { ChannelType, Events, MessageType, type Message } from "discord.js";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
+import { createDiscordAdapter } from "../adapters/discord/client.js";
 import { createDiscordPersistence } from "../adapters/discord/persistence.js";
 import { reconcilePilotPlayer } from "../admin/discord-pilot-player.js";
 import { reconcilePilotPolicy } from "../admin/discord-pilot-policy.js";
@@ -264,12 +267,70 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           content: requestText,
           mentionedUserIds: [botId],
         };
-        expect(await intake(event, botId)).toBe("accepted");
+        // Inject an SDK-shaped MessageCreate into the real adapter using a
+        // fake EventEmitter client. The login stub never opens a Gateway.
+        const fakeClient = Object.assign(new EventEmitter(), {
+          user: { id: botId },
+          login: vi.fn().mockResolvedValue("offline"),
+          destroy: vi.fn().mockResolvedValue(undefined),
+        });
+        const reply = vi.fn();
+        const send = vi.fn();
+        const outcomes: string[] = [];
+        const adapter = createDiscordAdapter(
+          {
+            enabled: true,
+            token: "offline-fake-token",
+            intents: ["Guilds", "GuildMessages", "MessageContent"],
+          },
+          async (message, trustedBotId) => {
+            outcomes.push(await intake(message, trustedBotId));
+          },
+          () => {},
+          fakeClient as unknown as Parameters<typeof createDiscordAdapter>[3],
+        );
+        const sdkEvent = {
+          id: sourceMessageId,
+          author: { id: humanId, bot: false },
+          partial: false,
+          webhookId: null,
+          system: false,
+          guildId: route.guildId,
+          channelId: route.threadId,
+          type: MessageType.Default,
+          content: requestText,
+          channel: {
+            type: ChannelType.PublicThread,
+            parentId: route.channelId,
+            isThread: () => true,
+            send,
+          },
+          mentions: { users: new Map([[botId, {}]]) },
+          reply,
+          fetch: vi.fn(),
+        } as unknown as Message;
+        await adapter.start();
+        fakeClient.emit(Events.MessageCreate, sdkEvent);
+        await adapter.stop();
+        expect(outcomes).toEqual(["accepted"]);
+        expect(fakeClient.login).toHaveBeenCalledExactlyOnceWith(
+          "offline-fake-token",
+        );
+        expect(fakeClient.destroy).toHaveBeenCalledOnce();
+        expect(reply).not.toHaveBeenCalled();
+        expect(send).not.toHaveBeenCalled();
         await verifyNpcE2eInboundFacts(tx, config, "after", sourceMessageId);
         const beforePreview = await tx
           .select()
           .from(interactions)
           .where(eq(interactions.worldId, worldId));
+        expect(beforePreview).toHaveLength(1);
+        expect(beforePreview[0]!.sourceMessageId).toBe(sourceMessageId);
+        // The DB receipt clock must follow the pre-existing host policy
+        // even when the synthetic test owns a long outer transaction.
+        expect(beforePreview[0]!.createdAt.getTime()).toBeGreaterThanOrEqual(
+          initialPolicy!.issuedAt.getTime(),
+        );
         const speechScope = {
           worldId,
           npcId,
@@ -412,48 +473,16 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
           .where(eq(responseDeliveries.worldId, worldId));
         expect(deliveries).toHaveLength(0);
 
-        // M2.15H: full, one-shot fake generation and durable fake ACK,
+        // M2.15I: full, one-shot fake generation and durable fake ACK
+        // against the original, adapter-backed interaction,
         // inside a nested SAVEPOINT which rolls back before the original
         // M2.15G revocation/integrity assertions proceed.
         await expect(
           tx.transaction(async (savepoint) => {
-            // In this outer rollback-only fixture, PostgreSQL now() is the
-            // OUTER transaction start. The first stored intake has an early
-            // created_at, so it cannot pass the independent M2.9 receipt
-            // window. Insert a second SYNTHETIC test interaction with its
-            // actual receipt clock, preserving source route/author bindings.
-            // Never claim this row came from a live Discord SDK event.
-            const actionTime = Date.now();
-            const testMessageId = (
-              (BigInt(actionTime - 10) - 1420070400000n) <<
-              22n
-            ).toString();
-            const [synthetic] = await savepoint
-              .insert(interactions)
-              .values({
-                id: randomUUID(),
-                worldId,
-                contextId,
-                npcId,
-                speakerEntityId: beforePreview[0]!.speakerEntityId,
-                interactionType: beforePreview[0]!.interactionType,
-                communicationMode: "unknown",
-                requestText,
-                sourceProvider: "discord",
-                sourceMessageId: testMessageId,
-                sourceGuildId: route.guildId,
-                sourceChannelId: route.channelId,
-                sourceThreadId: route.threadId,
-                sourceMappingId: beforePreview[0]!.sourceMappingId,
-                traceId: randomUUID(),
-                createdAt: new Date(actionTime),
-              })
-              .returning({ id: interactions.id });
-            expect(synthetic).toBeTruthy();
-            const actionScope = {
-              ...speechScope,
-              interactionId: synthetic!.id,
-            };
+            // M2.15I: use the SAME real intake-persisted interaction.
+            // The database receipt clock now permits the M2.9 presence
+            // timestamp fence even inside a long rollback-only transaction.
+            const actionScope = speechScope;
             const gate = (phase: OfflineSpeechPhase) =>
               readVerifiedOfflineSpeechPhaseSnapshot(
                 savepoint,
