@@ -134,7 +134,7 @@ describe("M2.15O no-retry Discord bot HTTP send boundary", () => {
     expect(fence).toHaveBeenCalledOnce();
   });
 
-  it("allows private thread GET-only preview after verifying explicit bot membership", async () => {
+  it("private thread preview checks explicit bot membership", async () => {
     const fake = fakeHttp({ threadType: 12 });
     const fence = vi.fn().mockResolvedValue(true);
     const result = await postFirstReplyOnce(target, {
@@ -150,13 +150,15 @@ describe("M2.15O no-retry Discord bot HTTP send boundary", () => {
     });
     expect(fake.calls).toHaveLength(6);
     expect(
-      fake.calls.filter((x) => x.url.endsWith("/thread-members/" + target.botId)),
+      fake.calls.filter((x) =>
+        x.url.endsWith("/thread-members/" + target.botId),
+      ),
     ).toHaveLength(1);
     expect(fake.calls.every((x) => x.method === "GET")).toBe(true);
     expect(fence).toHaveBeenCalledOnce();
   });
 
-  it("sends exactly once inside an explicitly joined private thread", async () => {
+  it("sends once into private thread with membership", async () => {
     const fake = fakeHttp({ threadType: 12 });
     const result = await postFirstReplyOnce(target, {
       http: fake.http,
@@ -197,7 +199,7 @@ describe("M2.15O no-retry Discord bot HTTP send boundary", () => {
     expect(fence).not.toHaveBeenCalled();
   });
 
-  it("still never sends private-thread messages on missing membership even during dry run", async () => {
+  it("blocks private-thread dry run without bot membership", async () => {
     const fake = fakeHttp({ threadType: 12, missingThreadMember: true });
     const result = await postFirstReplyOnce(target, {
       http: fake.http,
