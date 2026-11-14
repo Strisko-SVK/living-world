@@ -328,6 +328,29 @@ export async function finalizeFirstReplyAttempt(
         return false;
 
       if (transport.status === "acknowledged" && transport.messageId) {
+        // Respect 0013's immutable local-presence binding: prepare the
+        // received interaction independently before recording the ACK.
+        const [presence] = await tx
+          .select({ id: sceneSpeechPolicies.presenceId })
+          .from(sceneSpeechPolicies)
+          .where(
+            and(
+              eq(sceneSpeechPolicies.worldId, input.worldId),
+              eq(sceneSpeechPolicies.npcId, input.npcId),
+              eq(sceneSpeechPolicies.contextId, input.contextId),
+            ),
+          )
+          .limit(1);
+        if (!presence) throw Error("Local presence record is missing.");
+        const prepared = await prepareLocalInteraction(tx, {
+          worldId: input.worldId,
+          npcId: input.npcId,
+          contextId: input.contextId,
+          interactionId: input.interactionId,
+          evidenceId: presence.id,
+        });
+        if (prepared.status !== "prepared")
+          throw Error("Local preparation did not pass.");
         await tx
           .update(responseDeliveries)
           .set({
