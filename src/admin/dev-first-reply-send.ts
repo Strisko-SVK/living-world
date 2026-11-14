@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { prepareLocalInteraction } from "../communication/local.repository.js";
 import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { and, eq, sql } from "drizzle-orm";
