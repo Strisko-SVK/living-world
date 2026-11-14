@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format:check": "echo H_CLEAN_FMT_START && prettier src/db/discord-npc-e2e-inbound.db.test.ts && echo H_CLEAN_FMT_END && prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:db": "node --env-file=.env.example --env-file-if-exists=.env ./node_modules/vitest/vitest.mjs run --config vitest.db.config.ts",
