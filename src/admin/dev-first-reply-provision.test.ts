@@ -103,8 +103,12 @@ describe("M2.15O isolated Sentinel first reply provisioning", () => {
       { LW_FIRST_REPLY_PLAYER_ID: undefined },
       { LW_NPC_E2E_PARENT_CHANNEL_ID: undefined },
       { LW_FIRST_REPLY_PREVIOUS_PARENT_ID: undefined },
-      { LW_FIRST_REPLY_THREAD_ID: environment.LW_FIRST_REPLY_PREVIOUS_THREAD_ID },
-      { LW_FIRST_REPLY_PARENT_ID: environment.LW_FIRST_REPLY_PREVIOUS_PARENT_ID },
+      {
+        LW_FIRST_REPLY_THREAD_ID: environment.LW_FIRST_REPLY_PREVIOUS_THREAD_ID,
+      },
+      {
+        LW_FIRST_REPLY_PARENT_ID: environment.LW_FIRST_REPLY_PREVIOUS_PARENT_ID,
+      },
       { DATABASE_URL: environment.DATABASE_URL?.replace("55432", "5432") },
       {
         DATABASE_URL: environment.DATABASE_URL?.replace(
