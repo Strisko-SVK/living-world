@@ -50,11 +50,7 @@ function offlineCiOnly(): boolean {
 // Strict phase-specific snapshots. Only tests may advance a synthetic
 // response. Never turn a read into permission for real model calls or sends.
 export type OfflineSpeechPhase =
-  | "received"
-  | "prepared"
-  | "dispatched"
-  | "responded"
-  | "sending";
+  "received" | "prepared" | "dispatched" | "responded" | "sending";
 
 export async function readVerifiedOfflineSpeechSnapshot(
   db: Database,
@@ -130,7 +126,8 @@ export async function readVerifiedOfflineSpeechPhaseSnapshot(
         )
         .for("share");
       if (!interaction) return null;
-      const noResponse = interaction.responseText === null &&
+      const noResponse =
+        interaction.responseText === null &&
         interaction.responseMessageId === null;
       const preparedPresence =
         interaction.communicationMode === "local" &&
@@ -330,10 +327,7 @@ export async function readVerifiedOfflineSpeechPhaseSnapshot(
         .for("share");
       if (presences.length !== 1 || presences[0]!.revokedAt) return null;
       const presence = presences[0]!;
-      if (
-        phase !== "received" &&
-        interaction.localPresenceId !== presence.id
-      )
+      if (phase !== "received" && interaction.localPresenceId !== presence.id)
         return null;
       // Strict contact policy accepts precisely these eight fields.
       // Raw local_presence rows also contain audit metadata (issuedBy,
