@@ -20,6 +20,7 @@ import {
 import { getInteraction } from "../domains/interaction/interaction.repository.js";
 import { createNpcContextBuilder } from "../context/context.repository.js";
 import { createNpcResponseOrchestrator } from "../response/orchestrator.js";
+import type { ResponseScope } from "../response/contracts.js";
 import { createResponseStore } from "../response/response.repository.js";
 import { createTextGenerator } from "../llm/generation.js";
 import { enabledConfig, fakeBudget, fakeProvider } from "../llm/llm.test-fixture.js";
@@ -447,7 +448,7 @@ describe("M2.14C one-shot NPC Gateway DB facts on disposable PostgreSQL 17", () 
                 return transport.send(request);
               },
             };
-            const read = (scope: typeof speechScope) =>
+            const read = (scope: ResponseScope) =>
               getInteraction(
                 savepoint,
                 scope.worldId,
