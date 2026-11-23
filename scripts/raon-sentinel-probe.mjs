@@ -1,3 +1,4 @@
+/* global URL, fetch, console, AbortSignal, process */
 import { performance } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
 
