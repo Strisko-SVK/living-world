@@ -27,7 +27,7 @@
     "admin:deliver": "node --env-file-if-exists=.env --import tsx src/admin/discord-delivery.ts",
     "db:init": "node scripts/security/init-local-env.mjs",
     "test:security": "node --test scripts/security/security.test.mjs",
-    "test:raon": "node --test scripts/raon-sentinel-probe.test.mjs"
+    "test:raon": "node --test scripts/raon-sentinel-probe.test.mjs && prettier scripts/raon-sentinel-probe.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
