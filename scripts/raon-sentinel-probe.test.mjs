@@ -21,7 +21,9 @@ test("only a local loopback endpoint can be used", () => {
 
 test("requires a single, nonempty speech key", () => {
   assert.equal(
-    parseSpeech({ choices: [{ message: { content: '{"speech":"Standing by."}' } }] }),
+    parseSpeech({
+      choices: [{ message: { content: '{"speech":"Standing by."}' } }],
+    }),
     "Standing by.",
   );
   for (const content of [
@@ -34,7 +36,9 @@ test("requires a single, nonempty speech key", () => {
   }
 });
 
-test("offline fake transport sends bounded, role-separated requests and logs only metrics", async () => {
+test(
+  "offline fake transport sends bounded, role-separated requests and logs only metrics",
+  async () => {
   const calls = [];
   const logs = [];
   const fetchFn = async (url, init) => {
@@ -64,4 +68,5 @@ test("offline fake transport sends bounded, role-separated requests and logs onl
   assert.equal(payload.messages[1].role, "user");
   assert.equal(payload.messages[1].content, "Hello");
   assert.equal(payload.response_format.type, "json_object");
-});
+  },
+);
