@@ -112,16 +112,23 @@ export async function runRaonSentinelProbe({
   return results;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   if (process.argv.slice(2).some((a) => a !== "--show-speech")) {
-    console.error('{"event":"raon_sentinel_probe_error","reason":"invalid_arguments"}');
+    console.error(
+      '{"event":"raon_sentinel_probe_error","reason":"invalid_arguments"}',
+    );
     process.exitCode = 1;
   } else {
     void runRaonSentinelProbe({
       baseUrl: process.env.RAON_BASE_URL,
       showSpeech: process.argv.includes("--show-speech"),
     }).catch(() => {
-      console.error('{"event":"raon_sentinel_probe_error","reason":"probe_failed"}');
+      console.error(
+        '{"event":"raon_sentinel_probe_error","reason":"probe_failed"}',
+      );
       process.exitCode = 1;
     });
   }
