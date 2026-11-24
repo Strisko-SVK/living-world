@@ -186,10 +186,21 @@ export function createTextGenerator(
       )
         throw new ProviderFailure("cancelled", false, undefined, true);
       check();
-      let inputTokens = await interruptible(
-        () => provider.countInput(input, signal),
-        signal,
-      );
+      const countInput = async () => {
+        const countStarted = performance.now();
+        try {
+          return await interruptible(
+            () => provider.countInput(input, signal),
+            signal,
+          );
+        } finally {
+          if (config.provider === "raon")
+            observation.tokenCountMs =
+              (observation.tokenCountMs ?? 0) +
+              Math.round(performance.now() - countStarted);
+        }
+      };
+      let inputTokens = await countInput();
       if (config.provider === "raon") {
         if (
           inputTokens + input.maxOutputTokens > config.contextTokens &&
@@ -200,14 +211,13 @@ export function createTextGenerator(
             ...data.compactMessages,
           ];
           check();
-          inputTokens = await interruptible(
-            () => provider.countInput(input, signal),
-            signal,
-          );
+          observation.compactContextUsed = true;
+          inputTokens = await countInput();
         }
         if (inputTokens + input.maxOutputTokens > config.contextTokens)
           throw new ProviderFailure("context_limit");
         observation.contextTokens = inputTokens;
+        observation.compactContextUsed ??= false;
         if (
           request.beforeAttempt &&
           !(await interruptible(request.beforeAttempt, signal))
@@ -220,6 +230,7 @@ export function createTextGenerator(
             () => provider.generate(input, signal),
             signal,
           );
+          if (reply.timings) observation.runtimeTimings = reply.timings;
           const u = reply.usage;
           if (u) knownUsage = u;
           if (

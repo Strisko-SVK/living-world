@@ -368,6 +368,9 @@ export function createRaonDevTurn(
                 excerpts: safePairs(previous.excerpts),
                 excludedText,
                 natural: true,
+                experimentalPrompt:
+                  Boolean(config.native) &&
+                  env.LW_NPC_DIALOGUE_VERSION === "m219-v1",
               }
             : { request: player, history: [...history] },
         },

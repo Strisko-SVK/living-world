@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   PROMPT_VERSION,
+  M219_PROMPT_VERSION,
   type ResponseDependencies,
   type ResponseDiagnostic,
   type ResponseOptions,
@@ -32,6 +33,16 @@ export function createNpcResponseOrchestrator(
     options: ResponseOptions = {},
   ): Promise<ResponseResult> => {
     const started = performance.now();
+    const experimental =
+      options.dialogue?.natural && options.dialogue.experimentalPrompt;
+    const version = experimental ? M219_PROMPT_VERSION : PROMPT_VERSION;
+    const stageMs: Record<string, number> = {};
+    let stageStarted = started;
+    const mark = (name: string) => {
+      const now = performance.now();
+      stageMs[name] = Math.round(now - stageStarted);
+      stageStarted = now;
+    };
     let contextChars: number | undefined;
     const scope: ResponseScope = { worldId, npcId, interactionId };
     const parsed = optionsSchema.safeParse(options);
@@ -43,8 +54,9 @@ export function createNpcResponseOrchestrator(
         diagnose({
           event: "npc_response",
           traceId,
-          promptVersion: PROMPT_VERSION,
+          promptVersion: version,
           latencyMs: Math.round(performance.now() - started),
+          ...(experimental ? { stageMs } : {}),
           ...(contextChars === undefined ? {} : { contextChars }),
           outcome: result.ok ? result.status : result.error,
         });
@@ -83,6 +95,7 @@ export function createNpcResponseOrchestrator(
         return finish({ ok: false, error: "ineligible" });
       if (options.signal?.aborted)
         return finish({ ok: false, error: "cancelled" });
+      mark("interactionLookup");
       let context;
       try {
         context = await deps.build({
@@ -93,6 +106,7 @@ export function createNpcResponseOrchestrator(
       } catch {
         return finish({ ok: false, error: "context_unavailable" });
       }
+      mark("contextBuild");
       let permitted;
       try {
         permitted = filterResponseContext(context, current);
@@ -105,6 +119,7 @@ export function createNpcResponseOrchestrator(
               : "context_unavailable",
         });
       }
+      mark("visibilityFilter");
       let prompt;
       try {
         if (options.dialogue) {
@@ -114,9 +129,13 @@ export function createNpcResponseOrchestrator(
           >;
           scene.requestText = options.dialogue.request;
         }
-        const style = options.dialogue?.natural
-          ? "natural"
-          : !!options.dialogue;
+        const style = experimental
+          ? "natural-v2"
+          : options.dialogue?.natural
+            ? "natural"
+            : !!options.dialogue;
+        if (experimental && options.dialogue?.history.length)
+          permitted.sections.sceneHistory = options.dialogue.history.slice(-1);
         const compact = composeResponsePrompt(
           permitted,
           parsed.data.maxResponseChars,
@@ -147,7 +166,10 @@ export function createNpcResponseOrchestrator(
       }
       if (options.signal?.aborted)
         return finish({ ok: false, error: "cancelled" });
-      const claim = await deps.store.claim(scope, current, context);
+      mark("promptCompose");
+      const claim = experimental
+        ? await deps.store.claim(scope, current, context, version)
+        : await deps.store.claim(scope, current, context);
       if (!claim?.responseClaimId)
         return finish({ ok: false, error: "ineligible" });
       claimId = claim.responseClaimId;
@@ -160,6 +182,7 @@ export function createNpcResponseOrchestrator(
         return finish({ ok: false, error: "claim_lost" });
       }
       dispatched = true;
+      mark("claimDispatch");
       const generated = await deps.generate({
         traceId,
         ...prompt,
@@ -170,6 +193,7 @@ export function createNpcResponseOrchestrator(
         maxOutputTokens: parsed.data.maxOutputTokens,
         requestBudgetMicros: parsed.data.requestBudgetMicros,
       });
+      mark("generation");
       if (!generated.ok) {
         await deps.store.fail(
           scope,
@@ -199,7 +223,9 @@ export function createNpcResponseOrchestrator(
         await deps.store.fail(scope, claimId, false);
         return finish({ ok: false, error: "cancelled" });
       }
+      mark("validateAndAuthorize");
       const saved = await deps.store.persist(scope, claimId, speech, context);
+      mark("persist");
       if (!saved) {
         await deps.store.fail(scope, claimId, true);
         return finish({ ok: false, error: "claim_lost" });
@@ -208,7 +234,7 @@ export function createNpcResponseOrchestrator(
         ok: true,
         status: "responded",
         interaction: saved,
-        promptVersion: PROMPT_VERSION,
+        promptVersion: version,
       });
     } catch {
       // Persistence can commit even when the caller loses the acknowledgement.

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "templates": [
+    {
+      "key": "barman",
+      "home": "Tiché miesto, Thorn Anchorage",
+      "aliases": ["barman", "barkeep", "nemi", "nemeia caldris"],
+      "npc": {
+        "canonicalName": "Nemeia Caldris",
+        "simulationDepth": 3,
+        "narrativeWeight": 18,
+        "templateVersion": 1,
+        "profileVersion": 1,
+        "baselineProfile": {
+          "identity": {
+            "name": "Nemeia Caldris",
+            "species": "Human",
+            "role": "Barkeep and proprietor"
+          },
+          "summary": "Nemeia “Nemi” Caldris, 38, voidborn, runs Tiché miesto at Thorn Anchorage. She reads people and draws them into conversation without making it feel like an interrogation. She wants a stable business and relative peace rather than influence.",
+          "personality": {
+            "traits": [
+              "Observant",
+              "Patient",
+              "Dry-humored",
+              "Socially perceptive",
+              "Discreet",
+              "Mildly cynical"
+            ],
+            "values": [
+              "Privacy",
+              "Keeping one's word",
+              "Stability",
+              "Independence"
+            ]
+          },
+          "presentation": {
+            "displayName": "Nemeia Caldris",
+            "avatarUrl": "https://cdn.discordapp.com/embed/avatars/2.png"
+          }
+        }
+      }
+    }
+  ]
+}

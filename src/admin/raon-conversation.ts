@@ -1,4 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
+import { selectM219History } from "../response/dialogue-context.js";
 import type { DatabaseClient } from "../db/client.js";
 import { discordConversations } from "../db/schema/discord-conversations.js";
 import type { IncomingMessage } from "../intake/discord-intake.js";
@@ -21,7 +22,12 @@ export function createRaonConversation(
   db: Database,
   scene: Scene,
   inactivityMs: number,
-  options?: { defaultNpcId: string | null; explicitOnly: boolean },
+  options?: {
+    defaultNpcId: string | null;
+    explicitOnly: boolean;
+    experimentalHistory?: boolean;
+    historyStartSourceId?: string;
+  },
 ) {
   const { worldId, contextId, mappingId, playerEntityId } = scene;
   const scope = { worldId, contextId, playerEntityId };
@@ -137,7 +143,7 @@ export function createRaonConversation(
     const filter =
       "replyId" in query
         ? sql`d.ack_message_id=${query.replyId}`
-        : sql`i.npc_id=${query.npcId}`;
+        : sql`i.npc_id=${query.npcId} and (${options?.historyStartSourceId ?? null}::text is null or i.source_message_id::numeric >= ${options?.historyStartSourceId ?? null}::numeric)`;
     const result = await db.execute(sql`
       select i.npc_id, i.request_text, i.response_text
       from npc_response_deliveries d
@@ -162,7 +168,9 @@ export function createRaonConversation(
         parseDiscordTrigger(request_text, botId, [botId])?.body ?? request_text;
       return [{ player: playerText(body), speech: response_text }];
     });
-    return selectRaonHistory(pairs, request);
+    return options?.experimentalHistory
+      ? selectM219History(pairs, request)
+      : selectRaonHistory(pairs, request);
   }
 
   return { select, focus, history };

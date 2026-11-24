@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { loadNpcTemplates } from "./template-catalog.js";
 import type { IncomingMessage } from "../intake/discord-intake.js";
 import { parseDiscordTrigger } from "../intake/discord-trigger.js";
 import { discordMessageCreatedAt } from "../intake/discord-snowflake.js";
@@ -117,7 +118,26 @@ export function createNativeNpcRuntime(
     inferenceHttp?: typeof fetch;
   },
 ) {
-  const registry = createNpcRegistry(db, config.guildId);
+  const since = config.env.LW_NPC_CONTEXT_SINCE;
+  const sinceMs = since ? Date.parse(since) : undefined;
+  if (
+    sinceMs !== undefined &&
+    (!Number.isSafeInteger(sinceMs) ||
+      sinceMs < 1420070400000 ||
+      sinceMs > Date.now())
+  )
+    throw new Error(
+      "Invalid LW_NPC_CONTEXT_SINCE; use a past UTC ISO timestamp.",
+    );
+  const historyStartSourceId =
+    sinceMs === undefined
+      ? undefined
+      : ((BigInt(sinceMs) - 1420070400000n) << 22n).toString();
+  const registry = createNpcRegistry(
+    db,
+    config.guildId,
+    loadNpcTemplates(config.env.LW_NPC_TEMPLATE_FILE),
+  );
   const scenes = createNpcScenes(db, registry);
   const webhooks = new Map<
     string,
@@ -488,6 +508,8 @@ export function createNativeNpcRuntime(
     const memory = createRaonConversation(db, scope, 600_000, {
       defaultNpcId,
       explicitOnly: !defaultNpcId,
+      experimentalHistory: config.env.LW_NPC_DIALOGUE_VERSION === "m219-v1",
+      historyStartSourceId,
     });
     const resolution = await memory.select(message, config.botId, roster);
     if (resolution.kind === "closed" && (await authorizeRoute()))

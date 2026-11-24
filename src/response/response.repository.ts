@@ -121,7 +121,7 @@ export function createResponseStore(database: Database): ResponseStore {
     }
   };
   return {
-    claim: (scope, expected, context) =>
+    claim: (scope, expected, context, promptVersion = PROMPT_VERSION) =>
       database.transaction(async (tx) => {
         const row = await locked(tx, scope);
         if (
@@ -154,7 +154,7 @@ export function createResponseStore(database: Database): ResponseStore {
           .set({
             responseClaimId: randomUUID(),
             responseClaimedAt: sql`clock_timestamp()`,
-            responsePromptVersion: PROMPT_VERSION,
+            responsePromptVersion: promptVersion,
             responseGenerationOutcome: "claimed",
           })
           .where(and(scopeWhere(scope), isNull(interactions.responseClaimId)))
