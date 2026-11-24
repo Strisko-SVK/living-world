@@ -493,6 +493,7 @@ export function createNativeNpcRuntime(
     const memory = createRaonConversation(db, scope, 600_000, {
       defaultNpcId,
       explicitOnly: !defaultNpcId,
+      experimentalHistory: config.env.LW_NPC_DIALOGUE_VERSION === "m219-v1",
     });
     const resolution = await memory.select(message, config.botId, roster);
     if (resolution.kind === "closed" && (await authorizeRoute()))
