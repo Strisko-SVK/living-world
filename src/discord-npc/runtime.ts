@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { loadNpcTemplates } from "./template-catalog.js";
 import type { IncomingMessage } from "../intake/discord-intake.js";
 import { parseDiscordTrigger } from "../intake/discord-trigger.js";
 import { discordMessageCreatedAt } from "../intake/discord-snowflake.js";
@@ -117,7 +118,11 @@ export function createNativeNpcRuntime(
     inferenceHttp?: typeof fetch;
   },
 ) {
-  const registry = createNpcRegistry(db, config.guildId);
+  const registry = createNpcRegistry(
+    db,
+    config.guildId,
+    loadNpcTemplates(config.env.LW_NPC_TEMPLATE_FILE),
+  );
   const scenes = createNpcScenes(db, registry);
   const webhooks = new Map<
     string,
