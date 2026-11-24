@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   PROMPT_VERSION,
+  M219_PROMPT_VERSION,
   type ResponseDependencies,
   type ResponseDiagnostic,
   type ResponseOptions,
@@ -32,6 +33,8 @@ export function createNpcResponseOrchestrator(
     options: ResponseOptions = {},
   ): Promise<ResponseResult> => {
     const started = performance.now();
+    const experimental = options.dialogue?.natural && options.dialogue.experimentalPrompt;
+    const version = experimental ? M219_PROMPT_VERSION : PROMPT_VERSION;
     let contextChars: number | undefined;
     const scope: ResponseScope = { worldId, npcId, interactionId };
     const parsed = optionsSchema.safeParse(options);
@@ -43,7 +46,7 @@ export function createNpcResponseOrchestrator(
         diagnose({
           event: "npc_response",
           traceId,
-          promptVersion: PROMPT_VERSION,
+          promptVersion: version,
           latencyMs: Math.round(performance.now() - started),
           ...(contextChars === undefined ? {} : { contextChars }),
           outcome: result.ok ? result.status : result.error,
@@ -114,9 +117,13 @@ export function createNpcResponseOrchestrator(
           >;
           scene.requestText = options.dialogue.request;
         }
-        const style = options.dialogue?.natural
-          ? "natural"
-          : !!options.dialogue;
+        const style = experimental
+          ? "natural-v2"
+          : options.dialogue?.natural
+            ? "natural"
+            : !!options.dialogue;
+        if (experimental && options.dialogue?.history.length)
+          permitted.sections.sceneHistory = options.dialogue.history.slice(-1);
         const compact = composeResponsePrompt(
           permitted,
           parsed.data.maxResponseChars,
@@ -147,7 +154,9 @@ export function createNpcResponseOrchestrator(
       }
       if (options.signal?.aborted)
         return finish({ ok: false, error: "cancelled" });
-      const claim = await deps.store.claim(scope, current, context);
+      const claim = experimental
+        ? await deps.store.claim(scope, current, context, version)
+        : await deps.store.claim(scope, current, context);
       if (!claim?.responseClaimId)
         return finish({ ok: false, error: "ineligible" });
       claimId = claim.responseClaimId;
@@ -208,7 +217,7 @@ export function createNpcResponseOrchestrator(
         ok: true,
         status: "responded",
         interaction: saved,
-        promptVersion: PROMPT_VERSION,
+        promptVersion: version,
       });
     } catch {
       // Persistence can commit even when the caller loses the acknowledgement.
