@@ -159,7 +159,6 @@ export async function postScopedBotReply(
     if (
       p.id !== t.parentId ||
       th.id !== t.threadId ||
-      (dialogue && th.type !== 12) ||
       p.guild_id !== t.guildId ||
       th.guild_id !== t.guildId ||
       th.parent_id !== t.parentId
