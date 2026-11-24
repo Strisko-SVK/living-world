@@ -7,6 +7,14 @@
 - Test: `pnpm test`
 - Quality gate: `pnpm quality:gate`
 
+### Discord DEV playtest
+
+The [native Discord NPC runbook](docs/m2.18-native-discord-npc.md) covers
+campaign onboarding, in-Discord NPC bases, automatic thread scenes and the
+owner-local roleplay acceptance. The [Quartermaster](docs/m2.17-quartermaster-discord-dev.md)
+and [Sentinel](docs/m2.16-raon-sentinel-discord-dev.md) pilot runbooks document the
+isolated regression modes.
+
 ### Local PostgreSQL
 
 1. Run `pnpm db:init` to create a private `.env` with a random password. Existing

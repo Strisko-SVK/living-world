@@ -19,7 +19,8 @@ export const environment = {
 };
 export function enabledConfig() {
   const config = getLlmConfig(environment);
-  if (!config.enabled) throw Error("Fixture must be enabled.");
+  if (!config.enabled || config.provider !== "openai")
+    throw Error("OpenAI fixture must be enabled.");
   return config;
 }
 export const request: GenerationRequest = {

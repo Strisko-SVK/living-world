@@ -1,3 +1,8 @@
+import {
+  quartermasterWorldPrefix,
+  quartermasterKnowledgeRef,
+  quartermasterMemoryRef,
+} from "../admin/quartermaster-profile.js";
 import type {
   Interaction,
   NpcContextBundle,
@@ -73,15 +78,74 @@ export function filterResponseContext(
   )
     throw new VisibilityBlocked();
   const excludedText: string[] = [];
-  // Sources record attribution, not NPC exposure. No persisted source type,
-  // entity identity, timestamp, reference or note proves perception. Withhold
-  // whole conflict groups until reliable exposure evidence can be represented.
-  for (const group of bundle.knowledge)
-    excludedText.push(...group.claims.map((c) => c.record.claimText));
-  // Ownership alone proves neither historical perception nor permission to
-  // disclose memories/relationship notes. No visibility model exists for them.
-  for (const memory of bundle.memories)
-    excludedText.push(memory.record.summary);
+  const permittedKnowledge = [];
+  const legacyWorld = new RegExp(
+    "^" + quartermasterWorldPrefix + "[1-9][0-9]{16,19}$",
+    "u",
+  ).test(bundle.world.key);
+  const nativeWorld =
+    expected.discordNativeSource &&
+    /^lw-dev-discord-[1-9][0-9]{16,19}$/u.test(bundle.world.key);
+  const quartermaster =
+    bundle.world.systemType === "test" &&
+    (legacyWorld || nativeWorld) &&
+    npc.canonicalName === "Marcus Voss";
+  // Ordinary provenance does not authorize disclosure. This explicitly
+  // authored source marker opts public synthetic fixture claims into speech.
+  for (const group of bundle.knowledge) {
+    for (const { record, provenance } of group.claims) {
+      if (
+        quartermaster &&
+        permittedKnowledge.length < 6 &&
+        !group.conflicts.length &&
+        group.claims.length === 1 &&
+        record.worldId === worldId &&
+        record.npcId === npcId &&
+        record.status === "current" &&
+        record.secrecy === "public" &&
+        provenance.total === 1 &&
+        provenance.unavailable === 0 &&
+        provenance.omitted === 0 &&
+        provenance.sources[0]?.sourceType === "dm" &&
+        provenance.sources[0].externalRef === quartermasterKnowledgeRef
+      ) {
+        const statement = record.claimText.split(" [Topics: ")[0];
+        permittedKnowledge.push({
+          kind:
+            record.classification === "fact"
+              ? record.predicate === "observation"
+                ? "npc_observation"
+                : "fixture_fact"
+              : record.classification,
+          statement,
+        });
+      } else {
+        excludedText.push(record.claimText);
+      }
+    }
+  }
+  // A personal recollection is eligible only with a fixture-authored
+  // disclosure marker. Ordinary NPC memory and relationship notes stay private.
+  const permittedMemories = [];
+  for (const { record, provenance } of bundle.memories) {
+    if (
+      quartermaster &&
+      permittedMemories.length < 3 &&
+      record.worldId === worldId &&
+      record.npcId === npcId &&
+      record.status === "active" &&
+      provenance.total === 1 &&
+      provenance.unavailable === 0 &&
+      provenance.omitted === 0 &&
+      provenance.sources[0]?.sourceType === "dm" &&
+      provenance.sources[0].sourceId === quartermasterMemoryRef
+    )
+      permittedMemories.push({
+        kind: "npc_recollection",
+        summary: record.summary.split(" [Topics: ")[0],
+      });
+    else excludedText.push(record.summary);
+  }
   for (const history of bundle.history) {
     excludedText.push(history.record.requestText);
     if (history.record.responseText)
@@ -112,8 +176,8 @@ export function filterResponseContext(
         physical: pick(state.physicalState, ["summary"]),
         emotional: pick(state.emotionalState, ["summary"]),
       },
-      permittedKnowledge: [],
-      permittedMemories: [],
+      permittedKnowledge,
+      permittedMemories,
       relevantRelationships: [],
       sceneHistory: [],
       currentSceneAndInteraction: {
@@ -134,9 +198,9 @@ export function filterResponseContext(
           "explicit_local_mode_with_stored_location_evidence",
       },
       missing: [
-        "knowledge_exposure_unproven",
+        ...(permittedKnowledge.length ? [] : ["knowledge_exposure_unproven"]),
         "history_perception_unproven",
-        "memory_disclosure_unclassified",
+        ...(permittedMemories.length ? [] : ["memory_disclosure_unclassified"]),
         "relationship_disclosure_unclassified",
         ...(requester ? [] : ["speaker_unknown"]),
       ],
@@ -144,8 +208,8 @@ export function filterResponseContext(
     excludedText,
     omissions: {
       history: bundle.history.length,
-      knowledgeGroups: bundle.knowledge.length,
-      memories: bundle.memories.length,
+      knowledgeGroups: bundle.knowledge.length - permittedKnowledge.length,
+      memories: bundle.memories.length - permittedMemories.length,
       relationships: bundle.relationships.length,
     },
   };

@@ -15,6 +15,7 @@ export function createDiscordAdapter(
   client: ClientPort = new Client({
     intents: config.intents.map((name) => GatewayIntentBits[name]),
   }),
+  reportRejections = false,
 ) {
   const pending = new Set<Promise<void>>();
   let stopping = false;
@@ -25,7 +26,10 @@ export function createDiscordAdapter(
     const botId = client.user.id;
     const work = (async () => {
       try {
-        const normalized = normalizeDiscordMessage(message);
+        const normalized = normalizeDiscordMessage(message, (outcome) => {
+          if (reportRejections)
+            diagnose({ event: "discord_normalization", outcome });
+        });
         if (normalized) await intake(normalized, botId);
       } catch {
         diagnose({ event: "discord_message_error" });

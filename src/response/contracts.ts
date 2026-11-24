@@ -23,6 +23,14 @@ export interface ResponseOptions {
   maxOutputTokens?: number;
   requestBudgetMicros?: number;
   signal?: AbortSignal;
+  beforeAttempt?: () => Promise<boolean>;
+  dialogue?: {
+    request: string;
+    natural?: boolean;
+    excerpts?: ReadonlyArray<{ player: string; speech: string }>;
+    excludedText?: readonly string[];
+    history: ReadonlyArray<{ player: string; speech: string }>;
+  };
 }
 export type ResponseFailure =
   | "invalid_request"
@@ -90,5 +98,7 @@ export interface ResponseDiagnostic {
   event: "npc_response";
   traceId: string;
   promptVersion: typeof PROMPT_VERSION;
+  latencyMs: number;
+  contextChars?: number;
   outcome: ResponseFailure | "responded" | "already_recorded";
 }

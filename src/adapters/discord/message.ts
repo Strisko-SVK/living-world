@@ -94,6 +94,9 @@ export function normalizeDiscordMessage(
     channelId: isThread ? parentId : message.channelId,
     threadId: isThread ? message.channelId : null,
     content: message.content,
+    ...(message.type === MessageType.Reply && {
+      replyToMessageId: message.reference?.messageId,
+    }),
     mentionedUserIds: [
       ...new Set(
         literalMentions.filter((id) => message.mentions.users.has(id)),

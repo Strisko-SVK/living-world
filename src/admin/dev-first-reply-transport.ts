@@ -8,7 +8,7 @@ const targetSchema = z
   .object({
     guildId: snowflake,
     parentId: snowflake,
-    threadId: snowflake,
+    threadId: snowflake.nullable(),
     sourceMessageId: snowflake,
     playerId: snowflake,
     botId: snowflake,
@@ -63,21 +63,58 @@ const source = z.object({
   guild_id: snowflake.optional(),
   channel_id: snowflake,
   content: z.string(),
-  author: user,
+  author: user.extend({ bot: z.boolean().optional() }),
   mentions: z.array(user),
-  type: z.literal(0),
+  type: z.union([z.literal(0), z.literal(19)]),
+  message_reference: z
+    .object({
+      message_id: snowflake.optional(),
+      channel_id: snowflake.optional(),
+      guild_id: snowflake.optional(),
+    })
+    .optional(),
   webhook_id: z.null().optional(),
 });
 const ackSchema = z.object({
   id: snowflake,
   guild_id: snowflake.optional(),
   channel_id: snowflake,
-  content: z.literal(firstReplyText),
+  content: z.string(),
   author: user,
   nonce: z.union([z.string(), z.number()]).optional(),
   message_reference: z.object({ message_id: snowflake }).optional(),
   webhook_id: z.null().optional(),
 });
+const webhookMetadata = z.object({
+  id: snowflake,
+  type: z.literal(1),
+  guild_id: snowflake,
+  channel_id: snowflake,
+});
+const personaAck = z.object({
+  id: snowflake,
+  guild_id: snowflake.optional(),
+  channel_id: snowflake,
+  content: z.string(),
+  webhook_id: snowflake,
+  author: user.extend({ username: z.string() }),
+});
+export function readNpcWebhook(raw: string) {
+  const match =
+    /^https:\/\/discord\.com\/api(?:\/v10)?\/webhooks\/([1-9][0-9]{16,19})\/([A-Za-z0-9_-]{20,200})$/u.exec(
+      raw,
+    );
+  if (!match) throw new Error("Invalid dedicated DEV webhook URL.");
+  return {
+    id: match[1]!,
+    url: "https://discord.com/api/v10/webhooks/" + match[1] + "/" + match[2],
+  };
+}
+type NpcPersona = {
+  webhook: ReturnType<typeof readNpcWebhook>;
+  name: string;
+  avatarUrl?: string;
+};
 const VIEW_CHANNEL = 1n << 10n;
 const READ_MESSAGE_HISTORY = 1n << 16n;
 const SEND_MESSAGES_IN_THREADS = 1n << 38n;
@@ -85,20 +122,44 @@ const needed = VIEW_CHANNEL | READ_MESSAGE_HISTORY | SEND_MESSAGES_IN_THREADS;
 
 // This adapter owns ZERO retries. Actual HTTP can only be wired by a separate
 // authenticated local operator command. Inject fake HTTP in offline tests.
-export async function postFirstReplyOnce(
+type SendDependencies = {
+  http: OutboundHttp;
+  token: string;
+  revalidateAtBoundary: () => Promise<boolean>;
+  timeoutMs?: number;
+  dryRun?: true;
+};
+export function postFirstReplyOnce(raw: unknown, deps: SendDependencies) {
+  return postScopedBotReply(raw, deps);
+}
+
+// Dynamic pilot calls this only through a preflighted outbox lease. Keep
+// the historical fixed-text command on its original contract.
+export async function postScopedBotReply(
   raw: unknown,
-  deps: {
-    http: OutboundHttp;
-    token: string;
-    revalidateAtBoundary: () => Promise<boolean>;
-    timeoutMs?: number;
-    dryRun?: true;
+  deps: SendDependencies,
+  dialogue?: {
+    content: string;
+    sourceContent: string;
+    conversationSource?: { mentioned: boolean; replyToMessageId?: string };
+    verifyPermissions: () => Promise<boolean>;
+    signal: AbortSignal;
+    persona?: NpcPersona;
   },
 ): Promise<FirstReplySendResult> {
   const parsed = targetSchema.safeParse(raw);
   if (!parsed.success || !/^\S{20,}$/u.test(deps.token))
     return reply("blocked", 0);
   const t = parsed.data;
+  if (!dialogue && !t.threadId) return reply("blocked", 0);
+  const destinationId = t.threadId ?? t.parentId;
+  const content = dialogue?.content ?? firstReplyText;
+  if (dialogue?.signal.aborted || !content.trim() || content.length > 2000)
+    return reply("blocked", 0);
+  const deadline = (ms: number) => {
+    const timeout = AbortSignal.timeout(ms);
+    return dialogue ? AbortSignal.any([dialogue.signal, timeout]) : timeout;
+  };
   const timeoutMs = deps.timeoutMs ?? 8000;
   if (
     !Number.isInteger(timeoutMs) ||
@@ -121,7 +182,7 @@ export async function postFirstReplyOnce(
     const res = await deps.http(url, {
       method: "GET",
       redirect: "manual",
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: deadline(timeoutMs),
       headers: { Authorization: "Bot " + deps.token },
     });
     if (res.status !== 200 || res.redirected || (res.url && res.url !== url))
@@ -135,24 +196,33 @@ export async function postFirstReplyOnce(
     const me = user.parse(await get("/users/@me"));
     if (me.id !== t.botId) return reply("blocked", 0);
     const p = parent.parse(await get("/channels/" + t.parentId));
-    const th = thread.parse(await get("/channels/" + t.threadId));
+    const th = t.threadId
+      ? thread.parse(await get("/channels/" + t.threadId))
+      : null;
     if (
+      p.id !== t.parentId ||
       p.guild_id !== t.guildId ||
-      th.guild_id !== t.guildId ||
-      th.parent_id !== t.parentId
+      (th &&
+        (th.id !== t.threadId ||
+          th.guild_id !== t.guildId ||
+          th.parent_id !== t.parentId))
     )
       return reply("blocked", 0);
 
-    const acl = perms.parse(
-      await get("/channels/" + t.threadId + "/permissions/member/" + t.botId),
-    );
-    const bitset = BigInt(acl.permissions);
-    if ((bitset & needed) !== needed) return reply("blocked", 0);
+    if (dialogue) {
+      if (!(await dialogue.verifyPermissions())) return reply("blocked", 0);
+    } else {
+      const acl = perms.parse(
+        await get("/channels/" + t.threadId + "/permissions/member/" + t.botId),
+      );
+      const bitset = BigInt(acl.permissions);
+      if ((bitset & needed) !== needed) return reply("blocked", 0);
+    }
 
     // A Private Thread (type 12) must explicitly contain the DEV bot.
     // No auto-join, membership mutation, or MANAGE_THREADS bypass.
     // Re-checked on every preclaim and postclaim HTTP boundary.
-    if (th.type === 12) {
+    if (th?.type === 12) {
       const membership = threadMember.parse(
         await get("/channels/" + t.threadId + "/thread-members/" + t.botId),
       );
@@ -161,24 +231,66 @@ export async function postFirstReplyOnce(
     }
 
     const message = source.parse(
-      await get("/channels/" + t.threadId + "/messages/" + t.sourceMessageId),
+      await get(
+        "/channels/" + destinationId + "/messages/" + t.sourceMessageId,
+      ),
     );
     const literal = message.content.replace(/^<@!(\d+)>/u, "<@$1>");
     if (
       message.id !== t.sourceMessageId ||
       (message.guild_id !== undefined && message.guild_id !== t.guildId) ||
-      message.channel_id !== t.threadId ||
+      message.channel_id !== destinationId ||
       message.author.id !== t.playerId ||
+      message.author.bot === true ||
       message.webhook_id != null ||
-      message.mentions.length !== 1 ||
-      message.mentions[0]!.id !== t.botId ||
-      literal !== "<@" + t.botId + "> [Sentinel] Report readiness."
+      ((!dialogue?.conversationSource ||
+        dialogue.conversationSource.mentioned) &&
+        !message.mentions.some((mention) => mention.id === t.botId)) ||
+      (dialogue?.conversationSource?.replyToMessageId !== undefined &&
+        (message.type !== 19 ||
+          message.message_reference?.message_id !==
+            dialogue.conversationSource.replyToMessageId ||
+          (message.message_reference.channel_id !== undefined &&
+            message.message_reference.channel_id !== destinationId) ||
+          (message.message_reference.guild_id !== undefined &&
+            message.message_reference.guild_id !== t.guildId))) ||
+      (dialogue
+        ? message.content.trim() !== dialogue.sourceContent
+        : message.type !== 0 ||
+          message.mentions.length !== 1 ||
+          literal !== "<@" + t.botId + "> [Sentinel] Report readiness.")
     )
       return reply("blocked", 0);
 
+    if (dialogue?.persona) {
+      const { webhook, name } = dialogue.persona;
+      if (!name.trim() || name.length > 80) return reply("blocked", 0);
+      const verified = readNpcWebhook(webhook.url);
+      if (verified.id !== webhook.id) return reply("blocked", 0);
+      const res = await deps.http(verified.url, {
+        method: "GET",
+        redirect: "manual",
+        signal: deadline(timeoutMs),
+      });
+      if (
+        res.status !== 200 ||
+        res.redirected ||
+        (res.url && res.url !== verified.url)
+      )
+        return reply("blocked", 0);
+      const metadata = webhookMetadata.parse(await res.json());
+      if (
+        metadata.id !== webhook.id ||
+        metadata.guild_id !== t.guildId ||
+        metadata.channel_id !== t.parentId
+      )
+        return reply("blocked", 0);
+    }
+
     // After the network metadata reads, recheck the database's authoritative
     // scene/source/host policy and the independently authenticated operator.
-    if (!(await deps.revalidateAtBoundary())) return reply("blocked", 0);
+    if (!(await deps.revalidateAtBoundary()) || dialogue?.signal.aborted)
+      return reply("blocked", 0);
   } catch {
     return reply("blocked", 0);
   }
@@ -188,17 +300,63 @@ export async function postFirstReplyOnce(
 
   // From this line on, even a 429/500, failed POST or lost ACK is terminal.
   // The caller MUST durably claim the exact event before invoking this adapter.
-  const url = api + "/channels/" + t.threadId + "/messages";
+  // Incoming webhooks support per-message authors, not native message replies
+  // or nonce deduplication. The durable outbox still owns a single attempt.
+  if (dialogue?.persona) {
+    const { webhook, name, avatarUrl } = dialogue.persona;
+    const url =
+      webhook.url +
+      "?wait=true" +
+      (t.threadId ? "&thread_id=" + t.threadId : "");
+    try {
+      const res = await deps.http(url, {
+        method: "POST",
+        redirect: "manual",
+        signal: deadline(timeoutMs),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content,
+          username: name,
+          ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
+          allowed_mentions: {
+            parse: [],
+            users: [],
+            roles: [],
+            replied_user: false,
+          },
+        }),
+      });
+      if (res.status !== 200 || res.redirected || (res.url && res.url !== url))
+        return reply("uncertain", 1);
+      const ack = personaAck.safeParse(await res.json());
+      if (
+        !ack.success ||
+        ack.data.content !== content ||
+        ack.data.id === t.sourceMessageId ||
+        ack.data.channel_id !== destinationId ||
+        (ack.data.guild_id !== undefined && ack.data.guild_id !== t.guildId) ||
+        ack.data.webhook_id !== webhook.id ||
+        ack.data.author.id !== webhook.id ||
+        ack.data.author.username !== name
+      )
+        return reply("uncertain", 1);
+      return reply("acknowledged", 1, ack.data.id);
+    } catch {
+      return reply("uncertain", 1);
+    }
+  }
+
+  const url = api + "/channels/" + destinationId + "/messages";
   const nonce = t.attemptId.replaceAll("-", "").slice(0, 24);
   const body = JSON.stringify({
-    content: firstReplyText,
+    content,
     nonce,
     enforce_nonce: true,
     allowed_mentions: { parse: [], users: [], roles: [], replied_user: false },
     message_reference: {
       type: 0,
       message_id: t.sourceMessageId,
-      channel_id: t.threadId,
+      channel_id: destinationId,
       guild_id: t.guildId,
       fail_if_not_exists: true,
     },
@@ -207,7 +365,7 @@ export async function postFirstReplyOnce(
     const res = await deps.http(url, {
       method: "POST",
       redirect: "manual",
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: deadline(timeoutMs),
       headers: {
         Authorization: "Bot " + deps.token,
         "Content-Type": "application/json",
@@ -219,9 +377,10 @@ export async function postFirstReplyOnce(
     const ack = ackSchema.safeParse(await res.json());
     if (
       !ack.success ||
+      ack.data.content !== content ||
       ack.data.id === t.sourceMessageId ||
       (ack.data.guild_id !== undefined && ack.data.guild_id !== t.guildId) ||
-      ack.data.channel_id !== t.threadId ||
+      ack.data.channel_id !== destinationId ||
       ack.data.author.id !== t.botId ||
       ack.data.webhook_id != null ||
       (ack.data.nonce !== undefined && String(ack.data.nonce) !== nonce) ||

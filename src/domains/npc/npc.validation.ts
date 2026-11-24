@@ -28,6 +28,18 @@ export const baselineProfileSchema = z
       })
       .strict(),
     summary: textValue("Baseline summary"),
+    presentation: z
+      .object({
+        displayName: z.string().trim().min(1).max(80),
+        avatarUrl: z
+          .string()
+          .regex(
+            /^https:\/\/cdn\.discordapp\.com\/(?:embed\/avatars\/[0-5]|avatars\/\d{17,20}\/[a-f0-9]{32})\.png$/u,
+          )
+          .optional(),
+      })
+      .strict()
+      .optional(),
     personality: z
       .object({
         traits: z.array(textValue("Personality trait")).min(1).max(12),
@@ -37,13 +49,17 @@ export const baselineProfileSchema = z
   })
   .strict();
 
+const availabilitySchema = stateDetailSchema.extend({
+  status: z.enum(["available", "busy", "unavailable", "unaware"]).optional(),
+});
+
 export const npcStateInputSchema = z.object({
   currentLocationId: z.string().uuid().nullable().default(null),
   locationCertainty: z.enum(locationCertaintyValues).default("unknown"),
   physicalState: stateDetailSchema.default({}),
   emotionalState: stateDetailSchema.default({}),
   materialState: stateDetailSchema.default({}),
-  availabilityState: stateDetailSchema.default({}),
+  availabilityState: availabilitySchema.default({}),
 });
 
 export const updateNpcStateInputSchema = z
@@ -53,7 +69,7 @@ export const updateNpcStateInputSchema = z
     physicalState: stateDetailSchema.optional(),
     emotionalState: stateDetailSchema.optional(),
     materialState: stateDetailSchema.optional(),
-    availabilityState: stateDetailSchema.optional(),
+    availabilityState: availabilitySchema.optional(),
     expectedVersion: z.number().int().positive().optional(),
   })
   .refine(

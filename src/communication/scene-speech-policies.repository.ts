@@ -34,6 +34,8 @@ const issueSchema = scopeSchema
     perception: z.enum(["aware", "unaware"]),
     otherScene: z.enum(["none", "active"]),
     ttlMinutes: z.number().int().min(1).max(30),
+    raonSessionManaged: z.literal(true).optional(),
+    discordNativeManaged: z.literal(true).optional(),
   })
   .strict();
 
@@ -192,6 +194,8 @@ export async function issueHostSceneSpeechPolicy(db: Database, raw: unknown) {
         issuerEntityId,
         issuerRole: "host_operator",
         decision: input.decision,
+        discordNativeManaged: input.discordNativeManaged ?? false,
+        raonSessionManaged: input.raonSessionManaged ?? false,
         activity: input.activity,
         perception: input.perception,
         otherScene: input.otherScene,
@@ -262,7 +266,11 @@ export async function readTrustedHostScenePolicy(
   });
 }
 
-export async function revokeHostSceneSpeechPolicy(db: Database, raw: unknown) {
+export async function revokeHostSceneSpeechPolicy(
+  db: Database,
+  raw: unknown,
+  expectedId?: string,
+) {
   const parsed = scopeSchema.safeParse(raw);
   if (!parsed.success) return { status: "invalid_request" as const };
   const scope = parsed.data;
@@ -277,7 +285,8 @@ export async function revokeHostSceneSpeechPolicy(db: Database, raw: unknown) {
       .orderBy(sql`${sceneSpeechPolicies.issuedAt} desc`)
       .limit(1)
       .for("update");
-    if (!current) return { status: "not_found" as const };
+    if (!current || (expectedId && current.id !== expectedId))
+      return { status: "not_found" as const };
     if (current.revokedAt) return { status: "already_revoked" as const };
     await tx
       .update(sceneSpeechPolicies)
