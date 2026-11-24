@@ -25,7 +25,7 @@ type TurnConfig = {
   route: DevFixtureRoute;
   playerId: string;
   botId: string;
-  policyId: string;
+  policyId: string | (() => string);
   token: string;
   startedAt: number;
   signal: AbortSignal;
@@ -50,7 +50,6 @@ export function createRaonDevTurn(
     route,
     playerId,
     botId,
-    policyId,
     signal,
     diagnose,
   } = config;
@@ -69,6 +68,10 @@ export function createRaonDevTurn(
 
   return async (message: IncomingMessage, authenticatedBotId: string) => {
     const received = performance.now();
+    const policyId =
+      typeof config.policyId === "function"
+        ? config.policyId()
+        : config.policyId;
     const sourceMs = discordMessageCreatedAt(message.sourceMessageId);
     const trigger = parseDiscordTrigger(
       message.content,
@@ -171,90 +174,134 @@ export function createRaonDevTurn(
       http: config.http ?? fetch,
       revalidateAtBoundary: authorize,
     };
-    const precheck = await postScopedBotReply(
-      { ...source, attemptId: row.id },
-      { ...dependencies, dryRun: true },
-      {
-        content: "Preflight",
-        sourceContent: message.content,
-        verifyPermissions: permissions,
-        signal,
-      },
-    );
-    if (precheck.status !== "prechecked") return "discord_acl_blocked";
+    const precheck = (checkSignal: AbortSignal = signal) =>
+      postScopedBotReply(
+        { ...source, attemptId: row.id },
+        { ...dependencies, dryRun: true },
+        {
+          content: "Preflight",
+          sourceContent: message.content,
+          verifyPermissions: permissions,
+          signal: checkSignal,
+        },
+      );
+    if ((await precheck()).status !== "prechecked")
+      return "discord_acl_blocked";
 
     report("raon_npc_resolution", "sentinel");
-    const response = await pipeline.generateNpcResponse(
-      f.worldId,
-      f.npcId,
-      row.id,
-      {
-        signal,
-        beforeAttempt: authorize,
-        maxResponseChars: 600,
-        dialogue: { request: player, history: [...history] },
-      },
-    );
-    if (!response.ok) return response.providerError ?? response.error;
-    if (response.status !== "responded" || !(await authorize()))
-      return "delivery_blocked";
-    const ready = await repository.prepare(scope);
-    if (ready.status === "blocked") return ready.reason;
-    const transport: DeliveryTransport = {
-      async send({ payload, attemptId, fingerprint: hash }) {
+    const typing = new AbortController();
+    const typingSignal = AbortSignal.any([signal, typing.signal]);
+    let typingTimer: ReturnType<typeof setTimeout> | undefined;
+    let typingWork: Promise<void> | undefined;
+    const pulse = async (refresh: boolean) => {
+      try {
         if (
-          payload.scope.interactionId !== row.id ||
-          payload.scope.worldId !== f.worldId ||
-          payload.scope.npcId !== f.npcId ||
-          payload.destination.guildId !== route.guildId ||
-          payload.destination.channelId !== route.channelId ||
-          payload.destination.threadId !== route.threadId ||
-          payload.replyToMessageId !== message.sourceMessageId ||
-          hash !== fingerprint(payload)
+          typingSignal.aborted ||
+          (refresh && (await precheck(typingSignal)).status !== "prechecked") ||
+          !(await authorize()) ||
+          typingSignal.aborted
         )
-          return { kind: "not_sent", retryable: false, retryAfterMs: 0 };
-        const result = await postScopedBotReply(
-          { ...source, attemptId },
-          dependencies,
+          return;
+        const response = await dependencies.http(
+          "https://discord.com/api/v10/channels/" + route.threadId + "/typing",
           {
-            content: payload.content,
-            sourceContent: message.content,
-            verifyPermissions: permissions,
-            signal,
+            method: "POST",
+            redirect: "manual",
+            signal: AbortSignal.any([typingSignal, AbortSignal.timeout(3000)]),
+            headers: { Authorization: "Bot " + config.token },
           },
         );
-        if (result.status === "acknowledged" && result.messageId)
-          return {
-            kind: "acknowledged",
-            ack: {
-              attemptId,
-              fingerprint: hash,
-              destination: payload.destination,
-              messageId: result.messageId,
-            },
-          };
-        return result.attempts === 0
-          ? { kind: "not_sent", retryable: false, retryAfterMs: 0 }
-          : { kind: "uncertain" };
-      },
+        if (response.status !== 204 || response.redirected) {
+          report("raon_typing", "unavailable");
+          return;
+        }
+        if (!typingSignal.aborted) {
+          typingTimer = setTimeout(() => {
+            typingWork = pulse(true);
+          }, 7000);
+        }
+      } catch {
+        if (!typingSignal.aborted) report("raon_typing", "unavailable");
+      }
     };
-    const delivery = await createDeliveryDispatcher(
-      repository,
-      transport,
-    )(scope);
-    diagnose({
-      event: "raon_delivery",
-      outcome: delivery.status,
-      latencyMs: Math.round(performance.now() - received),
-      traceId: row.traceId,
-    });
-    if (delivery.status === "delivered" && response.interaction.responseText) {
-      history.push({
-        player: player.slice(0, 480),
-        speech: response.interaction.responseText,
+    typingWork = pulse(false);
+    try {
+      const response = await pipeline.generateNpcResponse(
+        f.worldId,
+        f.npcId,
+        row.id,
+        {
+          signal,
+          beforeAttempt: authorize,
+          maxResponseChars: 600,
+          dialogue: { request: player, history: [...history] },
+        },
+      );
+      if (!response.ok) return response.providerError ?? response.error;
+      if (response.status !== "responded" || !(await authorize()))
+        return "delivery_blocked";
+      const ready = await repository.prepare(scope);
+      if (ready.status === "blocked") return ready.reason;
+      const transport: DeliveryTransport = {
+        async send({ payload, attemptId, fingerprint: hash }) {
+          if (
+            payload.scope.interactionId !== row.id ||
+            payload.scope.worldId !== f.worldId ||
+            payload.scope.npcId !== f.npcId ||
+            payload.destination.guildId !== route.guildId ||
+            payload.destination.channelId !== route.channelId ||
+            payload.destination.threadId !== route.threadId ||
+            payload.replyToMessageId !== message.sourceMessageId ||
+            hash !== fingerprint(payload)
+          )
+            return { kind: "not_sent", retryable: false, retryAfterMs: 0 };
+          const result = await postScopedBotReply(
+            { ...source, attemptId },
+            dependencies,
+            {
+              content: payload.content,
+              sourceContent: message.content,
+              verifyPermissions: permissions,
+              signal,
+            },
+          );
+          if (result.status === "acknowledged" && result.messageId)
+            return {
+              kind: "acknowledged",
+              ack: {
+                attemptId,
+                fingerprint: hash,
+                destination: payload.destination,
+                messageId: result.messageId,
+              },
+            };
+          return result.attempts === 0
+            ? { kind: "not_sent", retryable: false, retryAfterMs: 0 }
+            : { kind: "uncertain" };
+        },
+      };
+      const delivery = await createDeliveryDispatcher(
+        repository,
+        transport,
+      )(scope);
+      diagnose({
+        event: "raon_delivery",
+        outcome: delivery.status,
+        latencyMs: Math.round(performance.now() - received),
+        traceId: row.traceId,
       });
-      if (history.length > 3) history.shift();
+      if (delivery.status === "delivered" && response.interaction.responseText) {
+        history.push({
+          player: player.slice(0, 480),
+          speech: response.interaction.responseText,
+        });
+        if (history.length > 3) history.shift();
+      }
+      return delivery.status;
+    } finally {
+      typing.abort();
+      if (typingTimer) clearTimeout(typingTimer);
+      await typingWork;
     }
-    return delivery.status;
   };
 }
