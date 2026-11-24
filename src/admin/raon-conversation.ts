@@ -1,4 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
+import { selectM219History } from "../response/dialogue-context.js";
 import type { DatabaseClient } from "../db/client.js";
 import { discordConversations } from "../db/schema/discord-conversations.js";
 import type { IncomingMessage } from "../intake/discord-intake.js";
@@ -21,7 +22,11 @@ export function createRaonConversation(
   db: Database,
   scene: Scene,
   inactivityMs: number,
-  options?: { defaultNpcId: string | null; explicitOnly: boolean },
+  options?: {
+    defaultNpcId: string | null;
+    explicitOnly: boolean;
+    experimentalHistory?: boolean;
+  },
 ) {
   const { worldId, contextId, mappingId, playerEntityId } = scene;
   const scope = { worldId, contextId, playerEntityId };
@@ -162,7 +167,9 @@ export function createRaonConversation(
         parseDiscordTrigger(request_text, botId, [botId])?.body ?? request_text;
       return [{ player: playerText(body), speech: response_text }];
     });
-    return selectRaonHistory(pairs, request);
+    return options?.experimentalHistory
+      ? selectM219History(pairs, request)
+      : selectRaonHistory(pairs, request);
   }
 
   return { select, focus, history };
