@@ -26,11 +26,20 @@ const completionSchema = z.object({
       }),
     )
     .length(1),
+  timings: z.unknown().optional(),
   usage: z.object({
     prompt_tokens: count,
     completion_tokens: count,
     total_tokens: count,
   }),
+});
+
+// Timing fields are optional runtime observations, never inferred from wall time.
+const timingsSchema = z.object({
+  prompt_ms: z.number().finite().nonnegative().optional(),
+  predicted_ms: z.number().finite().nonnegative().optional(),
+  prompt_per_second: z.number().finite().nonnegative().optional(),
+  predicted_per_second: z.number().finite().nonnegative().optional(),
 });
 
 export function createRaonProvider(
@@ -141,9 +150,18 @@ export function createRaonProvider(
       if (result.model !== config.model)
         throw new ProviderFailure("invalid_response");
       const { prompt_tokens, completion_tokens, total_tokens } = result.usage;
+      const timings = timingsSchema.safeParse(result.timings);
       return {
         text: result.choices[0].message.content,
         completed: result.choices[0].finish_reason === "stop",
+        ...(timings.success && {
+          timings: {
+            promptEvaluationMs: timings.data.prompt_ms,
+            outputGenerationMs: timings.data.predicted_ms,
+            promptTokensPerSecond: timings.data.prompt_per_second,
+            outputTokensPerSecond: timings.data.predicted_per_second,
+          },
+        }),
         usage: {
           inputTokens: prompt_tokens,
           outputTokens: completion_tokens,
