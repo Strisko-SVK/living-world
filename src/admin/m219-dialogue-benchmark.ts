@@ -4,7 +4,7 @@ import {
   composeResponsePrompt,
   validateNpcSpeech,
 } from "../response/prompt.js";
-import { selectM219History } from "../response/dialogue-context.js";
+import { repetitionCounts, selectM219History } from "../response/dialogue-context.js";
 import { M219_PROMPT_VERSION, PROMPT_VERSION } from "../response/contracts.js";
 import {
   dialogueCases,
@@ -201,6 +201,7 @@ export async function runDialogueBenchmark(
                 ? "invalid_speech"
                 : "generated"
               : result.error,
+            repetition: speech === null ? null : repetitionCounts(speech, scenario.history ?? []),
             speech,
           });
         }
