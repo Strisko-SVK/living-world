@@ -2,7 +2,10 @@ import { pathToFileURL } from "node:url";
 import { createRaonProvider } from "../adapters/raon/provider.js";
 import { getLlmConfig } from "../llm/config.js";
 import { createTextGenerator } from "../llm/generation.js";
-import { dialogueCases, dialogueDatasetVersion } from "./m219-dialogue-cases.js";
+import {
+  dialogueCases,
+  dialogueDatasetVersion,
+} from "./m219-dialogue-cases.js";
 import { runDialogueBenchmark } from "./m219-dialogue-benchmark.js";
 
 export async function runM219Benchmark(
@@ -22,8 +25,14 @@ export async function runM219Benchmark(
     LLM_PROVIDER: "raon",
     LLM_MAX_OUTPUT_TOKENS: env.RAON_DEV_OUTPUT_TOKENS ?? "192",
   });
-  if (!config.enabled || config.provider !== "raon" || config.contextTokens !== 4096)
-    throw new Error("Benchmark requires the existing loopback RAON 4096 configuration.");
+  if (
+    !config.enabled ||
+    config.provider !== "raon" ||
+    config.contextTokens !== 4096
+  )
+    throw new Error(
+      "Benchmark requires the existing loopback RAON 4096 configuration.",
+    );
 
   const prompt = env.RAON_BENCH_PROMPT ?? "baseline";
   if (prompt !== "baseline" && prompt !== "m219-v1")
@@ -57,23 +66,36 @@ export async function runM219Benchmark(
     presencePenalty: 0,
     thinking: false,
     quantization: env.RAON_BENCH_QUANTIZATION ?? "operator_evidence_required",
-    runtimeRevision: env.RAON_BENCH_RUNTIME_REVISION ?? "operator_evidence_required",
-    runtimeConfiguration: env.RAON_BENCH_RUNTIME_CONFIG ?? "operator_evidence_required",
+    runtimeRevision:
+      env.RAON_BENCH_RUNTIME_REVISION ?? "operator_evidence_required",
+    runtimeConfiguration:
+      env.RAON_BENCH_RUNTIME_CONFIG ?? "operator_evidence_required",
     metadataSource: "operator_supplied_or_unknown",
     seed: "not_configured",
     scenarios: cases.length,
   });
-  await runDialogueBenchmark(generate, { signal, cases, temperature, candidate: prompt === "m219-v1", write });
+  await runDialogueBenchmark(generate, {
+    signal,
+    cases,
+    temperature,
+    candidate: prompt === "m219-v1",
+    write,
+  });
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   const controller = new AbortController();
   const stop = () => controller.abort();
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   void runM219Benchmark(process.argv.slice(2), process.env, controller.signal)
     .catch(() => {
-      console.error("M2.19 benchmark stopped or failed; inspect local RAON settings.");
+      console.error(
+        "M2.19 benchmark stopped or failed; inspect local RAON settings.",
+      );
       process.exitCode = 1;
     })
     .finally(() => {

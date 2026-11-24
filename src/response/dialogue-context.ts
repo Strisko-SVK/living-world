@@ -3,12 +3,48 @@ export const dialogueVersion = "npc-speech-m219-v1" as const;
 type Pair = { player: string; speech: string };
 
 const commonTerms = new Set([
-  "about", "again", "could", "would", "should", "please", "what", "which",
-  "when", "where", "those", "these", "there", "have", "with", "that",
-  "this", "were", "your", "just", "tell", "want", "need", "think",
-  "kolko", "ktore", "ktory", "ktora", "tieto", "tento", "tamto",
-  "este", "prosim", "mozes", "mohol", "chcem", "potrebujem", "povedz",
-  "myslis", "alebo", "teda", "dobre",
+  "about",
+  "again",
+  "could",
+  "would",
+  "should",
+  "please",
+  "what",
+  "which",
+  "when",
+  "where",
+  "those",
+  "these",
+  "there",
+  "have",
+  "with",
+  "that",
+  "this",
+  "were",
+  "your",
+  "just",
+  "tell",
+  "want",
+  "need",
+  "think",
+  "kolko",
+  "ktore",
+  "ktory",
+  "ktora",
+  "tieto",
+  "tento",
+  "tamto",
+  "este",
+  "prosim",
+  "mozes",
+  "mohol",
+  "chcem",
+  "potrebujem",
+  "povedz",
+  "myslis",
+  "alebo",
+  "teda",
+  "dobre",
 ]);
 
 const terms = (text: string) =>
@@ -97,11 +133,7 @@ function relevantRecords(value: unknown, request: string) {
       record,
       index,
       score: overlap(
-        terms(
-          String(
-            object(record).statement ?? object(record).summary ?? "",
-          ),
-        ),
+        terms(String(object(record).statement ?? object(record).summary ?? "")),
         requestTerms,
       ),
     }))
@@ -119,7 +151,8 @@ function relevantRecords(value: unknown, request: string) {
 // The security policy and exact token budget still live in the shared pipeline.
 export function composeM219Context(sections: Record<string, unknown>) {
   const scene = object(sections.currentSceneAndInteraction);
-  const request = typeof scene.requestText === "string" ? scene.requestText : "";
+  const request =
+    typeof scene.requestText === "string" ? scene.requestText : "";
   const history = Array.isArray(sections.sceneHistory)
     ? sections.sceneHistory
     : [];
@@ -129,8 +162,14 @@ export function composeM219Context(sections: Record<string, unknown>) {
   const records = [
     ["NPC characterization", projectConversationalPersona(sections.persona)],
     ["Permitted scene state", sections.currentNpcState ?? {}],
-    ["Permitted attributed knowledge", relevantRecords(sections.permittedKnowledge, request)],
-    ["Permitted attributed recollections", relevantRecords(sections.permittedMemories, request)],
+    [
+      "Permitted attributed knowledge",
+      relevantRecords(sections.permittedKnowledge, request),
+    ],
+    [
+      "Permitted attributed recollections",
+      relevantRecords(sections.permittedMemories, request),
+    ],
     ["Older attributed dialogue (not world truth)", excerpts],
     ["Recent attributed dialogue (not world truth)", history],
     ["Current player request", request],
@@ -142,9 +181,23 @@ export function composeM219Context(sections: Record<string, unknown>) {
 
 // Diagnostic only: never suppress or rewrite a valid reply based on overlap.
 export function repetitionCounts(speech: string, history: readonly Pair[]) {
-  const normalize = (text: string) => text.toLowerCase().normalize("NFKC").replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();
-  const sentences = (text: string) => text.split(/[.!?\\n]+/u).map(normalize).filter((item) => item.split(" ").length >= 4);
+  const normalize = (text: string) =>
+    text
+      .toLowerCase()
+      .normalize("NFKC")
+      .replace(/[^\\p{L}\\p{N}]+/gu, " ")
+      .trim();
+  const sentences = (text: string) =>
+    text
+      .split(/[.!?\\n]+/u)
+      .map(normalize)
+      .filter((item) => item.split(" ").length >= 4);
   const current = sentences(speech);
   const prior = new Set(history.flatMap((pair) => sentences(pair.speech)));
-  return { repeatedSentences: current.filter((item) => prior.has(item)).length, exactReplyRepeated: history.some((pair) => normalize(pair.speech) === normalize(speech)) };
+  return {
+    repeatedSentences: current.filter((item) => prior.has(item)).length,
+    exactReplyRepeated: history.some(
+      (pair) => normalize(pair.speech) === normalize(speech),
+    ),
+  };
 }

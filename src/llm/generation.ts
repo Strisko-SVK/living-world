@@ -189,7 +189,10 @@ export function createTextGenerator(
       const countInput = async () => {
         const countStarted = performance.now();
         try {
-          return await interruptible(() => provider.countInput(input, signal), signal);
+          return await interruptible(
+            () => provider.countInput(input, signal),
+            signal,
+          );
         } finally {
           if (config.provider === "raon")
             observation.tokenCountMs =

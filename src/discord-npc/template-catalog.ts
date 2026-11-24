@@ -38,7 +38,9 @@ const templateSchema = z
   })
   .strict()
   .superRefine((template, context) => {
-    if (template.npc.canonicalName !== template.npc.baselineProfile.identity.name)
+    if (
+      template.npc.canonicalName !== template.npc.baselineProfile.identity.name
+    )
       context.addIssue({
         code: "custom",
         path: ["npc", "baselineProfile", "identity", "name"],

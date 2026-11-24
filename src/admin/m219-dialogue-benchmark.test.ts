@@ -7,9 +7,7 @@ import {
   variants,
 } from "./m219-dialogue-benchmark.js";
 
-const scenario = dialogueCases.find(
-  (entry) => entry.id === "RP-ABSURD-001",
-)!;
+const scenario = dialogueCases.find((entry) => entry.id === "RP-ABSURD-001")!;
 
 describe("M2.19 dialogue benchmark", () => {
   it("holds intent constant while adding context and output constraints", () => {

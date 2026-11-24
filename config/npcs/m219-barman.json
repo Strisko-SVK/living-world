@@ -4,12 +4,7 @@
     {
       "key": "barman",
       "home": "Tiché miesto, Thorn Anchorage",
-      "aliases": [
-        "barman",
-        "barkeep",
-        "nemi",
-        "nemeia caldris"
-      ],
+      "aliases": ["barman", "barkeep", "nemi", "nemeia caldris"],
       "npc": {
         "canonicalName": "Nemeia Caldris",
         "simulationDepth": 3,

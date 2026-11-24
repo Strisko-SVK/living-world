@@ -4,7 +4,10 @@ import {
   composeResponsePrompt,
   validateNpcSpeech,
 } from "../response/prompt.js";
-import { repetitionCounts, selectM219History } from "../response/dialogue-context.js";
+import {
+  repetitionCounts,
+  selectM219History,
+} from "../response/dialogue-context.js";
 import { M219_PROMPT_VERSION, PROMPT_VERSION } from "../response/contracts.js";
 import {
   dialogueCases,
@@ -88,7 +91,10 @@ export function buildDialogueBenchmarkPrompt(
   };
   if (variant === "E") {
     const selected = candidate
-      ? selectM219History([...(scenario.history ?? [])].reverse(), scenario.request)
+      ? selectM219History(
+          [...(scenario.history ?? [])].reverse(),
+          scenario.request,
+        )
       : null;
     const style = candidate ? "natural-v2" : "natural";
     const full = {
@@ -98,7 +104,12 @@ export function buildDialogueBenchmarkPrompt(
         gameSystem: null,
       },
       ...sections,
-      ...(selected ? { sceneHistory: selected.recent, olderAttributedDialogueExcerpts: selected.excerpts } : {}),
+      ...(selected
+        ? {
+            sceneHistory: selected.recent,
+            olderAttributedDialogueExcerpts: selected.excerpts,
+          }
+        : {}),
       currentNpcState: { physical: {}, emotional: {} },
       permittedMemories: [],
       relevantRelationships: [],
@@ -108,13 +119,22 @@ export function buildDialogueBenchmarkPrompt(
         parallelScenes: "not_sequenced",
         historicalPresence: "not_established",
         remoteReachability: "not_established",
-        currentCommunication: "explicit_local_mode_with_stored_location_evidence",
+        currentCommunication:
+          "explicit_local_mode_with_stored_location_evidence",
       },
-      missing: ["memory_disclosure_unclassified", "relationship_disclosure_unclassified"],
+      missing: [
+        "memory_disclosure_unclassified",
+        "relationship_disclosure_unclassified",
+      ],
     };
     const context = {
       excludedText: [],
-      omissions: { history: 0, knowledgeGroups: 0, memories: 0, relationships: 0 },
+      omissions: {
+        history: 0,
+        knowledgeGroups: 0,
+        memories: 0,
+        relationships: 0,
+      },
     };
     const prompt = composeResponsePrompt(
       { ...context, sections: full },
@@ -124,7 +144,14 @@ export function buildDialogueBenchmarkPrompt(
     return {
       ...prompt,
       compactMessages: composeResponsePrompt(
-        { ...context, sections: { ...full, sceneHistory: candidate ? full.sceneHistory.slice(-1) : [], olderAttributedDialogueExcerpts: [] } },
+        {
+          ...context,
+          sections: {
+            ...full,
+            sceneHistory: candidate ? full.sceneHistory.slice(-1) : [],
+            olderAttributedDialogueExcerpts: [],
+          },
+        },
         600,
         style,
       ).messages,
@@ -168,7 +195,12 @@ export async function runDialogueBenchmark(
       for (let sample = 1; sample <= (scenario.repeats ?? 1); sample++) {
         for (const variant of variants) {
           options.signal.throwIfAborted();
-          const prompt = buildDialogueBenchmarkPrompt(variant, scenario, persona, options.candidate);
+          const prompt = buildDialogueBenchmarkPrompt(
+            variant,
+            scenario,
+            persona,
+            options.candidate,
+          );
           const started = performance.now();
           const result = await generate({
             ...prompt,
@@ -184,9 +216,15 @@ export async function runDialogueBenchmark(
           options.write({
             event: "m219_dialogue_benchmark",
             datasetVersion: dialogueDatasetVersion,
-            promptVersion: variant === "E" ? (options.candidate ? M219_PROMPT_VERSION : PROMPT_VERSION) : "m219-control-v1",
+            promptVersion:
+              variant === "E"
+                ? options.candidate
+                  ? M219_PROMPT_VERSION
+                  : PROMPT_VERSION
+                : "m219-control-v1",
             variant,
-            scope: variant === "E" ? "synthetic_composer_proxy" : "model_control",
+            scope:
+              variant === "E" ? "synthetic_composer_proxy" : "model_control",
             format: variant === "E" ? "strict_json" : "plain_text",
             id: scenario.id,
             persona,
@@ -201,7 +239,10 @@ export async function runDialogueBenchmark(
                 ? "invalid_speech"
                 : "generated"
               : result.error,
-            repetition: speech === null ? null : repetitionCounts(speech, scenario.history ?? []),
+            repetition:
+              speech === null
+                ? null
+                : repetitionCounts(speech, scenario.history ?? []),
             speech,
           });
         }

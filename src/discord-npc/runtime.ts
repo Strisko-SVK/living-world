@@ -120,9 +120,19 @@ export function createNativeNpcRuntime(
 ) {
   const since = config.env.LW_NPC_CONTEXT_SINCE;
   const sinceMs = since ? Date.parse(since) : undefined;
-  if (sinceMs !== undefined && (!Number.isSafeInteger(sinceMs) || sinceMs < 1420070400000 || sinceMs > Date.now()))
-    throw new Error("Invalid LW_NPC_CONTEXT_SINCE; use a past UTC ISO timestamp.");
-  const historyStartSourceId = sinceMs === undefined ? undefined : ((BigInt(sinceMs) - 1420070400000n) << 22n).toString();
+  if (
+    sinceMs !== undefined &&
+    (!Number.isSafeInteger(sinceMs) ||
+      sinceMs < 1420070400000 ||
+      sinceMs > Date.now())
+  )
+    throw new Error(
+      "Invalid LW_NPC_CONTEXT_SINCE; use a past UTC ISO timestamp.",
+    );
+  const historyStartSourceId =
+    sinceMs === undefined
+      ? undefined
+      : ((BigInt(sinceMs) - 1420070400000n) << 22n).toString();
   const registry = createNpcRegistry(
     db,
     config.guildId,

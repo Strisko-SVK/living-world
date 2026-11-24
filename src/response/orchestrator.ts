@@ -33,7 +33,8 @@ export function createNpcResponseOrchestrator(
     options: ResponseOptions = {},
   ): Promise<ResponseResult> => {
     const started = performance.now();
-    const experimental = options.dialogue?.natural && options.dialogue.experimentalPrompt;
+    const experimental =
+      options.dialogue?.natural && options.dialogue.experimentalPrompt;
     const version = experimental ? M219_PROMPT_VERSION : PROMPT_VERSION;
     const stageMs: Record<string, number> = {};
     let stageStarted = started;

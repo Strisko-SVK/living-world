@@ -49,8 +49,8 @@ describe("M2.19 dialogue context", () => {
     expect(context).toContain("Forks for dinner");
     expect(context).not.toContain("Wet crates");
     expect(context).not.toContain("not projected");
-    expect(context.endsWith('Current player request: "Find forks for dinner"')).toBe(
-      true,
-    );
+    expect(
+      context.endsWith('Current player request: "Find forks for dinner"'),
+    ).toBe(true);
   });
 });
