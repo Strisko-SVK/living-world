@@ -49,13 +49,17 @@ export const baselineProfileSchema = z
   })
   .strict();
 
+const availabilitySchema = stateDetailSchema.extend({
+  status: z.enum(["available", "busy", "unavailable", "unaware"]).optional(),
+});
+
 export const npcStateInputSchema = z.object({
   currentLocationId: z.string().uuid().nullable().default(null),
   locationCertainty: z.enum(locationCertaintyValues).default("unknown"),
   physicalState: stateDetailSchema.default({}),
   emotionalState: stateDetailSchema.default({}),
   materialState: stateDetailSchema.default({}),
-  availabilityState: stateDetailSchema.default({}),
+  availabilityState: availabilitySchema.default({}),
 });
 
 export const updateNpcStateInputSchema = z
@@ -65,7 +69,7 @@ export const updateNpcStateInputSchema = z
     physicalState: stateDetailSchema.optional(),
     emotionalState: stateDetailSchema.optional(),
     materialState: stateDetailSchema.optional(),
-    availabilityState: stateDetailSchema.optional(),
+    availabilityState: availabilitySchema.optional(),
     expectedVersion: z.number().int().positive().optional(),
   })
   .refine(

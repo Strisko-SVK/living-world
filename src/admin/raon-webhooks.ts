@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { readNpcWebhook } from "./dev-first-reply-transport.js";
-import type { DevFixtureRoute } from "./discord-dev-fixture.js";
+import type { SceneRoute } from "../discord-npc/registry.js";
 
 const webhookName = "Living World DEV NPCs";
 const snowflake = z.string().regex(/^[1-9][0-9]{16,19}$/u);
@@ -17,7 +17,7 @@ type Webhook = ReturnType<typeof readNpcWebhook>;
 type Resolution = { webhook: Webhook | null; outcome: string };
 
 export function createRaonWebhookManager(config: {
-  route: DevFixtureRoute;
+  route: Readonly<Pick<SceneRoute, "guildId" | "channelId">>;
   botId: string;
   token: string;
   signal: AbortSignal;
@@ -28,7 +28,7 @@ export function createRaonWebhookManager(config: {
 }) {
   const { route, botId, signal } = config;
   if (
-    ![route.guildId, route.channelId, route.threadId, botId].every(
+    ![route.guildId, route.channelId, botId].every(
       (id) => snowflake.safeParse(id).success,
     ) ||
     !/^\S{20,}$/u.test(config.token)

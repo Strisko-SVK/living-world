@@ -16,24 +16,25 @@ import { createDeliveryDispatcher } from "../delivery/dispatch.js";
 import { fingerprint, type DeliveryTransport } from "../delivery/contracts.js";
 import { postScopedBotReply } from "./dev-first-reply-transport.js";
 import { type RaonFixture, type RaonScene } from "./raon-dev-fixture.js";
-import type { DevFixtureRoute } from "./discord-dev-fixture.js";
+import type { SceneRoute } from "../discord-npc/registry.js";
 
 import { createRaonConversation, playerText } from "./raon-conversation.js";
 import { getNpc } from "../domains/npc/npc.repository.js";
 import { baselineProfileSchema } from "../domains/npc/npc.validation.js";
 
 export const raonSourceAgeMs = 120_000;
-type SelectedConversation = {
+export type SelectedConversation = {
   request: string;
   alias?: string;
   mentioned: boolean;
-  via: "name" | "reply" | "follow_up";
+  via: "name" | "reply" | "follow_up" | "default";
   memory: ReturnType<typeof createRaonConversation>;
 };
 
 type TurnConfig = {
   fixture: RaonFixture;
-  route: DevFixtureRoute;
+  route: SceneRoute;
+  native?: { authorizeRoute: () => Promise<boolean> };
   playerId: string;
   botId: string;
   policyId: string | (() => string);
@@ -65,7 +66,10 @@ export function createRaonDevTurn(
   config: TurnConfig,
 ) {
   const { fixture: f, route, playerId, botId, signal, diagnose } = config;
-  const persistence = createDiscordPersistence(db, f);
+  const persistence = createDiscordPersistence(db, {
+    ...f,
+    ...(config.native && { native: true }),
+  });
   const intake = createDiscordIntake(persistence, diagnose);
   const pipeline = createNpcResponsePipeline(
     db,
@@ -127,7 +131,11 @@ export function createRaonDevTurn(
     // revalidate current identity, exact route, host policy and pre-event state
     // before prompt generation, persistence, and the transport's last boundary.
     const bound = async () => {
-      if (signal.aborted) return null;
+      if (
+        signal.aborted ||
+        (config.native && !(await config.native.authorizeRoute()))
+      )
+        return null;
       const result = await db.execute(sql`
         select i.id, i.trace_id
         from interactions i
@@ -143,22 +151,28 @@ export function createRaonDevTurn(
         where w.id=${f.worldId} and w.key=${f.worldKey} and w.status='active' and w.system_type='test'
           and c.id=${f.contextId} and c.status='active' and c.context_type='scene'
           and c.npc_intake_policy='mapped_players' and c.external_provider='discord'
-          and c.external_guild_id=${route.guildId} and c.external_channel_id=${route.channelId} and c.external_thread_id=${route.threadId}
+          and c.external_guild_id=${route.guildId} and c.external_channel_id=${route.channelId} and c.external_thread_id is not distinct from ${route.threadId}::text
           and i.npc_id=${f.npcId} and i.source_provider='discord' and i.source_message_id=${message.sourceMessageId}
-          and i.source_guild_id=${route.guildId} and i.source_channel_id=${route.channelId} and i.source_thread_id=${route.threadId}
+          and i.source_guild_id=${route.guildId} and i.source_channel_id=${route.channelId} and i.source_thread_id is not distinct from ${route.threadId}::text
           and i.request_text=${message.content}
           and m.id=${f.mappingId} and m.guild_id=i.source_guild_id and m.channel_id=i.source_channel_id
-          and m.thread_id=i.source_thread_id and m.status='active' and m.mapping_type='scene' and m.npc_id is null
-          and m.updated_at <= to_timestamp(${sourceMs}::double precision / 1000)
+          and m.thread_id is not distinct from i.source_thread_id and m.status='active' and m.mapping_type='scene' and m.npc_id is null
+          and (not ${Boolean(config.native)} or m.updated_at <= i.created_at)
+          and (${Boolean(config.native)} or m.updated_at <= to_timestamp(${sourceMs}::double precision / 1000))
           and not exists (select 1 from discord_context_mappings other where other.id<>m.id
             and other.guild_id=m.guild_id and other.channel_id=m.channel_id and other.status='active'
-            and (${!conversation} or other.thread_id is null or other.thread_id=m.thread_id))
+            and (${!conversation} or other.thread_id is null or other.thread_id=m.thread_id)
+            and (not ${Boolean(config.native)} or other.world_id<>m.world_id or other.thread_id is not distinct from m.thread_id))
           and actor.id=${f.playerEntityId} and actor.status='active' and actor.entity_type='player_character'
           and d.discord_user_id=${playerId} and d.mapping_type='player_character' and d.status='active'
           and p.id=${policyId} and p.issuer_entity_id=${config.hostEntityId ?? f.playerEntityId} and p.issuer_role='host_operator' and p.issued_by=current_user
           and p.decision='allow_direct_speech' and p.activity='free' and p.perception='aware' and p.other_scene='none'
           and p.revoked_at is null and p.expires_at > clock_timestamp()
-          and p.issued_at <= to_timestamp(${sourceMs}::double precision / 1000)
+          and (not ${Boolean(config.native)} or p.issued_at <= i.created_at)
+          and (case when ${Boolean(config.native)} then
+              i.discord_native_source and p.discord_native_managed and ns.updated_at <= to_timestamp(${sourceMs}::double precision / 1000)
+                and coalesce(ns.availability_state->>'status','available')='available'
+            else p.issued_at <= to_timestamp(${sourceMs}::double precision / 1000) end)
           and p.presence_id=${f.presenceId} and lp.revoked_at is null and lp.state_version=ns.version
           and ns.version=p.npc_state_version and ns.location_certainty='certain' and ns.current_location_id=c.linked_location_entity_id
           and to_timestamp(${sourceMs}::double precision / 1000) between
@@ -240,9 +254,11 @@ export function createRaonDevTurn(
     if (conversation) {
       const npc = await getNpc(db, f.worldId, f.npcId);
       const parsed = baselineProfileSchema.safeParse(npc?.baselineProfile);
-      const presentation = parsed.success
-        ? parsed.data.presentation
-        : undefined;
+      const presentation =
+        (parsed.success ? parsed.data.presentation : undefined) ??
+        (config.native && npc?.canonicalName && npc.canonicalName.length <= 80
+          ? { displayName: npc.canonicalName, avatarUrl: undefined }
+          : undefined);
       if (!presentation) return "persona_unavailable";
       const webhook = config.resolveWebhook
         ? await config.resolveWebhook(authorize)
@@ -279,7 +295,9 @@ export function createRaonDevTurn(
         )
           return;
         const response = await dependencies.http(
-          "https://discord.com/api/v10/channels/" + route.threadId + "/typing",
+          "https://discord.com/api/v10/channels/" +
+            (route.threadId ?? route.channelId) +
+            "/typing",
           {
             method: "POST",
             redirect: "manual",
@@ -340,7 +358,8 @@ export function createRaonDevTurn(
         row.id,
         {
           signal,
-          beforeAttempt: authorize,
+          beforeAttempt: async () =>
+            (await authorize()) && (!config.native || (await permissions())),
           maxResponseChars: 600,
           dialogue: previous
             ? {

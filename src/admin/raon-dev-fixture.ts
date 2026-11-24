@@ -266,75 +266,13 @@ export async function setupRaonScene(
       entityType: "player_character",
       canonicalName: playerName,
     });
-    const npc = await createNpc(tx, world.id, {
-      canonicalName: npcName,
-      simulationDepth: 1,
-      narrativeWeight: 10,
-      baselineProfile: {
-        identity: {
-          name: npcName,
-          species: "Synthetic AI sentinel",
-          role: "Outpost observation and reporting",
-        },
-        ...(advanced && {
-          presentation: {
-            displayName: sentinelPresentation.displayName,
-            avatarUrl: sentinelPresentation.avatarUrl,
-          },
-        }),
-        summary:
-          "Stationary communication terminal assigned to DEV Outpost Operations. Reports verified observations to local visitors and asks for clarification. Cannot move, operate gates, command guards or access secret rooms or feeds.",
-        personality: {
-          traits: ["Precise", "Restrained", "Methodical", "Courteous"],
-          values: ["Accuracy", "Duty", "Confidentiality"],
-        },
-      },
-      initialState: {
-        currentLocationId: location.id,
-        locationCertainty: "certain",
-        physicalState: {
-          summary:
-            (advanced
-              ? "Current station: Supply Office terminal."
-              : "Current station: Observation Post A.") +
-            " Current gate status: CLOSED. Current alert level: LOW. Last verified observation: a blue crate delivery. Its time and courier are unknown. Sealed command room occupants and entry history are unknown.",
-        },
-        availabilityState: { summary: "Available for local dialogue only." },
-      },
-      gameProfile: { gameSystem: "System-neutral DEV", statDepth: 0 },
-      capabilities: [
-        {
-          capabilityKey: "reporting",
-          level: "experienced",
-          source: "profile",
-          confidence: 1,
-        },
-        {
-          capabilityKey: "local_dialogue",
-          level: "competent",
-          source: "profile",
-          confidence: 1,
-        },
-      ],
-    });
-    await addEntityAlias(tx, world.id, npc.entityId, { alias: "Sentinel" });
-    await addEntityAlias(tx, world.id, npc.entityId, { alias: npcName });
-    const restricted = await createKnowledge(tx, world.id, npc.entityId, {
-      subjectEntityId: location.id,
-      predicate: "dm_test_marker",
-      claimText: "VIOLET-17",
-      secrecy: "restricted",
-      classification: "fact",
-      confidence: 1,
-    });
-    if (
-      !restricted ||
-      !(await addKnowledgeSource(tx, world.id, npc.entityId, restricted.id, {
-        sourceType: "dm",
-        externalRef: "sentinel-dev-template-v1.1",
-      }))
-    )
-      throw new Error("Could not seed the restricted test record.");
+    const npc = await seedSentinel(
+      tx,
+      world.id,
+      location.id,
+      advanced,
+      advanced ? "Supply Office terminal" : locationName,
+    );
     const scene = await createInteractionContext(tx, world.id, {
       contextType: "scene",
       externalProvider: "discord",
@@ -427,3 +365,82 @@ export async function setupRaonScene(
 }
 export type RaonFixture = Awaited<ReturnType<typeof setupRaonFixture>>;
 export type RaonScene = Awaited<ReturnType<typeof setupRaonScene>>;
+
+export async function seedSentinel(
+  db: Database,
+  worldId: string,
+  locationId: string,
+  withPresentation: boolean,
+  station: string,
+) {
+  const npc = await createNpc(db, worldId, {
+    canonicalName: npcName,
+    simulationDepth: 1,
+    narrativeWeight: 10,
+    baselineProfile: {
+      identity: {
+        name: npcName,
+        species: "Synthetic AI sentinel",
+        role: "Outpost observation and reporting",
+      },
+      ...(withPresentation && {
+        presentation: {
+          displayName: sentinelPresentation.displayName,
+          avatarUrl: sentinelPresentation.avatarUrl,
+        },
+      }),
+      summary:
+        "Stationary communication terminal assigned to DEV Outpost Operations. Reports verified observations to local visitors and asks for clarification. Cannot move, operate gates, command guards or access secret rooms or feeds.",
+      personality: {
+        traits: ["Precise", "Restrained", "Methodical", "Courteous"],
+        values: ["Accuracy", "Duty", "Confidentiality"],
+      },
+    },
+    initialState: {
+      currentLocationId: locationId,
+      locationCertainty: "certain",
+      physicalState: {
+        summary:
+          "Current station: " +
+          station +
+          "." +
+          " Current gate status: CLOSED. Current alert level: LOW. Last verified observation: a blue crate delivery. Its time and courier are unknown. Sealed command room occupants and entry history are unknown.",
+      },
+      availabilityState: { summary: "Available for local dialogue only." },
+    },
+    gameProfile: { gameSystem: "System-neutral DEV", statDepth: 0 },
+    capabilities: [
+      {
+        capabilityKey: "reporting",
+        level: "experienced",
+        source: "profile",
+        confidence: 1,
+      },
+      {
+        capabilityKey: "local_dialogue",
+        level: "competent",
+        source: "profile",
+        confidence: 1,
+      },
+    ],
+  });
+  await addEntityAlias(db, worldId, npc.entityId, { alias: "Sentinel" });
+  await addEntityAlias(db, worldId, npc.entityId, { alias: npcName });
+  const restricted = await createKnowledge(db, worldId, npc.entityId, {
+    subjectEntityId: locationId,
+    predicate: "dm_test_marker",
+    claimText: "VIOLET-17",
+    secrecy: "restricted",
+    classification: "fact",
+    confidence: 1,
+  });
+  if (
+    !restricted ||
+    !(await addKnowledgeSource(db, worldId, npc.entityId, restricted.id, {
+      sourceType: "dm",
+      externalRef: "sentinel-dev-template-v1.1",
+    }))
+  )
+    throw new Error("Could not seed the restricted test record.");
+  return npc;
+}

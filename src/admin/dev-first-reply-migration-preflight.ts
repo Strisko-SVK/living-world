@@ -5,6 +5,7 @@ import { createDatabaseClient, type DatabaseClient } from "../db/client.js";
 import {
   expectedMigration0019When,
   expectedMigration0020When,
+  expectedMigration0021When,
   expectedMigrationTimes,
   isReviewedMigrationPlan,
 } from "./scene-policy-migration-preflight.js";
@@ -114,12 +115,13 @@ export function classifyMigration0019Preflight(
   if (!facts.migrationTablePresent)
     return result("blocked", "migration_history_missing");
   const applied = facts.appliedTimes;
-  if (applied.length < 19 || applied.length > 21)
+  if (applied.length < 19 || applied.length > 22)
     return result("blocked", "migration_history_drift");
   const expected = [
     ...expectedMigrationTimes,
     expectedMigration0019When,
     expectedMigration0020When,
+    expectedMigration0021When,
   ];
   if (applied.some((value, i) => value !== String(expected[i])))
     return result("blocked", "migration_history_drift");
@@ -160,33 +162,43 @@ export function classifyMigration0019Preflight(
 
 async function reviewedLocalMigration(): Promise<string | null> {
   try {
-    const [journalBytes, sql0018, sql0019, sql0020] = await Promise.all([
-      readFile(new URL("../db/migrations/meta/_journal.json", import.meta.url)),
-      readFile(
-        new URL(
-          "../db/migrations/0018_scene_speech_policies.sql",
-          import.meta.url,
+    const [journalBytes, sql0018, sql0019, sql0020, sql0021] =
+      await Promise.all([
+        readFile(
+          new URL("../db/migrations/meta/_journal.json", import.meta.url),
         ),
-      ),
-      readFile(
-        new URL(
-          "../db/migrations/0019_dev_first_reply_consents.sql",
-          import.meta.url,
+        readFile(
+          new URL(
+            "../db/migrations/0018_scene_speech_policies.sql",
+            import.meta.url,
+          ),
         ),
-      ),
-      readFile(
-        new URL(
-          "../db/migrations/0020_raon_conversations.sql",
-          import.meta.url,
+        readFile(
+          new URL(
+            "../db/migrations/0019_dev_first_reply_consents.sql",
+            import.meta.url,
+          ),
         ),
-      ),
-    ]);
+        readFile(
+          new URL(
+            "../db/migrations/0020_raon_conversations.sql",
+            import.meta.url,
+          ),
+        ),
+        readFile(
+          new URL(
+            "../db/migrations/0021_discord_npc_lifecycle.sql",
+            import.meta.url,
+          ),
+        ),
+      ]);
     if (
       !isReviewedMigrationPlan(
         JSON.parse(journalBytes.toString("utf8")),
         sql0018,
         sql0019,
         sql0020,
+        sql0021,
       )
     )
       return null;

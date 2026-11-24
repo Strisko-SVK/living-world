@@ -47,6 +47,7 @@ export function interaction(overrides: Partial<Interaction> = {}): Interaction {
     responseText: null,
     status: "received",
     sourceProvider: null,
+    discordNativeSource: false,
     sourceMessageId: null,
     sourceGuildId: null,
     sourceChannelId: null,

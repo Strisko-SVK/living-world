@@ -31,3 +31,5 @@ export * from "./discord-outbound-limits.js";
 export * from "./dev-first-reply-consents.js";
 
 export * from "./discord-conversations.js";
+
+export * from "./discord-npc-lifecycle.js";

@@ -77,8 +77,9 @@ export function createResponseStore(database: Database): ResponseStore {
     if ((await validateLocalInteraction(tx, row)).status !== "eligible_local")
       return false;
     if (
-      expected?.world.key.startsWith(quartermasterWorldPrefix) &&
-      expected.npc.npc.canonicalName === "Marcus Voss"
+      (expected?.world.key.startsWith(quartermasterWorldPrefix) ||
+        row.discordNativeSource) &&
+      expected?.npc.npc.canonicalName === "Marcus Voss"
     ) {
       await tx.execute(
         sql`select id from npc_knowledge where world_id=${row.worldId} and npc_id=${row.npcId} order by id for share`,

@@ -1,3 +1,4 @@
+import { startNativeNpcGateway } from "./discord-npc/gateway.js";
 import { getApplicationConfig } from "./config.js";
 import { createDatabaseClient, checkDatabaseConnection } from "./db/client.js";
 import { createDiscordAdapter } from "./adapters/discord/client.js";
@@ -13,6 +14,8 @@ export async function startApplication(
   diagnose: Diagnostics = (diagnostic) =>
     console.info(JSON.stringify(diagnostic)),
 ) {
+  if (environment.LW_DISCORD_NATIVE_DEV === "true")
+    return startNativeNpcGateway(environment, diagnose);
   const config = getApplicationConfig(environment);
   if (!config.discord.enabled) {
     diagnose({ event: "discord_disabled" });

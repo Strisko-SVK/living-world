@@ -9,11 +9,11 @@
 
 ### Discord DEV playtest
 
-The [Quartermaster runbook](docs/m2.17-quartermaster-discord-dev.md) covers the
-local RAON Gateway, the two-NPC fixture, conversation routing, acknowledged
-history, persona webhooks and the live acceptance matrix. The separate
-[Sentinel pilot](docs/m2.16-raon-sentinel-discord-dev.md) provides a regression
-path for explicit mention routing.
+The [native Discord NPC runbook](docs/m2.18-native-discord-npc.md) covers
+campaign onboarding, in-Discord NPC bases, automatic thread scenes and the
+owner-local roleplay acceptance. The [Quartermaster](docs/m2.17-quartermaster-discord-dev.md)
+and [Sentinel](docs/m2.16-raon-sentinel-discord-dev.md) pilot runbooks document the
+isolated regression modes.
 
 ### Local PostgreSQL
 

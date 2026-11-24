@@ -1,3 +1,4 @@
+import { nativeSourceCurrent } from "../discord-npc/source-binding.js";
 import { discordMessageCreatedAt } from "../intake/discord-snowflake.js";
 import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
@@ -180,13 +181,19 @@ export async function validateLocalInteraction(
       : null;
   if (row.sourceProvider === "discord" && sourceTime === null)
     return { status: "blocked", reason: "stale" };
+  const native =
+    sourceTime !== null &&
+    row.discordNativeSource &&
+    (await nativeSourceCurrent(tx, row, sourceTime));
+  if (row.discordNativeSource && !native)
+    return { status: "blocked", reason: "stale" };
   // PostgreSQL retains microseconds; JS Date does not. Enforce the receipt
   // window in the database as well, including events in the same millisecond.
   const [window] = await tx
     .select({
       valid: sql<boolean>`${localPresence.issuedAt} <= (select created_at from interactions where id=${row.id})
         and (${sourceTime}::bigint is null or (
-          ${localPresence.issuedAt} <= timestamptz 'epoch' + ${sourceTime}::bigint * interval '1 millisecond'
+          (${native} or ${localPresence.issuedAt} <= timestamptz 'epoch' + ${sourceTime}::bigint * interval '1 millisecond')
           and timestamptz 'epoch' + ${sourceTime}::bigint * interval '1 millisecond' <= (select created_at from interactions where id=${row.id})
         ))`,
     })

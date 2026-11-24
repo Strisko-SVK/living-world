@@ -79,11 +79,16 @@ export function filterResponseContext(
     throw new VisibilityBlocked();
   const excludedText: string[] = [];
   const permittedKnowledge = [];
+  const legacyWorld = new RegExp(
+    "^" + quartermasterWorldPrefix + "[1-9][0-9]{16,19}$",
+    "u",
+  ).test(bundle.world.key);
+  const nativeWorld =
+    expected.discordNativeSource &&
+    /^lw-dev-discord-[1-9][0-9]{16,19}$/u.test(bundle.world.key);
   const quartermaster =
     bundle.world.systemType === "test" &&
-    new RegExp("^" + quartermasterWorldPrefix + "[1-9][0-9]{16,19}$", "u").test(
-      bundle.world.key,
-    ) &&
+    (legacyWorld || nativeWorld) &&
     npc.canonicalName === "Marcus Voss";
   // Ordinary provenance does not authorize disclosure. This explicitly
   // authored source marker opts public synthetic fixture claims into speech.

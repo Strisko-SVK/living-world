@@ -8,7 +8,7 @@ const targetSchema = z
   .object({
     guildId: snowflake,
     parentId: snowflake,
-    threadId: snowflake,
+    threadId: snowflake.nullable(),
     sourceMessageId: snowflake,
     playerId: snowflake,
     botId: snowflake,
@@ -151,6 +151,8 @@ export async function postScopedBotReply(
   if (!parsed.success || !/^\S{20,}$/u.test(deps.token))
     return reply("blocked", 0);
   const t = parsed.data;
+  if (!dialogue && !t.threadId) return reply("blocked", 0);
+  const destinationId = t.threadId ?? t.parentId;
   const content = dialogue?.content ?? firstReplyText;
   if (dialogue?.signal.aborted || !content.trim() || content.length > 2000)
     return reply("blocked", 0);
@@ -194,13 +196,16 @@ export async function postScopedBotReply(
     const me = user.parse(await get("/users/@me"));
     if (me.id !== t.botId) return reply("blocked", 0);
     const p = parent.parse(await get("/channels/" + t.parentId));
-    const th = thread.parse(await get("/channels/" + t.threadId));
+    const th = t.threadId
+      ? thread.parse(await get("/channels/" + t.threadId))
+      : null;
     if (
       p.id !== t.parentId ||
-      th.id !== t.threadId ||
       p.guild_id !== t.guildId ||
-      th.guild_id !== t.guildId ||
-      th.parent_id !== t.parentId
+      (th &&
+        (th.id !== t.threadId ||
+          th.guild_id !== t.guildId ||
+          th.parent_id !== t.parentId))
     )
       return reply("blocked", 0);
 
@@ -217,7 +222,7 @@ export async function postScopedBotReply(
     // A Private Thread (type 12) must explicitly contain the DEV bot.
     // No auto-join, membership mutation, or MANAGE_THREADS bypass.
     // Re-checked on every preclaim and postclaim HTTP boundary.
-    if (th.type === 12) {
+    if (th?.type === 12) {
       const membership = threadMember.parse(
         await get("/channels/" + t.threadId + "/thread-members/" + t.botId),
       );
@@ -226,13 +231,15 @@ export async function postScopedBotReply(
     }
 
     const message = source.parse(
-      await get("/channels/" + t.threadId + "/messages/" + t.sourceMessageId),
+      await get(
+        "/channels/" + destinationId + "/messages/" + t.sourceMessageId,
+      ),
     );
     const literal = message.content.replace(/^<@!(\d+)>/u, "<@$1>");
     if (
       message.id !== t.sourceMessageId ||
       (message.guild_id !== undefined && message.guild_id !== t.guildId) ||
-      message.channel_id !== t.threadId ||
+      message.channel_id !== destinationId ||
       message.author.id !== t.playerId ||
       message.author.bot === true ||
       message.webhook_id != null ||
@@ -244,7 +251,7 @@ export async function postScopedBotReply(
           message.message_reference?.message_id !==
             dialogue.conversationSource.replyToMessageId ||
           (message.message_reference.channel_id !== undefined &&
-            message.message_reference.channel_id !== t.threadId) ||
+            message.message_reference.channel_id !== destinationId) ||
           (message.message_reference.guild_id !== undefined &&
             message.message_reference.guild_id !== t.guildId))) ||
       (dialogue
@@ -297,7 +304,10 @@ export async function postScopedBotReply(
   // or nonce deduplication. The durable outbox still owns a single attempt.
   if (dialogue?.persona) {
     const { webhook, name, avatarUrl } = dialogue.persona;
-    const url = webhook.url + "?wait=true&thread_id=" + t.threadId;
+    const url =
+      webhook.url +
+      "?wait=true" +
+      (t.threadId ? "&thread_id=" + t.threadId : "");
     try {
       const res = await deps.http(url, {
         method: "POST",
@@ -323,7 +333,7 @@ export async function postScopedBotReply(
         !ack.success ||
         ack.data.content !== content ||
         ack.data.id === t.sourceMessageId ||
-        ack.data.channel_id !== t.threadId ||
+        ack.data.channel_id !== destinationId ||
         (ack.data.guild_id !== undefined && ack.data.guild_id !== t.guildId) ||
         ack.data.webhook_id !== webhook.id ||
         ack.data.author.id !== webhook.id ||
@@ -336,7 +346,7 @@ export async function postScopedBotReply(
     }
   }
 
-  const url = api + "/channels/" + t.threadId + "/messages";
+  const url = api + "/channels/" + destinationId + "/messages";
   const nonce = t.attemptId.replaceAll("-", "").slice(0, 24);
   const body = JSON.stringify({
     content,
@@ -346,7 +356,7 @@ export async function postScopedBotReply(
     message_reference: {
       type: 0,
       message_id: t.sourceMessageId,
-      channel_id: t.threadId,
+      channel_id: destinationId,
       guild_id: t.guildId,
       fail_if_not_exists: true,
     },
@@ -370,7 +380,7 @@ export async function postScopedBotReply(
       ack.data.content !== content ||
       ack.data.id === t.sourceMessageId ||
       (ack.data.guild_id !== undefined && ack.data.guild_id !== t.guildId) ||
-      ack.data.channel_id !== t.threadId ||
+      ack.data.channel_id !== destinationId ||
       ack.data.author.id !== t.botId ||
       ack.data.webhook_id != null ||
       (ack.data.nonce !== undefined && String(ack.data.nonce) !== nonce) ||

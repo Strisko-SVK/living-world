@@ -21,6 +21,7 @@ export function createRaonConversation(
   db: Database,
   scene: Scene,
   inactivityMs: number,
+  options?: { defaultNpcId: string | null; explicitOnly: boolean },
 ) {
   const { worldId, contextId, mappingId, playerEntityId } = scene;
   const scope = { worldId, contextId, playerEntityId };
@@ -70,6 +71,9 @@ export function createRaonConversation(
         return named(alias, addressed[2], false);
       if (addressed[0].includes(":")) return { kind: "other_address" } as const;
     }
+    if (options?.explicitOnly) return { kind: "inactive" } as const;
+    if (!prior && options?.defaultNpcId)
+      return target(options.defaultNpcId, content, "default");
     const last = prior && discordMessageCreatedAt(prior.lastSourceId);
     const current = discordMessageCreatedAt(message.sourceMessageId);
     if (!prior?.npcId || !last || !current || current - last >= inactivityMs)
@@ -93,7 +97,7 @@ export function createRaonConversation(
     function target(
       npcId: string,
       request: string,
-      via: "reply" | "follow_up",
+      via: "reply" | "follow_up" | "default",
     ) {
       if (!npcs.some((npc) => npc.npcId === npcId))
         return { kind: "unavailable" } as const;

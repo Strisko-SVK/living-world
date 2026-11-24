@@ -182,8 +182,8 @@ export function createDeliveryRepository(
                 .select({
                   valid: sql<boolean>`${discordContextMappings.updatedAt} <= (
                     select created_at from interactions where id=${snapshot.id}
-                  ) and ${discordContextMappings.updatedAt} <=
-                    timestamptz 'epoch' + ${sourceTime}::bigint * interval '1 millisecond'`,
+                  ) and (${snapshot.discordNativeSource} or ${discordContextMappings.updatedAt} <=
+                    timestamptz 'epoch' + ${sourceTime}::bigint * interval '1 millisecond')`,
                 })
                 .from(discordContextMappings)
                 .where(eq(discordContextMappings.id, snapshot.sourceMappingId));

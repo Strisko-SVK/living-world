@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   foreignKey,
   index,
@@ -46,6 +47,9 @@ export const interactions = pgTable(
     status: interactionStatus("status").notNull().default("received"),
     sourceMessageId: text("source_message_id"),
     sourceProvider: text("source_provider"),
+    discordNativeSource: boolean("discord_native_source")
+      .notNull()
+      .default(false),
     sourceGuildId: text("source_guild_id"),
     sourceChannelId: text("source_channel_id"),
     sourceThreadId: text("source_thread_id"),

@@ -35,6 +35,7 @@ export function createDiscordPersistence(
     npcId: string;
     mappingId: string;
     playerEntityId: string;
+    native?: true;
   },
 ): IntakePersistence {
   return {
@@ -335,6 +336,11 @@ export function createDiscordPersistence(
           );
           if (!interaction)
             throw new Error("Discord intake target is no longer available.");
+          if (expected?.native && "routeMappingId" in bound)
+            await transaction
+              .update(interactions)
+              .set({ discordNativeSource: true })
+              .where(eq(interactions.id, interaction.id));
         }
         return "trigger" in input ? "accepted" : undefined;
       });

@@ -22,6 +22,8 @@ export const expectedMigrationTimes = [
 
 // A reviewed append-only migration may follow 0018, but its exact SQL
 // and journal entry must also be pinned before this legacy preflight runs.
+export const expectedMigration0021When = 1795523011012;
+const approvedMigration0021Blob = "6ba295bfbac91690aab0a5283ef54ed76d2408c0";
 export const expectedMigration0020When = 1795520599894;
 const approvedMigration0020Blob = "7969b189dbde6c23a333cd4f81ab20ed6ab740a8";
 export const expectedMigration0019When = 1794660075032;
@@ -58,6 +60,7 @@ export function isReviewedMigrationPlan(
   rawSql: Uint8Array,
   appendedSql?: Uint8Array,
   raonSql?: Uint8Array,
+  nativeSql?: Uint8Array,
 ): boolean {
   if (
     !rawJournal ||
@@ -73,7 +76,7 @@ export function isReviewedMigrationPlan(
     journal.dialect !== "postgresql" ||
     !Array.isArray(journal.entries) ||
     journal.entries.length < 19 ||
-    journal.entries.length > 21
+    journal.entries.length > 22
   )
     return false;
 
@@ -110,7 +113,7 @@ export function isReviewedMigrationPlan(
       .digest("hex");
     if (nextHash !== approvedMigration0019Blob) return false;
   }
-  if (entries.length === 21) {
+  if (entries.length >= 21) {
     const extra = entries[20] as Record<string, unknown> | undefined;
     if (
       !extra ||
@@ -128,6 +131,24 @@ export function isReviewedMigrationPlan(
       .digest("hex");
     if (hash !== approvedMigration0020Blob) return false;
   }
+  if (entries.length === 22) {
+    const extra = entries[21] as Record<string, unknown> | undefined;
+    if (
+      !extra ||
+      extra.idx !== 21 ||
+      extra.version !== "7" ||
+      extra.when !== expectedMigration0021When ||
+      extra.tag !== "0021_discord_npc_lifecycle" ||
+      extra.breakpoints !== true ||
+      !nativeSql
+    )
+      return false;
+    const hash = createHash("sha1")
+      .update("blob " + nativeSql.byteLength + String.fromCharCode(0))
+      .update(nativeSql)
+      .digest("hex");
+    if (hash !== approvedMigration0021Blob) return false;
+  }
   const hash = createHash("sha1")
     .update("blob " + rawSql.byteLength + String.fromCharCode(0))
     .update(rawSql)
@@ -137,7 +158,7 @@ export function isReviewedMigrationPlan(
 
 async function localMigrationPlanReviewed(): Promise<boolean> {
   try {
-    const [journalBytes, sqlBytes, appendedBytes, raonBytes] =
+    const [journalBytes, sqlBytes, appendedBytes, raonBytes, nativeBytes] =
       await Promise.all([
         readFile(
           new URL("../db/migrations/meta/_journal.json", import.meta.url),
@@ -160,12 +181,19 @@ async function localMigrationPlanReviewed(): Promise<boolean> {
             import.meta.url,
           ),
         ),
+        readFile(
+          new URL(
+            "../db/migrations/0021_discord_npc_lifecycle.sql",
+            import.meta.url,
+          ),
+        ),
       ]);
     return isReviewedMigrationPlan(
       JSON.parse(journalBytes.toString("utf8")),
       sqlBytes,
       appendedBytes,
       raonBytes,
+      nativeBytes,
     );
   } catch {
     return false;
@@ -227,12 +255,13 @@ export function classifyMigration0018Preflight(
   if (!f.migrationTablePresent)
     return report("blocked", "migration_history_missing");
   const known = f.appliedTimes.length;
-  if (known < 18 || known > 21)
+  if (known < 18 || known > 22)
     return report("blocked", "migration_history_drift");
   const expected = [
     ...expectedMigrationTimes,
     expectedMigration0019When,
     expectedMigration0020When,
+    expectedMigration0021When,
   ];
   for (let i = 0; i < known; i += 1) {
     if (f.appliedTimes[i] !== String(expected[i]))
