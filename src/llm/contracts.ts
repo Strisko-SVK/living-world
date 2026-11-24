@@ -8,6 +8,7 @@ export type FailureCode =
   | "cancelled"
   | "budget"
   | "accounting"
+  | "context_limit"
   | "invalid_response"
   | "unsupported_output";
 export interface GenerationRequest {
@@ -16,6 +17,7 @@ export interface GenerationRequest {
   // Only application-owned instructions belong here. Retrieved text is user data.
   instructions: { system: string; developer?: string };
   messages: Array<{ role: "user"; content: string }>;
+  compactMessages?: Array<{ role: "user"; content: string }>;
   maxOutputTokens?: number;
   temperature?: number;
   requestBudgetMicros?: number;
@@ -93,7 +95,9 @@ export interface Observation {
   retries: number;
   latencyMs: number;
   usage: Usage | null;
-  currency: string;
+  currency: string | null;
+  contextTokens?: number;
+  inferenceMs?: number;
   costMicros: string | null;
   costKind: "estimated_from_usage" | "conservative_reservation" | "none";
   reservationMicros?: string;

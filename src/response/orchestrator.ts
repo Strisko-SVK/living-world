@@ -31,6 +31,8 @@ export function createNpcResponseOrchestrator(
     interactionId: string,
     options: ResponseOptions = {},
   ): Promise<ResponseResult> => {
+    const started = performance.now();
+    let contextChars: number | undefined;
     const scope: ResponseScope = { worldId, npcId, interactionId };
     const parsed = optionsSchema.safeParse(options);
     let traceId: string = randomUUID(),
@@ -42,6 +44,8 @@ export function createNpcResponseOrchestrator(
           event: "npc_response",
           traceId,
           promptVersion: PROMPT_VERSION,
+          latencyMs: Math.round(performance.now() - started),
+          ...(contextChars === undefined ? {} : { contextChars }),
           outcome: result.ok ? result.status : result.error,
         });
       } catch {
@@ -103,7 +107,32 @@ export function createNpcResponseOrchestrator(
       }
       let prompt;
       try {
-        prompt = composeResponsePrompt(permitted, parsed.data.maxResponseChars);
+        if (options.dialogue) {
+          const scene = permitted.sections.currentSceneAndInteraction as Record<
+            string,
+            unknown
+          >;
+          scene.requestText = options.dialogue.request;
+        }
+        const compact = composeResponsePrompt(
+          permitted,
+          parsed.data.maxResponseChars,
+          !!options.dialogue,
+        );
+        if (options.dialogue?.history.length) {
+          permitted.sections.sceneHistory = options.dialogue.history;
+          prompt = {
+            ...composeResponsePrompt(
+              permitted,
+              parsed.data.maxResponseChars,
+              !!options.dialogue,
+            ),
+            compactMessages: compact.messages,
+          };
+        } else {
+          prompt = compact;
+        }
+        contextChars = prompt.messages[0].content.length;
       } catch {
         return finish({ ok: false, error: "context_unavailable" });
       }
@@ -125,7 +154,9 @@ export function createNpcResponseOrchestrator(
       const generated = await deps.generate({
         traceId,
         ...prompt,
-        beforeAttempt: () => deps.store.validate(scope, claimId!, context),
+        beforeAttempt: async () =>
+          (!options.beforeAttempt || (await options.beforeAttempt())) &&
+          deps.store.validate(scope, claimId!, context),
         signal: options.signal,
         maxOutputTokens: parsed.data.maxOutputTokens,
         requestBudgetMicros: parsed.data.requestBudgetMicros,
@@ -150,6 +181,13 @@ export function createNpcResponseOrchestrator(
       if (!speech) {
         await deps.store.fail(scope, claimId, false);
         return finish({ ok: false, error: "invalid_response" });
+      }
+      if (
+        options.signal?.aborted ||
+        (options.beforeAttempt && !(await options.beforeAttempt()))
+      ) {
+        await deps.store.fail(scope, claimId, false);
+        return finish({ ok: false, error: "cancelled" });
       }
       const saved = await deps.store.persist(scope, claimId, speech, context);
       if (!saved) {

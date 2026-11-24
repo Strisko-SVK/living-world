@@ -2,7 +2,9 @@ import { z } from "zod";
 
 const integer = (max: number) => z.coerce.number().int().positive().max(max);
 const schema = z.object({
-  LLM_PROVIDER: z.enum(["disabled", "openai"]).default("disabled"),
+  LLM_PROVIDER: z.enum(["disabled", "openai", "raon"]).default("disabled"),
+  RAON_BASE_URL: z.string().default("http://127.0.0.1:18000"),
+  RAON_CONTEXT_TOKENS: integer(4096).default(4096),
   OPENAI_API_KEY: z.string().regex(/^\S+$/).optional(),
   LLM_MODEL: z
     .string()
@@ -23,6 +25,34 @@ export function getLlmConfig(environment: NodeJS.ProcessEnv = process.env) {
   if (!result.success) throw new Error("Invalid LLM configuration.");
   const e = result.data;
   if (e.LLM_PROVIDER === "disabled") return { enabled: false as const };
+  if (e.LLM_PROVIDER === "raon") {
+    const baseUrl = new URL(e.RAON_BASE_URL);
+    if (
+      environment.NODE_ENV === "production" ||
+      baseUrl.protocol !== "http:" ||
+      baseUrl.hostname !== "127.0.0.1" ||
+      baseUrl.username ||
+      baseUrl.password ||
+      baseUrl.pathname !== "/" ||
+      baseUrl.search ||
+      baseUrl.hash ||
+      !baseUrl.port ||
+      e.LLM_MAX_OUTPUT_TOKENS >= e.RAON_CONTEXT_TOKENS
+    )
+      throw new Error(
+        "Raon requires a loopback DEV endpoint and room for input.",
+      );
+    return {
+      enabled: true as const,
+      provider: "raon" as const,
+      baseUrl: baseUrl.origin,
+      model: e.LLM_MODEL ?? "Raon-1-nano",
+      contextTokens: e.RAON_CONTEXT_TOKENS,
+      timeoutMs: e.LLM_TIMEOUT_MS,
+      maxOutputTokens: e.LLM_MAX_OUTPUT_TOKENS,
+      maxAttempts: 1,
+    };
+  }
   if (
     !e.OPENAI_API_KEY ||
     !e.LLM_MODEL ||
@@ -54,4 +84,5 @@ export function getLlmConfig(environment: NodeJS.ProcessEnv = process.env) {
   };
 }
 export type LlmConfig = ReturnType<typeof getLlmConfig>;
-export type EnabledLlmConfig = Extract<LlmConfig, { enabled: true }>;
+export type EnabledLlmConfig = Extract<LlmConfig, { provider: "openai" }>;
+export type RaonConfig = Extract<LlmConfig, { provider: "raon" }>;

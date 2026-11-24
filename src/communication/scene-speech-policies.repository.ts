@@ -262,7 +262,11 @@ export async function readTrustedHostScenePolicy(
   });
 }
 
-export async function revokeHostSceneSpeechPolicy(db: Database, raw: unknown) {
+export async function revokeHostSceneSpeechPolicy(
+  db: Database,
+  raw: unknown,
+  expectedId?: string,
+) {
   const parsed = scopeSchema.safeParse(raw);
   if (!parsed.success) return { status: "invalid_request" as const };
   const scope = parsed.data;
@@ -277,7 +281,8 @@ export async function revokeHostSceneSpeechPolicy(db: Database, raw: unknown) {
       .orderBy(sql`${sceneSpeechPolicies.issuedAt} desc`)
       .limit(1)
       .for("update");
-    if (!current) return { status: "not_found" as const };
+    if (!current || (expectedId && current.id !== expectedId))
+      return { status: "not_found" as const };
     if (current.revokedAt) return { status: "already_revoked" as const };
     await tx
       .update(sceneSpeechPolicies)

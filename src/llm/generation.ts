@@ -38,6 +38,16 @@ const requestSchema = z.object({
     })
     .strict()
     .optional(),
+  compactMessages: z
+    .array(
+      z.object({
+        role: z.literal("user"),
+        content: z.string().min(1).max(100_000),
+      }),
+    )
+    .min(1)
+    .max(32)
+    .optional(),
   requestBudgetMicros: z.number().int().positive().safe().optional(),
 });
 export const tokenCost = (
@@ -84,7 +94,11 @@ export function createTextGenerator(
       retries: 0,
       latencyMs: 0,
       usage: null,
-      currency: config.enabled ? config.currency : "unconfigured",
+      currency: config.enabled
+        ? config.provider === "openai"
+          ? config.currency
+          : null
+        : "unconfigured",
       costMicros: null,
       costKind: "none",
       estimateExceeded: false,
@@ -172,10 +186,66 @@ export function createTextGenerator(
       )
         throw new ProviderFailure("cancelled", false, undefined, true);
       check();
-      const inputTokens = await interruptible(
+      let inputTokens = await interruptible(
         () => provider.countInput(input, signal),
         signal,
       );
+      if (config.provider === "raon") {
+        if (
+          inputTokens + input.maxOutputTokens > config.contextTokens &&
+          data.compactMessages
+        ) {
+          input.messages = [
+            ...input.messages.filter((message) => message.role !== "user"),
+            ...data.compactMessages,
+          ];
+          check();
+          inputTokens = await interruptible(
+            () => provider.countInput(input, signal),
+            signal,
+          );
+        }
+        if (inputTokens + input.maxOutputTokens > config.contextTokens)
+          throw new ProviderFailure("context_limit");
+        observation.contextTokens = inputTokens;
+        if (
+          request.beforeAttempt &&
+          !(await interruptible(request.beforeAttempt, signal))
+        )
+          throw new ProviderFailure("cancelled");
+        check();
+        const inferenceStarted = performance.now();
+        try {
+          const reply = await interruptible(
+            () => provider.generate(input, signal),
+            signal,
+          );
+          const u = reply.usage;
+          if (u) knownUsage = u;
+          if (
+            !reply.completed ||
+            !reply.text.trim() ||
+            !u ||
+            u.inputTokens !== inputTokens ||
+            u.outputTokens < 1 ||
+            u.outputTokens > input.maxOutputTokens ||
+            u.totalTokens !== u.inputTokens + u.outputTokens
+          )
+            throw new ProviderFailure("invalid_response");
+          text = reply.text;
+          observation.outcome = "success";
+          success = true;
+        } catch (error) {
+          if (error instanceof ProviderFailure) throw error;
+          throw new ProviderFailure("unavailable");
+        } finally {
+          observation.inferenceMs = Math.round(
+            performance.now() - inferenceStarted,
+          );
+          observation.usage = knownUsage;
+        }
+        return finish(success, text);
+      }
       if (
         !Number.isSafeInteger(inputTokens) ||
         inputTokens < 0 ||

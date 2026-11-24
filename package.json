@@ -24,6 +24,7 @@
     "prepare": "husky",
     "quality:gate": "pnpm test:security && pnpm test:raon && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build",
     "admin:context-policy": "node --env-file-if-exists=.env --import tsx src/admin/context-intake-policy.ts",
+    "admin:raon": "node --env-file=.env.gateway-dev.local --env-file-if-exists=.env.gateway-smoke.local --env-file-if-exists=.env.gateway-player.local --env-file=.env.raon-dev.local --import tsx src/admin/raon-dev-session.ts",
     "admin:deliver": "node --env-file-if-exists=.env --import tsx src/admin/discord-delivery.ts",
     "db:init": "node scripts/security/init-local-env.mjs",
     "test:security": "node --test scripts/security/security.test.mjs",
