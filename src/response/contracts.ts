@@ -11,6 +11,8 @@ import type {
 } from "../llm/contracts.js";
 
 export const PROMPT_VERSION = "npc-speech-v1";
+export const M219_PROMPT_VERSION = "npc-speech-m219-v1";
+export type PromptVersion = typeof PROMPT_VERSION | typeof M219_PROMPT_VERSION;
 export const CLAIM_LEASE_MS = 600_000;
 export interface ResponseScope {
   worldId: string;
@@ -27,6 +29,7 @@ export interface ResponseOptions {
   dialogue?: {
     request: string;
     natural?: boolean;
+    experimentalPrompt?: boolean;
     excerpts?: ReadonlyArray<{ player: string; speech: string }>;
     excludedText?: readonly string[];
     history: ReadonlyArray<{ player: string; speech: string }>;
@@ -64,6 +67,7 @@ export interface ResponseStore {
     scope: ResponseScope,
     expected: Interaction,
     context?: NpcContextBundle,
+    promptVersion?: PromptVersion,
   ): Promise<Interaction | null>;
   dispatch(
     scope: ResponseScope,
@@ -97,7 +101,7 @@ export interface ResponseDependencies {
 export interface ResponseDiagnostic {
   event: "npc_response";
   traceId: string;
-  promptVersion: typeof PROMPT_VERSION;
+  promptVersion: PromptVersion;
   latencyMs: number;
   contextChars?: number;
   outcome: ResponseFailure | "responded" | "already_recorded";
