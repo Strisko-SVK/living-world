@@ -139,3 +139,12 @@ export function composeM219Context(sections: Record<string, unknown>) {
     .map(([label, data]) => label + ": " + JSON.stringify(data))
     .join("\n");
 }
+
+// Diagnostic only: never suppress or rewrite a valid reply based on overlap.
+export function repetitionCounts(speech: string, history: readonly Pair[]) {
+  const normalize = (text: string) => text.toLowerCase().normalize("NFKC").replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();
+  const sentences = (text: string) => text.split(/[.!?\\n]+/u).map(normalize).filter((item) => item.split(" ").length >= 4);
+  const current = sentences(speech);
+  const prior = new Set(history.flatMap((pair) => sentences(pair.speech)));
+  return { repeatedSentences: current.filter((item) => prior.has(item)).length, exactReplyRepeated: history.some((pair) => normalize(pair.speech) === normalize(speech)) };
+}
