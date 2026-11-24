@@ -369,7 +369,8 @@ export function createRaonDevTurn(
                 excludedText,
                 natural: true,
                 experimentalPrompt:
-                  config.native === true && env.LW_NPC_DIALOGUE_VERSION === "m219-v1",
+                  Boolean(config.native) &&
+                  env.LW_NPC_DIALOGUE_VERSION === "m219-v1",
               }
             : { request: player, history: [...history] },
         },
