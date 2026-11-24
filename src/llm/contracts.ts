@@ -38,11 +38,18 @@ export interface ProviderRequest {
   temperature?: number;
   responseFormat?: { name: string; schema: Record<string, unknown> };
 }
+export interface InferenceTimings {
+  promptEvaluationMs?: number;
+  outputGenerationMs?: number;
+  promptTokensPerSecond?: number;
+  outputTokensPerSecond?: number;
+}
 export interface ProviderReply {
   text: string;
   usage: Usage | null;
   requestId?: string;
   completed: boolean;
+  timings?: InferenceTimings;
 }
 export class ProviderFailure extends Error {
   constructor(
@@ -98,6 +105,9 @@ export interface Observation {
   currency: string | null;
   contextTokens?: number;
   inferenceMs?: number;
+  tokenCountMs?: number;
+  compactContextUsed?: boolean;
+  runtimeTimings?: InferenceTimings;
   costMicros: string | null;
   costKind: "estimated_from_usage" | "conservative_reservation" | "none";
   reservationMicros?: string;
