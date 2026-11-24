@@ -103,6 +103,7 @@ export interface ResponseDiagnostic {
   traceId: string;
   promptVersion: PromptVersion;
   latencyMs: number;
+  stageMs?: Record<string, number>;
   contextChars?: number;
   outcome: ResponseFailure | "responded" | "already_recorded";
 }
