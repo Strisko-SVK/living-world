@@ -101,6 +101,7 @@ async function run(args: readonly string[], env: NodeJS.ProcessEnv) {
   const diagnose = (event: {
     event: string;
     outcome?: string;
+    reason?: string;
     queueWaitMs?: number;
     latencyMs?: number;
   }) => console.info(JSON.stringify(event));
@@ -352,22 +353,48 @@ async function run(args: readonly string[], env: NodeJS.ProcessEnv) {
         }),
         gateway.start(),
       ]);
-      if (!(await verifyPermissions()))
+      if (!(await verifyPermissions())) {
+        diagnose({
+          event: "raon_startup",
+          outcome: "blocked",
+          reason: "bot_guild_parent_or_acl",
+        });
         throw new Error(
           "Wrong bot account, DEV guild, parent or send permissions.",
         );
+      }
       const thread = await client.channels.fetch(config.route.threadId, {
         force: true,
       });
       if (
-        thread?.type !== ChannelType.PrivateThread ||
+        (thread?.type !== ChannelType.PublicThread &&
+          thread?.type !== ChannelType.PrivateThread) ||
         thread.parentId !== config.route.channelId ||
         thread.guildId !== config.route.guildId ||
         thread.archived ||
         thread.locked
-      )
-        throw new Error("The approved DEV Private Thread is unavailable.");
-      await thread.members.fetch({ member: gatewaySmokeBotId, force: true });
+      ) {
+        diagnose({
+          event: "raon_startup",
+          outcome: "blocked",
+          reason: "thread_type_route_or_state",
+        });
+        throw new Error("The approved DEV thread is unavailable.");
+      }
+      if (thread.type === ChannelType.PrivateThread) {
+        try {
+          await thread.members.fetch({ member: gatewaySmokeBotId, force: true });
+        } catch {
+          diagnose({
+            event: "raon_startup",
+            outcome: "blocked",
+            reason: "private_thread_membership",
+          });
+          throw new Error(
+            "The approved private thread membership is unavailable.",
+          );
+        }
+      }
       ready = true;
       diagnose({ event: "raon_session", outcome: "ready" });
       if (!signal.aborted) await once(signal, "abort");
