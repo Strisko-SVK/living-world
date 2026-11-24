@@ -16,7 +16,11 @@ const db = createDatabaseClient();
 afterAll(() => db.close());
 const rollback = new Error("roll back synthetic Raon pilot");
 
-it.each([11, 12])("runs ten source-bound turns on PostgreSQL in Discord thread type %i, retains delivered context, blocks duplicate/foreign events and never replays uncertain delivery", async (threadType) => {
+it.each([
+  { threadType: 11, personaMode: false },
+  { threadType: 12, personaMode: false },
+  { threadType: 11, personaMode: true },
+])("runs ten source-bound turns with $threadType / persona=$personaMode, retains context and blocks duplicate or foreign events", async ({ threadType, personaMode }) => {
   await expect(
     db.db.transaction(async (tx) => {
       const route = {
@@ -26,6 +30,12 @@ it.each([11, 12])("runs ten source-bound turns on PostgreSQL in Discord thread t
       };
       const botId = "1600000000000000013";
       const playerId = "1600000000000000014";
+      const webhookId = "1600000000000000015";
+      const webhookPath = "/webhooks/" + webhookId + "/synthetic_webhook_token_for_test";
+      const personaWebhook = personaMode
+        ? { id: webhookId, url: "https://discord.com/api/v10" + webhookPath }
+        : undefined;
+      let wrongWebhookRoute = false;
       const worldKey = "npc-gateway-ci-" + randomUUID();
       const fixture = await setupRaonFixture(tx, route, playerId, worldKey);
       expect(await setupRaonFixture(tx, route, playerId, worldKey)).toEqual(
@@ -76,6 +86,7 @@ it.each([11, 12])("runs ten source-bound turns on PostgreSQL in Discord thread t
           botId,
           policyId: () => policyId,
           token: "synthetic-bot-token-value",
+          personaWebhook,
           startedAt: Date.now(),
           signal,
           diagnose: () => {},
@@ -115,6 +126,41 @@ it.each([11, 12])("runs ten source-bound turns on PostgreSQL in Discord thread t
             const path = new URL(String(rawUrl)).pathname.slice(
               "/api/v10".length,
             );
+            if (personaMode && path === webhookPath) {
+              const url = new URL(String(rawUrl));
+              if (init?.method === "GET")
+                return Response.json({
+                  id: webhookId,
+                  type: 1,
+                  guild_id: route.guildId,
+                  channel_id: wrongWebhookRoute ? playerId : route.channelId,
+                });
+              expect(init?.method).toBe("POST");
+              expect(url.searchParams.get("wait")).toBe("true");
+              expect(url.searchParams.get("thread_id")).toBe(route.threadId);
+              expect(new Headers(init?.headers).has("Authorization")).toBe(false);
+              const body = JSON.parse(String(init?.body));
+              expect(body).toMatchObject({
+                username: "Sentinel-001",
+                allowed_mentions: {
+                  parse: [],
+                  users: [],
+                  roles: [],
+                  replied_user: false,
+                },
+              });
+              expect(body).not.toHaveProperty("message_reference");
+              sent.push(body.content);
+              if (loseAck) throw Error("lost ACK");
+              return Response.json({
+                content: body.content,
+                id: String(BigInt(active.sourceMessageId) + 1n),
+                guild_id: route.guildId,
+                channel_id: route.threadId,
+                webhook_id: webhookId,
+                author: { id: webhookId, username: "Sentinel-001" },
+              });
+            }
             if (path === "/channels/" + route.threadId + "/typing") {
               expect(init?.method).toBe("POST");
               typing.push(active.sourceMessageId);
@@ -161,6 +207,7 @@ it.each([11, 12])("runs ten source-bound turns on PostgreSQL in Discord thread t
               path === "/channels/" + route.threadId + "/messages" &&
               init?.method === "POST"
             ) {
+              expect(personaMode).toBe(false);
               const body = JSON.parse(String(init.body));
               expect(body).toMatchObject({
                 allowed_mentions: {
@@ -228,6 +275,14 @@ it.each([11, 12])("runs ten source-bound turns on PostgreSQL in Discord thread t
       );
       expect(typing).toHaveLength(10);
       expect(await turn(active, botId)).toBe("duplicate");
+      if (personaMode) {
+        active = await message("Wrong webhook parent");
+        wrongWebhookRoute = true;
+        expect(await turn(active, botId)).toBe("discord_acl_blocked");
+        expect(sent).toHaveLength(10);
+        expect(typing).toHaveLength(10);
+        wrongWebhookRoute = false;
+      }
       const foreign = await message("Unmapped");
       expect(
         await turn({ ...foreign, authorId: "1600000000000000044" }, botId),
