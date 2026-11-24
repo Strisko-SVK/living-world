@@ -16,7 +16,7 @@ const db = createDatabaseClient();
 afterAll(() => db.close());
 const rollback = new Error("roll back synthetic Raon pilot");
 
-it("runs ten source-bound turns on PostgreSQL, retains delivered context, blocks duplicate/foreign events and never replays uncertain delivery", async () => {
+it.each([11, 12])("runs ten source-bound turns on PostgreSQL in Discord thread type %i, retains delivered context, blocks duplicate/foreign events and never replays uncertain delivery", async (threadType) => {
   await expect(
     db.db.transaction(async (tx) => {
       const route = {
@@ -123,14 +123,16 @@ it("runs ten source-bound turns on PostgreSQL, retains delivered context, blocks
                 id: route.threadId,
                 guild_id: route.guildId,
                 parent_id: route.channelId,
-                type: 12,
+                type: threadType,
                 thread_metadata: { archived: false, locked: false },
               });
             if (
               path ===
               "/channels/" + route.threadId + "/thread-members/" + botId
             )
-              return Response.json({ id: route.threadId, user_id: botId });
+              return threadType === 12
+                ? Response.json({ id: route.threadId, user_id: botId })
+                : new Response(null, { status: 403 });
             if (
               path ===
               "/channels/" +
