@@ -78,6 +78,35 @@ const ackSchema = z.object({
   message_reference: z.object({ message_id: snowflake }).optional(),
   webhook_id: z.null().optional(),
 });
+const webhookMetadata = z.object({
+  id: snowflake,
+  type: z.literal(1),
+  guild_id: snowflake,
+  channel_id: snowflake,
+});
+const personaAck = z.object({
+  id: snowflake,
+  guild_id: snowflake.optional(),
+  channel_id: snowflake,
+  content: z.string(),
+  webhook_id: snowflake,
+  author: user.extend({ username: z.string() }),
+});
+export function readNpcWebhook(raw: string) {
+  const match =
+    /^https:\/\/discord\.com\/api(?:\/v10)?\/webhooks\/([1-9][0-9]{16,19})\/([A-Za-z0-9_-]{20,200})$/u.exec(
+      raw,
+    );
+  if (!match) throw new Error("Invalid dedicated DEV webhook URL.");
+  return {
+    id: match[1]!,
+    url: "https://discord.com/api/v10/webhooks/" + match[1] + "/" + match[2],
+  };
+}
+type NpcPersona = {
+  webhook: ReturnType<typeof readNpcWebhook>;
+  name: string;
+};
 const VIEW_CHANNEL = 1n << 10n;
 const READ_MESSAGE_HISTORY = 1n << 16n;
 const SEND_MESSAGES_IN_THREADS = 1n << 38n;
@@ -106,6 +135,7 @@ export async function postScopedBotReply(
     sourceContent: string;
     verifyPermissions: () => Promise<boolean>;
     signal: AbortSignal;
+    persona?: NpcPersona;
   },
 ): Promise<FirstReplySendResult> {
   const parsed = targetSchema.safeParse(raw);
@@ -206,6 +236,31 @@ export async function postScopedBotReply(
     )
       return reply("blocked", 0);
 
+    if (dialogue?.persona) {
+      const { webhook, name } = dialogue.persona;
+      if (!name.trim() || name.length > 80) return reply("blocked", 0);
+      const verified = readNpcWebhook(webhook.url);
+      if (verified.id !== webhook.id) return reply("blocked", 0);
+      const res = await deps.http(verified.url, {
+        method: "GET",
+        redirect: "manual",
+        signal: deadline(timeoutMs),
+      });
+      if (
+        res.status !== 200 ||
+        res.redirected ||
+        (res.url && res.url !== verified.url)
+      )
+        return reply("blocked", 0);
+      const metadata = webhookMetadata.parse(await res.json());
+      if (
+        metadata.id !== webhook.id ||
+        metadata.guild_id !== t.guildId ||
+        metadata.channel_id !== t.parentId
+      )
+        return reply("blocked", 0);
+    }
+
     // After the network metadata reads, recheck the database's authoritative
     // scene/source/host policy and the independently authenticated operator.
     if (!(await deps.revalidateAtBoundary()) || dialogue?.signal.aborted)
@@ -219,6 +274,48 @@ export async function postScopedBotReply(
 
   // From this line on, even a 429/500, failed POST or lost ACK is terminal.
   // The caller MUST durably claim the exact event before invoking this adapter.
+  // Incoming webhooks support per-message authors, not native message replies
+  // or nonce deduplication. The durable outbox still owns a single attempt.
+  if (dialogue?.persona) {
+    const { webhook, name } = dialogue.persona;
+    const url = webhook.url + "?wait=true&thread_id=" + t.threadId;
+    try {
+      const res = await deps.http(url, {
+        method: "POST",
+        redirect: "manual",
+        signal: deadline(timeoutMs),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content,
+          username: name,
+          allowed_mentions: {
+            parse: [],
+            users: [],
+            roles: [],
+            replied_user: false,
+          },
+        }),
+      });
+      if (res.status !== 200 || res.redirected || (res.url && res.url !== url))
+        return reply("uncertain", 1);
+      const ack = personaAck.safeParse(await res.json());
+      if (
+        !ack.success ||
+        ack.data.content !== content ||
+        ack.data.id === t.sourceMessageId ||
+        ack.data.channel_id !== t.threadId ||
+        (ack.data.guild_id !== undefined && ack.data.guild_id !== t.guildId) ||
+        ack.data.webhook_id !== webhook.id ||
+        ack.data.author.id !== webhook.id ||
+        ack.data.author.username !== name
+      )
+        return reply("uncertain", 1);
+      return reply("acknowledged", 1, ack.data.id);
+    } catch {
+      return reply("uncertain", 1);
+    }
+  }
+
   const url = api + "/channels/" + t.threadId + "/messages";
   const nonce = t.attemptId.replaceAll("-", "").slice(0, 24);
   const body = JSON.stringify({
