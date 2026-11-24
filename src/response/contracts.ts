@@ -26,6 +26,9 @@ export interface ResponseOptions {
   beforeAttempt?: () => Promise<boolean>;
   dialogue?: {
     request: string;
+    natural?: boolean;
+    excerpts?: ReadonlyArray<{ player: string; speech: string }>;
+    excludedText?: readonly string[];
     history: ReadonlyArray<{ player: string; speech: string }>;
   };
 }

@@ -114,18 +114,27 @@ export function createNpcResponseOrchestrator(
           >;
           scene.requestText = options.dialogue.request;
         }
+        const style = options.dialogue?.natural
+          ? "natural"
+          : !!options.dialogue;
         const compact = composeResponsePrompt(
           permitted,
           parsed.data.maxResponseChars,
-          !!options.dialogue,
+          style,
         );
-        if (options.dialogue?.history.length) {
+        if (
+          options.dialogue?.history.length ||
+          options.dialogue?.excerpts?.length
+        ) {
           permitted.sections.sceneHistory = options.dialogue.history;
+          if (options.dialogue.excerpts?.length)
+            permitted.sections.olderAttributedDialogueExcerpts =
+              options.dialogue.excerpts;
           prompt = {
             ...composeResponsePrompt(
               permitted,
               parsed.data.maxResponseChars,
-              !!options.dialogue,
+              style,
             ),
             compactMessages: compact.messages,
           };
@@ -176,7 +185,8 @@ export function createNpcResponseOrchestrator(
       const speech = validateNpcSpeech(
         generated.text,
         parsed.data.maxResponseChars,
-        permitted.excludedText,
+        [...permitted.excludedText, ...(options.dialogue?.excludedText ?? [])],
+        options.dialogue?.natural,
       );
       if (!speech) {
         await deps.store.fail(scope, claimId, false);

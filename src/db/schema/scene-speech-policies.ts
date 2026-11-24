@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   foreignKey,
   index,
@@ -32,6 +33,9 @@ export const sceneSpeechPolicies = pgTable(
       .notNull()
       .default(sql`current_user`),
     decision: text("decision").notNull(),
+    raonSessionManaged: boolean("raon_session_managed")
+      .notNull()
+      .default(false),
     activity: text("activity").notNull(),
     perception: text("perception").notNull(),
     otherScene: text("other_scene").notNull(),

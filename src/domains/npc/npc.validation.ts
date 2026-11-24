@@ -28,6 +28,18 @@ export const baselineProfileSchema = z
       })
       .strict(),
     summary: textValue("Baseline summary"),
+    presentation: z
+      .object({
+        displayName: z.string().trim().min(1).max(80),
+        avatarUrl: z
+          .string()
+          .regex(
+            /^https:\/\/cdn\.discordapp\.com\/(?:embed\/avatars\/[0-5]|avatars\/\d{17,20}\/[a-f0-9]{32})\.png$/u,
+          )
+          .optional(),
+      })
+      .strict()
+      .optional(),
     personality: z
       .object({
         traits: z.array(textValue("Personality trait")).min(1).max(12),

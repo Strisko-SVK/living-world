@@ -34,6 +34,7 @@ const issueSchema = scopeSchema
     perception: z.enum(["aware", "unaware"]),
     otherScene: z.enum(["none", "active"]),
     ttlMinutes: z.number().int().min(1).max(30),
+    raonSessionManaged: z.literal(true).optional(),
   })
   .strict();
 
@@ -192,6 +193,7 @@ export async function issueHostSceneSpeechPolicy(db: Database, raw: unknown) {
         issuerEntityId,
         issuerRole: "host_operator",
         decision: input.decision,
+        raonSessionManaged: input.raonSessionManaged ?? false,
         activity: input.activity,
         perception: input.perception,
         otherScene: input.otherScene,

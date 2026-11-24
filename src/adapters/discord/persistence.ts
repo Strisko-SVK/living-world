@@ -120,7 +120,14 @@ export function createDiscordPersistence(
             input.trigger.botId,
             message.mentionedUserIds,
           );
-          if (!trigger) return "invalid_trigger";
+          const conversation = input.trigger.conversation;
+          if (
+            !trigger &&
+            (!conversation ||
+              !expected ||
+              conversation.npcId !== expected.npcId)
+          )
+            return "invalid_trigger";
           await lockRouting(transaction, [
             "location",
             message.guildId,
@@ -230,18 +237,23 @@ export function createDiscordPersistence(
           const speakerEntityId = player.id;
           if (expected && speakerEntityId !== expected.playerEntityId)
             return "unauthorized";
-          await lockEntityAlias(transaction, worldId, trigger.alias);
-          const matches = await findEntitiesByAlias(
-            transaction,
-            worldId,
-            trigger.alias,
-            true,
-          );
-          const targetIds = [...new Set(matches.map((row) => row.id))];
-          if (targetIds.length !== 1)
-            return targetIds.length ? "ambiguous_target" : "invalid_target";
-          const npcId = targetIds[0];
-          if (expected && npcId !== expected.npcId) return "invalid_target";
+          const alias = trigger?.alias ?? conversation?.alias;
+          let npcId = conversation?.npcId;
+          if (alias) {
+            await lockEntityAlias(transaction, worldId, alias);
+            const matches = await findEntitiesByAlias(
+              transaction,
+              worldId,
+              alias,
+              true,
+            );
+            const targetIds = [...new Set(matches.map((row) => row.id))];
+            if (targetIds.length !== 1)
+              return targetIds.length ? "ambiguous_target" : "invalid_target";
+            npcId = targetIds[0];
+          }
+          if (!npcId || (expected && npcId !== expected.npcId))
+            return "invalid_target";
           await transaction
             .select()
             .from(npcs)

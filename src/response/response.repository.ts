@@ -1,3 +1,4 @@
+import { quartermasterWorldPrefix } from "../admin/quartermaster-profile.js";
 import {
   lockLocalContext,
   validateLocalInteraction,
@@ -75,6 +76,23 @@ export function createResponseStore(database: Database): ResponseStore {
       and id=${row.contextId} for share`);
     if ((await validateLocalInteraction(tx, row)).status !== "eligible_local")
       return false;
+    if (
+      expected?.world.key.startsWith(quartermasterWorldPrefix) &&
+      expected.npc.npc.canonicalName === "Marcus Voss"
+    ) {
+      await tx.execute(
+        sql`select id from npc_knowledge where world_id=${row.worldId} and npc_id=${row.npcId} order by id for share`,
+      );
+      await tx.execute(
+        sql`select id from npc_memories where world_id=${row.worldId} and npc_id=${row.npcId} order by id for share`,
+      );
+      await tx.execute(
+        sql`select s.id from memory_sources s join npc_memories m on m.id=s.memory_id where m.world_id=${row.worldId} and m.npc_id=${row.npcId} order by s.id for share of s`,
+      );
+      await tx.execute(
+        sql`select s.id from knowledge_sources s join npc_knowledge k on k.id=s.knowledge_id where k.world_id=${row.worldId} and k.npc_id=${row.npcId} order by s.id for share of s`,
+      );
+    }
     try {
       const fresh = await createContextBuilder(createContextReader(tx))({
         worldId: row.worldId,
@@ -83,8 +101,7 @@ export function createResponseStore(database: Database): ResponseStore {
         limits: { history: 0 },
       });
       const permitted = filterResponseContext(fresh, row);
-      // All retrieved knowledge is withheld, so its access changes cannot
-      // authorize prompt content. Compare every remaining prompt-visible field.
+      // Compare the current disclosure view as well as persona and scene state.
       return (
         !expected ||
         (isDeepStrictEqual(fresh.current.context, expected.current.context) &&

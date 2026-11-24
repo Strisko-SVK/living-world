@@ -49,7 +49,7 @@ const isInert = (v: ReturnType<typeof classifyMigration0018Preflight>) => {
 };
 
 describe("M2.15F read-only 0018 migration preflight", () => {
-  it("pins all reviewed migrations through 0019 and rejects drift", async () => {
+  it("pins all reviewed migrations through 0020 and rejects drift", async () => {
     const journal = JSON.parse(
       await readFile(
         new URL("../db/migrations/meta/_journal.json", import.meta.url),
@@ -68,9 +68,30 @@ describe("M2.15F read-only 0018 migration preflight", () => {
         import.meta.url,
       ),
     );
-    expect(isReviewedMigrationPlan(journal, originalSql, appendedSql)).toBe(
-      true,
+    const raonSql = await readFile(
+      new URL("../db/migrations/0020_raon_conversations.sql", import.meta.url),
     );
+    expect(
+      isReviewedMigrationPlan(journal, originalSql, appendedSql, raonSql),
+    ).toBe(true);
+    expect(isReviewedMigrationPlan(journal, originalSql, appendedSql)).toBe(
+      false,
+    );
+    expect(
+      isReviewedMigrationPlan(
+        journal,
+        originalSql,
+        appendedSql,
+        Buffer.concat([raonSql, Buffer.from("-- drift")]),
+      ),
+    ).toBe(false);
+    expect(
+      isReviewedMigrationPlan(
+        { ...journal, entries: journal.entries.slice(0, 20) },
+        originalSql,
+        appendedSql,
+      ),
+    ).toBe(true);
     // An older 0018-only journal remains valid without a future migration.
     expect(
       isReviewedMigrationPlan(
@@ -85,6 +106,7 @@ describe("M2.15F read-only 0018 migration preflight", () => {
         journal,
         originalSql,
         Buffer.concat([appendedSql, Buffer.from("\n-- unapproved append\n")]),
+        raonSql,
       ),
     ).toBe(false);
     expect(
@@ -99,6 +121,7 @@ describe("M2.15F read-only 0018 migration preflight", () => {
         },
         originalSql,
         appendedSql,
+        raonSql,
       ),
     ).toBe(false);
     expect(
@@ -111,6 +134,7 @@ describe("M2.15F read-only 0018 migration preflight", () => {
         },
         originalSql,
         appendedSql,
+        raonSql,
       ),
     ).toBe(false);
     expect(
@@ -118,6 +142,7 @@ describe("M2.15F read-only 0018 migration preflight", () => {
         journal,
         Buffer.concat([originalSql, Buffer.from("\n-- unreviewed addition\n")]),
         appendedSql,
+        raonSql,
       ),
     ).toBe(false);
   });

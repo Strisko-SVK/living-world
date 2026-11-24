@@ -15,6 +15,10 @@ export const incomingMessageSchema = z.object({
   threadId: reference.nullable(),
   content: z.string().trim().min(1).max(20_000),
   mentionedUserIds: z.array(reference).max(100),
+  replyToMessageId: z
+    .string()
+    .regex(/^[1-9][0-9]{16,19}$/u)
+    .optional(),
 });
 export type IncomingMessage = z.infer<typeof incomingMessageSchema>;
 export type IntakeDiagnostic = {
@@ -50,7 +54,10 @@ export type IntakeWrite = {
 } & (
   | {
       // This identity comes from the authenticated adapter callback, not input.
-      trigger: { botId: string };
+      trigger: {
+        botId: string;
+        conversation?: { alias?: string; npcId: string };
+      };
     }
   | {
       worldId: string;

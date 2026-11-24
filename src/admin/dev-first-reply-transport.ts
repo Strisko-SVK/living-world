@@ -66,6 +66,13 @@ const source = z.object({
   author: user.extend({ bot: z.boolean().optional() }),
   mentions: z.array(user),
   type: z.union([z.literal(0), z.literal(19)]),
+  message_reference: z
+    .object({
+      message_id: snowflake.optional(),
+      channel_id: snowflake.optional(),
+      guild_id: snowflake.optional(),
+    })
+    .optional(),
   webhook_id: z.null().optional(),
 });
 const ackSchema = z.object({
@@ -106,6 +113,7 @@ export function readNpcWebhook(raw: string) {
 type NpcPersona = {
   webhook: ReturnType<typeof readNpcWebhook>;
   name: string;
+  avatarUrl?: string;
 };
 const VIEW_CHANNEL = 1n << 10n;
 const READ_MESSAGE_HISTORY = 1n << 16n;
@@ -133,6 +141,7 @@ export async function postScopedBotReply(
   dialogue?: {
     content: string;
     sourceContent: string;
+    conversationSource?: { mentioned: boolean; replyToMessageId?: string };
     verifyPermissions: () => Promise<boolean>;
     signal: AbortSignal;
     persona?: NpcPersona;
@@ -227,7 +236,17 @@ export async function postScopedBotReply(
       message.author.id !== t.playerId ||
       message.author.bot === true ||
       message.webhook_id != null ||
-      !message.mentions.some((mention) => mention.id === t.botId) ||
+      ((!dialogue?.conversationSource ||
+        dialogue.conversationSource.mentioned) &&
+        !message.mentions.some((mention) => mention.id === t.botId)) ||
+      (dialogue?.conversationSource?.replyToMessageId !== undefined &&
+        (message.type !== 19 ||
+          message.message_reference?.message_id !==
+            dialogue.conversationSource.replyToMessageId ||
+          (message.message_reference.channel_id !== undefined &&
+            message.message_reference.channel_id !== t.threadId) ||
+          (message.message_reference.guild_id !== undefined &&
+            message.message_reference.guild_id !== t.guildId))) ||
       (dialogue
         ? message.content.trim() !== dialogue.sourceContent
         : message.type !== 0 ||
@@ -277,7 +296,7 @@ export async function postScopedBotReply(
   // Incoming webhooks support per-message authors, not native message replies
   // or nonce deduplication. The durable outbox still owns a single attempt.
   if (dialogue?.persona) {
-    const { webhook, name } = dialogue.persona;
+    const { webhook, name, avatarUrl } = dialogue.persona;
     const url = webhook.url + "?wait=true&thread_id=" + t.threadId;
     try {
       const res = await deps.http(url, {
@@ -288,6 +307,7 @@ export async function postScopedBotReply(
         body: JSON.stringify({
           content,
           username: name,
+          ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
           allowed_mentions: {
             parse: [],
             users: [],

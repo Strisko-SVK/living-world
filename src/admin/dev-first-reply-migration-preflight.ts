@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { createDatabaseClient, type DatabaseClient } from "../db/client.js";
 import {
   expectedMigration0019When,
+  expectedMigration0020When,
   expectedMigrationTimes,
   isReviewedMigrationPlan,
 } from "./scene-policy-migration-preflight.js";
@@ -113,9 +114,13 @@ export function classifyMigration0019Preflight(
   if (!facts.migrationTablePresent)
     return result("blocked", "migration_history_missing");
   const applied = facts.appliedTimes;
-  if (applied.length !== 19 && applied.length !== 20)
+  if (applied.length < 19 || applied.length > 21)
     return result("blocked", "migration_history_drift");
-  const expected = [...expectedMigrationTimes, expectedMigration0019When];
+  const expected = [
+    ...expectedMigrationTimes,
+    expectedMigration0019When,
+    expectedMigration0020When,
+  ];
   if (applied.some((value, i) => value !== String(expected[i])))
     return result("blocked", "migration_history_drift");
   if (!facts.baseline0018Intact)
@@ -155,7 +160,7 @@ export function classifyMigration0019Preflight(
 
 async function reviewedLocalMigration(): Promise<string | null> {
   try {
-    const [journalBytes, sql0018, sql0019] = await Promise.all([
+    const [journalBytes, sql0018, sql0019, sql0020] = await Promise.all([
       readFile(new URL("../db/migrations/meta/_journal.json", import.meta.url)),
       readFile(
         new URL(
@@ -169,12 +174,19 @@ async function reviewedLocalMigration(): Promise<string | null> {
           import.meta.url,
         ),
       ),
+      readFile(
+        new URL(
+          "../db/migrations/0020_raon_conversations.sql",
+          import.meta.url,
+        ),
+      ),
     ]);
     if (
       !isReviewedMigrationPlan(
         JSON.parse(journalBytes.toString("utf8")),
         sql0018,
         sql0019,
+        sql0020,
       )
     )
       return null;

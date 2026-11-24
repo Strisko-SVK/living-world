@@ -7,6 +7,14 @@
 - Test: `pnpm test`
 - Quality gate: `pnpm quality:gate`
 
+### Discord DEV playtest
+
+The [Quartermaster runbook](docs/m2.17-quartermaster-discord-dev.md) covers the
+local RAON Gateway, the two-NPC fixture, conversation routing, acknowledged
+history, persona webhooks and the live acceptance matrix. The separate
+[Sentinel pilot](docs/m2.16-raon-sentinel-discord-dev.md) provides a regression
+path for explicit mention routing.
+
 ### Local PostgreSQL
 
 1. Run `pnpm db:init` to create a private `.env` with a random password. Existing
