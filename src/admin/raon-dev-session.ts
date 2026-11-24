@@ -27,6 +27,7 @@ import {
 } from "./gateway-dev-db.js";
 import { setupRaonFixture } from "./raon-dev-fixture.js";
 import { createRaonDevTurn } from "./raon-dev-turn.js";
+import { readNpcWebhook } from "./dev-first-reply-transport.js";
 
 export function readRaonSessionConfig(
   args: readonly string[],
@@ -84,9 +85,13 @@ export function readRaonSessionConfig(
     throw new Error(
       "Set LW_RAON_SESSION_APPROVED=true locally and load the DEV bot token.",
     );
+  const webhook = env.LW_RAON_NPC_WEBHOOK_URL
+    ? readNpcWebhook(env.LW_RAON_NPC_WEBHOOK_URL)
+    : undefined;
   return {
     mode,
     route,
+    webhook,
     playerId,
     inferenceEnv,
     token: env.DISCORD_TOKEN ?? "",
@@ -304,6 +309,7 @@ async function run(args: readonly string[], env: NodeJS.ProcessEnv) {
       botId: gatewaySmokeBotId,
       policyId,
       token: config.token,
+      personaWebhook: config.webhook,
       startedAt: Date.now(),
       signal,
       verifyPermissions,
@@ -406,6 +412,40 @@ async function run(args: readonly string[], env: NodeJS.ProcessEnv) {
           );
         }
       }
+      if (config.webhook) {
+        try {
+          const res = await fetch(config.webhook.url, {
+            redirect: "manual",
+            signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
+          });
+          if (!res.ok || res.redirected) throw new Error("Webhook unavailable.");
+          const metadata = z
+            .object({
+              id: snowflake,
+              type: z.literal(1),
+              guild_id: snowflake,
+              channel_id: snowflake,
+            })
+            .parse(await res.json());
+          if (
+            metadata.id !== config.webhook.id ||
+            metadata.guild_id !== config.route.guildId ||
+            metadata.channel_id !== config.route.channelId
+          )
+            throw new Error("Webhook route mismatch.");
+        } catch {
+          diagnose({
+            event: "raon_startup",
+            outcome: "blocked",
+            reason: "npc_webhook_unavailable_or_wrong_route",
+          });
+          throw new Error("Dedicated NPC webhook unavailable.");
+        }
+      }
+      diagnose({
+        event: "raon_persona",
+        outcome: config.webhook ? "webhook" : "bot_reply",
+      });
       ready = true;
       diagnose({ event: "raon_session", outcome: "ready" });
       // Rotate the bounded policy on the same serial queue as dialogue. No
