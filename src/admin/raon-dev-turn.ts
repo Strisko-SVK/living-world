@@ -216,6 +216,7 @@ export function createRaonDevTurn(
           return;
         }
         if (!typingSignal.aborted) {
+          if (!refresh) report("raon_typing", "started");
           typingTimer = setTimeout(() => {
             typingWork = pulse(true);
           }, 7000);
@@ -226,6 +227,7 @@ export function createRaonDevTurn(
     };
     typingWork = pulse(false);
     try {
+      await typingWork;
       const response = await pipeline.generateNpcResponse(
         f.worldId,
         f.npcId,
