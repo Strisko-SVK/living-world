@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { DatabaseClient } from "../db/client.js";
 import { discordNpcRegistry } from "../db/schema/index.js";
@@ -129,16 +129,29 @@ export async function installImportedTemplates(
           eq(discordNpcRegistry.templateKey, template.key),
         ),
       );
-    const aliases = [...new Set([
-      normalizeAlias(template.npc.canonicalName),
-      ...template.aliases.map(normalizeAlias),
-    ])].sort();
+    const aliases = [
+      ...new Set([
+        normalizeAlias(template.npc.canonicalName),
+        ...template.aliases.map(normalizeAlias),
+      ]),
+    ].sort();
     if (existing) {
       const npc = await getNpc(tx, worldId, existing.npcId);
       const home = await getEntity(tx, worldId, existing.homeLocationId);
+      const savedAliases = await tx.execute<{ normalized_alias: string }>(sql`
+        select a.normalized_alias from entity_aliases a
+        join entities e on e.id=a.entity_id
+        where e.world_id=${worldId} and e.id=${existing.npcId}
+        order by a.normalized_alias
+      `);
       if (
         !npc ||
         !home ||
+        home.entityType !== "location" ||
+        !isDeepStrictEqual(
+          savedAliases.rows.map((row) => row.normalized_alias).sort(),
+          aliases,
+        ) ||
         home.canonicalName !== template.home ||
         npc.canonicalName !== template.npc.canonicalName ||
         npc.profileVersion !== template.npc.profileVersion ||
@@ -147,7 +160,9 @@ export async function installImportedTemplates(
         npc.simulationDepth !== template.npc.simulationDepth ||
         !isDeepStrictEqual(npc.baselineProfile, template.npc.baselineProfile)
       )
-        throw new Error("Existing NPC differs from catalog; explicit profile review required.");
+        throw new Error(
+          "Existing NPC differs from catalog; explicit profile review required.",
+        );
       // An unchanged import must not rewrite state, aliases or profile.
       continue;
     }
@@ -156,15 +171,19 @@ export async function installImportedTemplates(
       if ((await findEntitiesByAlias(tx, worldId, alias)).length)
         throw new Error("NPC catalog alias already exists in this world.");
     }
-    if (await findEntityByCanonicalName(tx, worldId, template.npc.canonicalName))
+    if (
+      await findEntityByCanonicalName(tx, worldId, template.npc.canonicalName)
+    )
       throw new Error("NPC canonical name already exists in this world.");
     const home = await findEntityByCanonicalName(tx, worldId, template.home);
     if (home && (home.entityType !== "location" || home.status !== "active"))
       throw new Error("NPC home must be an active location.");
-    const location = home ?? await createEntity(tx, worldId, {
-      entityType: "location",
-      canonicalName: template.home,
-    });
+    const location =
+      home ??
+      (await createEntity(tx, worldId, {
+        entityType: "location",
+        canonicalName: template.home,
+      }));
     const npc = await createNpc(tx, worldId, {
       ...template.npc,
       initialState: {
