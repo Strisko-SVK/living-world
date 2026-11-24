@@ -45,19 +45,23 @@ it.each([11, 12])("runs ten source-bound turns on PostgreSQL in Discord thread t
         npcId: fixture.npcId,
         presenceId: fixture.presenceId,
       };
-      const policy = await issueHostSceneSpeechPolicy(tx, {
-        ...scope,
-        decision: "allow_direct_speech",
-        activity: "free",
-        perception: "aware",
-        otherScene: "none",
-        ttlMinutes: 30,
-        issuerEntityId: fixture.playerEntityId,
-      });
+      const issuePolicy = () =>
+        issueHostSceneSpeechPolicy(tx, {
+          ...scope,
+          decision: "allow_direct_speech",
+          activity: "free",
+          perception: "aware",
+          otherScene: "none",
+          ttlMinutes: 30,
+          issuerEntityId: fixture.playerEntityId,
+        });
+      const policy = await issuePolicy();
       if (policy.status !== "created") throw Error("test policy rejected");
+      let policyId = policy.id;
       const signal = new AbortController().signal;
       const completions: string[] = [];
       const sent: string[] = [];
+      const typing: string[] = [];
       let active!: IncomingMessage;
       let loseAck = false;
       let offline = false;
@@ -70,7 +74,7 @@ it.each([11, 12])("runs ten source-bound turns on PostgreSQL in Discord thread t
           route,
           playerId,
           botId,
-          policyId: policy.id,
+          policyId: () => policyId,
           token: "synthetic-bot-token-value",
           startedAt: Date.now(),
           signal,
@@ -111,6 +115,11 @@ it.each([11, 12])("runs ten source-bound turns on PostgreSQL in Discord thread t
             const path = new URL(String(rawUrl)).pathname.slice(
               "/api/v10".length,
             );
+            if (path === "/channels/" + route.threadId + "/typing") {
+              expect(init?.method).toBe("POST");
+              typing.push(active.sourceMessageId);
+              return new Response(null, { status: 204 });
+            }
             if (path === "/users/@me") return Response.json({ id: botId });
             if (path === "/channels/" + route.channelId)
               return Response.json({
@@ -191,6 +200,14 @@ it.each([11, 12])("runs ten source-bound turns on PostgreSQL in Discord thread t
         };
       };
       for (let n = 1; n <= 10; n++) {
+        if (n === 6) {
+          expect(
+            await revokeHostSceneSpeechPolicy(tx, scope, policyId),
+          ).toEqual({ status: "revoked" });
+          const renewed = await issuePolicy();
+          if (renewed.status !== "created") throw Error("renewal rejected");
+          policyId = renewed.id;
+        }
         active = await message("Question " + n);
         expect(await turn(active, botId)).toBe("delivered");
       }
@@ -209,6 +226,7 @@ it.each([11, 12])("runs ten source-bound turns on PostgreSQL in Discord thread t
           speech: "Observation recorded for turn " + n,
         })),
       );
+      expect(typing).toHaveLength(10);
       expect(await turn(active, botId)).toBe("duplicate");
       const foreign = await message("Unmapped");
       expect(
@@ -221,6 +239,7 @@ it.each([11, 12])("runs ten source-bound turns on PostgreSQL in Discord thread t
       active = await message("Missing permissions");
       allowed = false;
       expect(await turn(active, botId)).toBe("discord_acl_blocked");
+      expect(typing).toHaveLength(10);
       allowed = true;
       active = await message("Tunnel down");
       offline = true;
@@ -231,9 +250,10 @@ it.each([11, 12])("runs ten source-bound turns on PostgreSQL in Discord thread t
       expect(await turn(active, botId)).toBe("uncertain");
       expect(await turn(active, botId)).toBe("duplicate");
 
-      await revokeHostSceneSpeechPolicy(tx, scope, policy.id);
+      await revokeHostSceneSpeechPolicy(tx, scope, policyId);
       active = await message("Revoked scene");
       expect(await turn(active, botId)).toBe("source_blocked");
+      expect(typing).toHaveLength(12);
       expect(completions).toHaveLength(11);
       expect(sent).toHaveLength(11);
       const deliveries = await tx
