@@ -164,27 +164,51 @@ async function run(args: readonly string[], env: NodeJS.ProcessEnv) {
       if (expired)
         await revokeHostSceneSpeechPolicy(db.db, policyScope, expired.id);
 
-      const policy = await issueHostSceneSpeechPolicy(db.db, {
-        ...policyScope,
-        ttlMinutes: 30,
-        issuerEntityId: fixture.playerEntityId,
-        decision: "allow_direct_speech",
-        activity: "free",
-        perception: "aware",
-        otherScene: "none",
-      });
-      if (policy.status !== "created")
-        throw new Error(
-          "The DEV scene host speech policy could not be issued.",
+      const issuePolicy = async () => {
+        const policy = await issueHostSceneSpeechPolicy(db.db, {
+          ...policyScope,
+          ttlMinutes: 30,
+          issuerEntityId: fixture.playerEntityId,
+          decision: "allow_direct_speech",
+          activity: "free",
+          perception: "aware",
+          otherScene: "none",
+        });
+        if (policy.status !== "created") {
+          diagnose({
+            event: "raon_policy",
+            outcome: "blocked",
+            reason: policy.status,
+          });
+          throw new Error("The DEV scene speech policy could not be issued.");
+        }
+        return policy.id;
+      };
+      let policyId = await issuePolicy();
+      const renewPolicy = async () => {
+        signal.throwIfAborted();
+        await lease.query("select 1");
+        signal.throwIfAborted();
+        const previous = await revokeHostSceneSpeechPolicy(
+          db.db,
+          policyScope,
+          policyId,
         );
+        // An externally revoked policy is a stop, not permission to reopen.
+        if (previous.status !== "revoked")
+          throw new Error("The DEV policy could not be renewed.");
+        signal.throwIfAborted();
+        policyId = await issuePolicy();
+        diagnose({ event: "raon_policy", outcome: "renewed" });
+      };
       try {
-        await openGateway(policy.id, fixture);
+        await openGateway(() => policyId, renewPolicy, fixture);
       } finally {
         try {
           const result = await revokeHostSceneSpeechPolicy(
             db.db,
             policyScope,
-            policy.id,
+            policyId,
           );
           const revoked =
             result.status === "revoked" || result.status === "already_revoked";
@@ -244,7 +268,8 @@ async function run(args: readonly string[], env: NodeJS.ProcessEnv) {
   }
 
   async function openGateway(
-    policyId: string,
+    policyId: () => string,
+    renewPolicy: () => Promise<void>,
     fixture: Awaited<ReturnType<typeof setupRaonFixture>>,
   ) {
     const client = new Client({
@@ -271,7 +296,6 @@ async function run(args: readonly string[], env: NodeJS.ProcessEnv) {
     };
     let ready = false;
     let pending = 0;
-    let turns = 0;
     let queue = Promise.resolve();
     const turn = createRaonDevTurn(db.db, config.inferenceEnv, {
       fixture,
@@ -308,30 +332,17 @@ async function run(args: readonly string[], env: NodeJS.ProcessEnv) {
         const queued = performance.now();
         pending++;
         const work = queue.then(async () => {
-          if (signal.aborted || turns >= 20) return;
+          if (signal.aborted) return;
           diagnose({
             event: "raon_queue",
             queueWaitMs: Math.round(performance.now() - queued),
           });
           const outcome = await turn(message, botId);
-          if (
-            ![
-              "ignored",
-              "duplicate",
-              "event_conflict",
-              "invalid_target",
-              "invalid_trigger",
-              "unauthorized",
-              "unmapped",
-            ].includes(outcome)
-          )
-            turns++;
           diagnose({
             event: "raon_turn",
             outcome,
             latencyMs: Math.round(performance.now() - queued),
           });
-          if (turns >= 20) stop();
         });
         queue = work.catch(() => {
           diagnose({ event: "raon_turn", outcome: "operation_failed" });
@@ -344,7 +355,7 @@ async function run(args: readonly string[], env: NodeJS.ProcessEnv) {
       true,
     );
 
-    const timeout = setTimeout(stop, 30 * 60 * 1000);
+    let renewal: ReturnType<typeof setInterval> | undefined;
     try {
       signal.throwIfAborted();
       await Promise.all([
@@ -397,11 +408,28 @@ async function run(args: readonly string[], env: NodeJS.ProcessEnv) {
       }
       ready = true;
       diagnose({ event: "raon_session", outcome: "ready" });
+      // Rotate the bounded policy on the same serial queue as dialogue. No
+      // in-flight turn changes policy IDs; the global DB guard stays intact.
+      renewal = setInterval(() => {
+        if (signal.aborted) return;
+        queue = queue
+          .then(async () => {
+            if (!signal.aborted) await renewPolicy();
+          })
+          .catch(() => {
+            diagnose({
+              event: "raon_policy",
+              outcome: "renewal_failed",
+            });
+            stop();
+          });
+      }, 20 * 60 * 1000);
       if (!signal.aborted) await once(signal, "abort");
     } finally {
       stop();
-      clearTimeout(timeout);
+      if (renewal) clearInterval(renewal);
       await gateway.stop();
+      await queue;
     }
   }
 }
