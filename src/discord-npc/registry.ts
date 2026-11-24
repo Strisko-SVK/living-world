@@ -16,6 +16,10 @@ import {
 import { normalizeAlias } from "../domains/entity/alias-normalizer.js";
 import { seedQuartermaster } from "../admin/quartermaster-profile.js";
 import { seedSentinel } from "../admin/raon-dev-fixture.js";
+import {
+  installImportedTemplates,
+  type ImportedNpcTemplate,
+} from "./template-catalog.js";
 
 export type Database = Omit<DatabaseClient["db"], "$client">;
 export type Campaign = typeof discordCampaigns.$inferSelect;
@@ -46,7 +50,11 @@ const templates = [
   },
 ];
 
-export function createNpcRegistry(db: Database, approvedGuildId: string) {
+export function createNpcRegistry(
+  db: Database,
+  approvedGuildId: string,
+  importedTemplates: readonly ImportedNpcTemplate[] = [],
+) {
   if (!snowflake.test(approvedGuildId))
     throw new Error("Invalid approved Discord guild.");
 
@@ -125,6 +133,7 @@ export function createNpcRegistry(db: Database, approvedGuildId: string) {
         homeLocationId: location.id,
       });
     }
+    await installImportedTemplates(tx, worldId, importedTemplates);
   }
 
   async function member(worldId: string, userId: string, conn = db) {
