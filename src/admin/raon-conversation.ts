@@ -26,6 +26,7 @@ export function createRaonConversation(
     defaultNpcId: string | null;
     explicitOnly: boolean;
     experimentalHistory?: boolean;
+    historyStartSourceId?: string;
   },
 ) {
   const { worldId, contextId, mappingId, playerEntityId } = scene;
@@ -142,7 +143,7 @@ export function createRaonConversation(
     const filter =
       "replyId" in query
         ? sql`d.ack_message_id=${query.replyId}`
-        : sql`i.npc_id=${query.npcId}`;
+        : sql`i.npc_id=${query.npcId} and (${options?.historyStartSourceId ?? null}::text is null or i.source_message_id::numeric >= ${options?.historyStartSourceId ?? null}::numeric)`;
     const result = await db.execute(sql`
       select i.npc_id, i.request_text, i.response_text
       from npc_response_deliveries d
