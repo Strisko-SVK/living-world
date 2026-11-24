@@ -25,6 +25,9 @@ export async function runM219Benchmark(
   if (!config.enabled || config.provider !== "raon" || config.contextTokens !== 4096)
     throw new Error("Benchmark requires the existing loopback RAON 4096 configuration.");
 
+  const prompt = env.RAON_BENCH_PROMPT ?? "baseline";
+  if (prompt !== "baseline" && prompt !== "m219-v1")
+    throw new Error("Invalid benchmark prompt version.");
   const temperature = Number(env.RAON_BENCH_TEMPERATURE ?? "0.1");
   if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2)
     throw new Error("Invalid benchmark temperature.");
@@ -50,6 +53,7 @@ export async function runM219Benchmark(
     maxOutputTokens: config.maxOutputTokens,
     timeoutMs: config.timeoutMs,
     temperature,
+    prompt,
     presencePenalty: 0,
     thinking: false,
     quantization: env.RAON_BENCH_QUANTIZATION ?? "operator_evidence_required",
@@ -59,7 +63,7 @@ export async function runM219Benchmark(
     seed: "not_configured",
     scenarios: cases.length,
   });
-  await runDialogueBenchmark(generate, { signal, cases, temperature, write });
+  await runDialogueBenchmark(generate, { signal, cases, temperature, candidate: prompt === "m219-v1", write });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
