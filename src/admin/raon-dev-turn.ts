@@ -27,6 +27,7 @@ type TurnConfig = {
   botId: string;
   policyId: string | (() => string);
   token: string;
+  personaWebhook?: { id: string; url: string };
   startedAt: number;
   signal: AbortSignal;
   verifyPermissions: () => Promise<boolean>;
@@ -174,6 +175,9 @@ export function createRaonDevTurn(
       http: config.http ?? fetch,
       revalidateAtBoundary: authorize,
     };
+    const persona = config.personaWebhook
+      ? { webhook: config.personaWebhook, name: "Sentinel-001" }
+      : undefined;
     const precheck = (checkSignal: AbortSignal = signal) =>
       postScopedBotReply(
         { ...source, attemptId: row.id },
@@ -183,6 +187,7 @@ export function createRaonDevTurn(
           sourceContent: message.content,
           verifyPermissions: permissions,
           signal: checkSignal,
+          persona,
         },
       );
     if ((await precheck()).status !== "prechecked")
@@ -265,6 +270,7 @@ export function createRaonDevTurn(
               sourceContent: message.content,
               verifyPermissions: permissions,
               signal,
+              persona,
             },
           );
           if (result.status === "acknowledged" && result.messageId)
