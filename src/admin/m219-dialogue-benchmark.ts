@@ -4,7 +4,8 @@ import {
   composeResponsePrompt,
   validateNpcSpeech,
 } from "../response/prompt.js";
-import { PROMPT_VERSION } from "../response/contracts.js";
+import { selectM219History } from "../response/dialogue-context.js";
+import { M219_PROMPT_VERSION, PROMPT_VERSION } from "../response/contracts.js";
 import {
   dialogueCases,
   dialogueDatasetVersion,
@@ -66,6 +67,7 @@ export function buildDialogueBenchmarkPrompt(
   variant: Variant,
   scenario: DialogueCase,
   persona: Persona,
+  candidate = false,
 ): Omit<GenerationRequest, "traceId"> {
   if (variant === "A")
     return {
@@ -85,6 +87,10 @@ export function buildDialogueBenchmarkPrompt(
     },
   };
   if (variant === "E") {
+    const selected = candidate
+      ? selectM219History([...(scenario.history ?? [])].reverse(), scenario.request)
+      : null;
+    const style = candidate ? "natural-v2" : "natural";
     const full = {
       worldAndGameSystem: {
         name: "Living World synthetic benchmark",
@@ -92,6 +98,7 @@ export function buildDialogueBenchmarkPrompt(
         gameSystem: null,
       },
       ...sections,
+      ...(selected ? { sceneHistory: selected.recent, olderAttributedDialogueExcerpts: selected.excerpts } : {}),
       currentNpcState: { physical: {}, emotional: {} },
       permittedMemories: [],
       relevantRelationships: [],
@@ -112,14 +119,14 @@ export function buildDialogueBenchmarkPrompt(
     const prompt = composeResponsePrompt(
       { ...context, sections: full },
       600,
-      "natural",
+      style,
     );
     return {
       ...prompt,
       compactMessages: composeResponsePrompt(
-        { ...context, sections: { ...full, sceneHistory: [] } },
+        { ...context, sections: { ...full, sceneHistory: candidate ? full.sceneHistory.slice(-1) : [], olderAttributedDialogueExcerpts: [] } },
         600,
-        "natural",
+        style,
       ).messages,
     };
   }
@@ -148,6 +155,7 @@ export async function runDialogueBenchmark(
     signal: AbortSignal;
     cases?: readonly DialogueCase[];
     temperature: number;
+    candidate?: boolean;
     write: (record: Record<string, unknown>) => void;
   },
 ) {
@@ -160,7 +168,7 @@ export async function runDialogueBenchmark(
       for (let sample = 1; sample <= (scenario.repeats ?? 1); sample++) {
         for (const variant of variants) {
           options.signal.throwIfAborted();
-          const prompt = buildDialogueBenchmarkPrompt(variant, scenario, persona);
+          const prompt = buildDialogueBenchmarkPrompt(variant, scenario, persona, options.candidate);
           const started = performance.now();
           const result = await generate({
             ...prompt,
@@ -176,7 +184,7 @@ export async function runDialogueBenchmark(
           options.write({
             event: "m219_dialogue_benchmark",
             datasetVersion: dialogueDatasetVersion,
-            promptVersion: variant === "E" ? PROMPT_VERSION : "m219-control-v1",
+            promptVersion: variant === "E" ? (options.candidate ? M219_PROMPT_VERSION : PROMPT_VERSION) : "m219-control-v1",
             variant,
             scope: variant === "E" ? "synthetic_composer_proxy" : "model_control",
             format: variant === "E" ? "strict_json" : "plain_text",
