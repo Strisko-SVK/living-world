@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { and, eq } from "drizzle-orm";
+import { discordIdentities, taskReports } from "../db/schema/index.js";
+import { getInteraction } from "../domains/interaction/interaction.repository.js";
 import { getNpcWithState, updateNpcState } from "../domains/npc/npc.repository.js";
 import { getTask, listTasksForAssignee, listTaskReports, createTaskReport, transitionTask } from "../domains/task/task.repository.js";
 import { loadNpcTemplates } from "./template-catalog.js";
@@ -198,6 +201,84 @@ export function createNativeNpcRuntime(
     return webhook;
   }
 
+
+  // The task report has a single durable send attempt. Mark it terminal before
+  // network I/O, so a crash/timeout/unknown ACK can never create a duplicate
+  // message on restart. Humans may still read the stored report via /npc task-report.
+  async function sendTaskReport(
+    campaign: Awaited<ReturnType<typeof registry.campaign>>,
+    taskId: string,
+    reportId: string,
+  ): Promise<"delivered" | "unavailable" | "uncertain"> {
+    if (!campaign || config.signal.aborted) return "unavailable";
+    const task = await getTask(db,campaign.worldId,taskId);
+    if (!task?.originInteractionId || !task.requesterEntityId) return "unavailable";
+    const origin = await getInteraction(db,campaign.worldId,task.assigneeEntityId,task.originInteractionId);
+    if (!origin?.discordNativeSource || origin.sourceProvider!=="discord" ||
+        !origin.sourceMessageId || !origin.sourceGuildId || !origin.sourceChannelId ||
+        origin.sourceGuildId!==campaign.guildId || !origin.responseMessageId)
+      return "unavailable";
+    const [identity] = await db.select().from(discordIdentities).where(and(
+      eq(discordIdentities.worldId,campaign.worldId),
+      eq(discordIdentities.entityId,task.requesterEntityId),
+      eq(discordIdentities.mappingType,"player_character"),
+      eq(discordIdentities.status,"active"),
+    )).limit(2);
+    if (!identity || !(await registry.member(campaign.worldId,identity.discordUserId)))
+      return "unavailable";
+    const originRoute = {
+      guildId:origin.sourceGuildId, channelId:origin.sourceChannelId,
+      threadId:origin.sourceThreadId,
+    };
+    const precheck = async () => {
+      const original = await getInteraction(db,campaign.worldId,task.assigneeEntityId,origin.id);
+      const actual = await config.port.inspect(originRoute,identity.discordUserId);
+      const botAccess = await config.port.inspect(originRoute);
+      const registered = await scenes.parent(originRoute);
+      const currentCampaign = await registry.campaign(campaign.guildId);
+      const member = await registry.member(campaign.worldId,identity.discordUserId);
+      return !!(original?.discordNativeSource &&
+        original.responseMessageId===origin.responseMessageId &&
+        actual && botAccess && registered?.active &&
+        registered.worldId===campaign.worldId &&
+        campaignCategoryApproved(campaign,actual.categoryId) &&
+        currentCampaign?.active &&
+        currentCampaign.worldId===campaign.worldId &&
+        member?.active);
+    };
+    if (!(await precheck())) return "unavailable";
+    const [claimed] = await db.update(taskReports).set({deliveryStatus:"failed"})
+      .where(and(eq(taskReports.id,reportId),eq(taskReports.taskId,task.id),
+        eq(taskReports.deliveryStatus,"pending"))).returning();
+    if (!claimed) return "unavailable";
+    const npc = (await registry.roster(campaign.worldId)).find(row=>row.npcId===task.assigneeEntityId);
+    const content = [
+      "Task report from " + (npc?.name ?? "Living World NPC") + ":",
+      claimed.reportText.slice(0,1350),
+      "(Task " + task.id + ")",
+    ].join("\n").slice(0,1800);
+    const sent=await postScopedBotReply({
+      guildId:origin.sourceGuildId,parentId:origin.sourceChannelId,
+      threadId:origin.sourceThreadId,sourceMessageId:origin.sourceMessageId,
+      playerId:identity.discordUserId,botId:config.botId,attemptId:claimed.id,
+    },{
+      http:config.http??fetch,token:config.token,
+      revalidateAtBoundary:precheck,
+    },{
+      content,sourceContent:origin.requestText.trim(),
+      conversationSource:{mentioned:false},
+      verifyPermissions:precheck,
+      signal:config.signal,
+    });
+    if (sent.status==="acknowledged" && sent.messageId) {
+      const [saved]=await db.update(taskReports).set({
+        deliveryStatus:"delivered",externalMessageId:sent.messageId,deliveredAt:new Date(),
+      }).where(and(eq(taskReports.id,reportId),eq(taskReports.deliveryStatus,"failed"))).returning();
+      if (saved) return "delivered";
+    }
+    return sent.status==="uncertain"?"uncertain":"unavailable";
+  }
+
   async function command(route: SceneRoute, userId: string, input: NpcCommand) {
     if (!allowed(route)) return "Living World is unavailable in this guild.";
     const access = await config.port.inspect(route, userId);
@@ -273,6 +354,7 @@ export function createNativeNpcRuntime(
       if ((input.status==="blocked" || input.status==="completed") &&
           (!input.reason || input.reason.trim().length<5))
         return "A meaningful reason or result is required.";
+      let reportId: string | undefined;
       try {
         await db.transaction(async tx=>{
           const updated=await transitionTask(tx,campaign.worldId,task.id,{
@@ -281,8 +363,8 @@ export function createNativeNpcRuntime(
             ...(input.status==="completed"?{resultSummary:input.reason}:{}),
           });
           if (!updated) throw new Error("task_not_found");
-          if (["blocked","completed","failed","cancelled"].includes(input.status))
-            await createTaskReport(tx,campaign.worldId,task.id,{
+          if (["blocked","completed","failed","cancelled"].includes(input.status)) {
+            const stored=await createTaskReport(tx,campaign.worldId,task.id,{
               recipientEntityId:task.requesterEntityId,
               contextId:task.originContextId,
               reportType:input.status==="completed"?"completion":
@@ -290,12 +372,22 @@ export function createNativeNpcRuntime(
               reportText:input.reason?.trim().slice(0,1000) ??
                 ("Task status: "+input.status),
             });
+            if (!stored) throw new Error("task_report_not_persisted");
+            reportId=stored.id;
+          }
         });
-        report("native_task",input.status);
-        return "Task "+task.id+" is now "+input.status+". The report is stored and can be viewed with /npc task-report.";
       } catch {
         return "Task transition rejected; check the current status and reason.";
       }
+      report("native_task",input.status);
+      if (!reportId) return "Task "+task.id+" is now "+input.status+".";
+      let outcome: "delivered" | "unavailable" | "uncertain" = "unavailable";
+      try {outcome=await sendTaskReport(campaign,task.id,reportId);}
+      catch {outcome="uncertain";}
+      report("native_task_report",outcome);
+      return "Task "+task.id+" is now "+input.status+
+        (outcome==="delivered"?"; the requester was notified in the original scene.":
+          "; the report is saved but its Discord delivery is unconfirmed. Use /npc task-report to read it.");
     }
     if (input.action === "list")
       return roster.length
