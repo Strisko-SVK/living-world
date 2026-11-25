@@ -1,0 +1,26 @@
+[Unit]
+Description=Living World private llama.cpp inference runtime
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=4
+
+[Service]
+Type=simple
+User=livingworld
+Group=livingworld
+WorkingDirectory=/home/livingworld/raon-probe/llama.cpp
+EnvironmentFile=/etc/living-world/llama.env
+ExecStart=/usr/local/bin/living-world-llama-start
+Restart=on-failure
+RestartSec=10s
+KillSignal=SIGINT
+TimeoutStopSec=30s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
