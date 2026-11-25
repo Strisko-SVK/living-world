@@ -27,7 +27,8 @@ BEGIN
       AND i.npc_id=NEW.npc_id AND i.context_id=NEW.context_id
       AND i.discord_native_source AND i.source_provider='discord'
       AND i.speaker_entity_id IS NOT NULL
-      AND i.response_message_id=NEW.ack_message_id
+      -- Response message id is stored on interactions after the delivery
+      -- status UPDATE, inside the same transaction. Do not require it here.
     ON CONFLICT (interaction_id) DO NOTHING;
   END IF;
   RETURN NEW;

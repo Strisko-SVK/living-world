@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { playerText } from "../admin/raon-conversation.js";
 import { z } from "zod";
 import type { DatabaseClient } from "../db/client.js";
 import { createLlmService } from "../llm/composition.js";
@@ -216,7 +217,7 @@ export async function startNpcEnrichmentWorker(
           developer: "Return exact JSON object with memory, knowledge, relationship, task; each nullable. No more than one item of each. Only summarize facts directly stated by the player (not NPC assertions); write claims explicitly as 'Player reported: ...'. Memories only if persistent and emotionally or narratively significant. Relationship deltas normally 0, never outside -4..4. Tasks only for explicit request and acceptance; accepted means stated willingness, never completion. Prefer null.",
         },
         messages: [{role:"user",content:JSON.stringify({
-          player:original.request_text.slice(0,1200),
+          player:playerText(original.request_text).slice(0,1200),
           npc:original.response_text.slice(0,800),
         })}],
         responseFormat:{name:"npc_turn_enrichment",schema:proposalShape},
