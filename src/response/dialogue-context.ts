@@ -185,11 +185,11 @@ export function repetitionCounts(speech: string, history: readonly Pair[]) {
     text
       .toLowerCase()
       .normalize("NFKC")
-      .replace(/[^\\p{L}\\p{N}]+/gu, " ")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
       .trim();
   const sentences = (text: string) =>
     text
-      .split(/[.!?\\n]+/u)
+      .split(/[.!?\n]+/u)
       .map(normalize)
       .filter((item) => item.split(" ").length >= 4);
   const current = sentences(speech);
