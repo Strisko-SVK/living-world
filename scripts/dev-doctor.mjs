@@ -58,7 +58,13 @@ async function main() {
   }
   const db = spawnSync(
     process.execPath,
-    ["--env-file=.env.gateway-dev.local", "--import", "tsx", "src/admin/gateway-dev-db.ts", "check"],
+    [
+      "--env-file=.env.gateway-dev.local",
+      "--import",
+      "tsx",
+      "src/admin/gateway-dev-db.ts",
+      "check",
+    ],
     {
       cwd: process.cwd(),
       env: {
@@ -73,7 +79,9 @@ async function main() {
   );
   if (db.status === 0) console.info("DEV database identity: PASS");
   else {
-    console.error("DEV database identity: FAIL (inspect Docker, DB role and local environment).");
+    console.error(
+      "DEV database identity: FAIL (inspect Docker, DB role and local environment).",
+    );
     process.exitCode = 1;
   }
   let target;
@@ -98,7 +106,9 @@ async function main() {
       throw new Error("model alias mismatch");
     console.info("Private inference health and model alias: PASS");
   } catch {
-    console.error("Private inference: FAIL (check SSH tunnel, service health and model alias).");
+    console.error(
+      "Private inference: FAIL (check SSH tunnel, service health and model alias).",
+    );
     process.exitCode = 1;
   }
 }
