@@ -325,7 +325,7 @@ export async function startNativeNpcGateway(
     guildId,
     botId: gatewaySmokeBotId,
     token,
-    env: inferenceEnv,
+    env: { ...inferenceEnv, LW_NPC_TEMPLATE_FILE: inferenceEnv.LW_NPC_TEMPLATE_FILE ?? "config/npcs/m219-barman.json" },
     signal,
     port,
     diagnose,

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { sql } from "drizzle-orm";
 import { getNpcWithState, updateNpcState } from "../domains/npc/npc.repository.js";
 import { getTask, listTasksForAssignee, listTaskReports, createTaskReport, transitionTask } from "../domains/task/task.repository.js";
 import { loadNpcTemplates } from "./template-catalog.js";
@@ -261,6 +260,8 @@ export function createNativeNpcRuntime(
       if (input.action==="task-report") {
         if (member.role==="player" && task.requesterEntityId!==member.entity_id)
           return "This task is unavailable.";
+        if (!campaignCategoryApproved(campaign,access.categoryId))
+          return feedback.unapproved_channel;
         const reports=await listTaskReports(db,campaign.worldId,task.id);
         return reports.length
           ? reports.slice(-3).map(report=>report.reportType+": "+report.reportText.slice(0,450)).join("\n")
@@ -285,7 +286,7 @@ export function createNativeNpcRuntime(
               recipientEntityId:task.requesterEntityId,
               contextId:task.originContextId,
               reportType:input.status==="completed"?"completion":
-                input.status==="blocked"?"progress":"failure",
+                input.status==="blocked"?"blocked":input.status==="cancelled"?"cancellation":"failure",
               reportText:input.reason?.trim().slice(0,1000) ??
                 ("Task status: "+input.status),
             });
@@ -343,9 +344,8 @@ export function createNativeNpcRuntime(
       if (member.role==="player") return feedback.forbidden;
       if (!campaignCategoryApproved(campaign,access.categoryId))
         return feedback.unapproved_channel;
-      const bases=await registry.parents(campaign.worldId);
       const parent=await scenes.parent(route);
-      if (!parent?.active || parent.worldId!==campaign.worldId)
+      if (!parent?.active || parent.worldId!==campaign.worldId || parent.guildId!==route.guildId || parent.channelId!==route.channelId)
         return "Use an active registered NPC base or scene.";
       if (input.action==="availability" || input.action==="return-home") {
         if (parent.baseNpcId!==npc.npcId)
