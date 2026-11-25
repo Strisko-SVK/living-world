@@ -46,4 +46,55 @@ describe("LLM configuration", () => {
       }),
     ).toMatchObject({ currency: "EUR" });
   });
+  it("supports explicit model-independent loopback inference while keeping RAON defaults", () => {
+    const legacy = getLlmConfig({ LLM_PROVIDER: "raon" });
+    expect(legacy).toMatchObject({
+      provider: "raon",
+      model: "Raon-1-nano",
+      temperature: 0.1,
+      thinkingEnabled: false,
+      presencePenalty: 0,
+    });
+    const local = getLlmConfig({
+      LLM_PROVIDER: "local",
+      LLM_MODEL: "Qwen3.5-4B",
+      LOCAL_CONTEXT_TOKENS: "4096",
+      LOCAL_TEMPERATURE: "0.7",
+      LOCAL_PRESENCE_PENALTY: "1.5",
+      LOCAL_TOP_P: "0.8",
+      LOCAL_TOP_K: "20",
+      LOCAL_MIN_P: "0",
+    });
+    expect(local).toMatchObject({
+      enabled: true,
+      provider: "local",
+      model: "Qwen3.5-4B",
+      temperature: 0.7,
+      presencePenalty: 1.5,
+      topP: 0.8,
+      topK: 20,
+      minP: 0,
+      thinkingEnabled: false,
+      maxAttempts: 1,
+    });
+  });
+  it.each([
+    { LLM_MODEL: undefined },
+    { LLM_MODEL: "Qwen3.5-4B", LOCAL_BASE_URL: "http://localhost:18000" },
+    { LLM_MODEL: "Qwen3.5-4B", LOCAL_BASE_URL: "http://192.0.2.1:8000" },
+    { LLM_MODEL: "Qwen3.5-4B", LOCAL_BASE_URL: "https://127.0.0.1:18000" },
+    { LLM_MODEL: "Qwen3.5-4B", LOCAL_TEMPERATURE: "Infinity" },
+    { LLM_MODEL: "Qwen3.5-4B", LOCAL_PRESENCE_PENALTY: "3" },
+    { LLM_MODEL: "Qwen3.5-4B", LOCAL_ENABLE_THINKING: "maybe" },
+    { LLM_MODEL: "Qwen3.5-4B", LOCAL_CONTEXT_TOKENS: "128" },
+  ])("rejects unsafe or incompatible local inference settings %j", (change) => {
+    expect(() =>
+      getLlmConfig({
+        LLM_PROVIDER: "local",
+        LLM_MAX_OUTPUT_TOKENS: "192",
+        ...change,
+      }),
+    ).toThrow();
+  });
+
 });
