@@ -25,7 +25,7 @@ export function createLlmService(
   return createTextGenerator(
     config,
     config.enabled
-      ? config.provider === "raon"
+      ? config.provider === "raon" || config.provider === "local"
         ? createRaonProvider(config, inferenceHttp)
         : createOpenAiProvider(config)
       : disabled,
