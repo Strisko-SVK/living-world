@@ -26,6 +26,8 @@ const npcInput = createNpcInputSchema
     templateVersion: true,
     profileVersion: true,
     baselineProfile: true,
+    gameProfile: true,
+    capabilities: true,
   })
   .strict();
 

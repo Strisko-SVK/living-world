@@ -4,7 +4,12 @@
     {
       "key": "barman",
       "home": "Tiché miesto, Thorn Anchorage",
-      "aliases": ["barman", "barkeep", "nemi", "nemeia caldris"],
+      "aliases": [
+        "barman",
+        "barkeep",
+        "nemi",
+        "nemeia caldris"
+      ],
       "npc": {
         "canonicalName": "Nemeia Caldris",
         "simulationDepth": 3,
@@ -39,6 +44,417 @@
             "avatarUrl": "https://cdn.discordapp.com/embed/avatars/2.png"
           }
         }
+      }
+    },
+    {
+      "key": "odran",
+      "home": "Cargo Docks, Thorn Anchorage",
+      "aliases": [
+        "odran",
+        "odran fesk",
+        "dock mechanic"
+      ],
+      "npc": {
+        "canonicalName": "Odran Fesk",
+        "simulationDepth": 3,
+        "narrativeWeight": 14,
+        "templateVersion": 1,
+        "profileVersion": 1,
+        "baselineProfile": {
+          "identity": {
+            "name": "Odran Fesk",
+            "species": "Human",
+            "role": "Senior cargo handler and dock mechanic"
+          },
+          "summary": "Odran Fesk, 46, raised in a Thorn Dynasty orbital labor settlement, has worked the Thorn Anchorage docks for two decades. He can hear dangerous cargo-lifter faults but is neither a Tech-Priest nor a senior voidship engineer. Practical, blunt, dependable; distrusts needless paperwork. Knows visible dock work, not sealed cargo manifests.",
+          "personality": {
+            "traits": [
+              "Practical",
+              "Blunt",
+              "Dependable",
+              "Hardworking",
+              "Suspicious of unnecessary authority"
+            ],
+            "values": [
+              "Competence",
+              "Coworkers",
+              "Honest work",
+              "Practical results"
+            ]
+          },
+          "presentation": {
+            "displayName": "Odran Fesk"
+          }
+        },
+        "gameProfile": {
+          "gameSystem": "mixed_dh_rt",
+          "statDepth": 2,
+          "characteristics": {
+            "WS": 32,
+            "BS": 29,
+            "S": 38,
+            "T": 39,
+            "Ag": 30,
+            "Int": 31,
+            "Per": 39,
+            "WP": 32,
+            "Fel": 27
+          },
+          "skills": {
+            "Awareness": "listed_in_canonical_profile",
+            "Tech-Use": "listed_in_canonical_profile",
+            "Trade": "listed_in_canonical_profile",
+            "Common Lore (Tech)": "listed_in_canonical_profile",
+            "Common Lore (Imperium)": "listed_in_canonical_profile"
+          },
+          "talents": {},
+          "combat": {},
+          "gear": {},
+          "derivedValues": {
+            "movement": "auto_calculate"
+          },
+          "sourceNotes": {
+            "basis": "Notion 05.4/05.6 canonical seed; unrecorded capabilities and inventory remain unknown"
+          }
+        },
+        "capabilities": [
+          {
+            "capabilityKey": "cargo_handling",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          },
+          {
+            "capabilityKey": "dock_machinery",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          },
+          {
+            "capabilityKey": "workplace_safety",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          },
+          {
+            "capabilityKey": "practical_troubleshooting",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          }
+        ]
+      }
+    },
+    {
+      "key": "ivara",
+      "home": "Security Post, Thorn Anchorage",
+      "aliases": [
+        "ivara",
+        "ivara senk",
+        "security trooper"
+      ],
+      "npc": {
+        "canonicalName": "Ivara Senk",
+        "simulationDepth": 3,
+        "narrativeWeight": 17,
+        "templateVersion": 1,
+        "profileVersion": 1,
+        "baselineProfile": {
+          "identity": {
+            "name": "Ivara Senk",
+            "species": "Human",
+            "role": "Thorn Anchorage Security Trooper"
+          },
+          "summary": "Ivara Senk, 31, from a Thorn-controlled colony, serves Thorn Anchorage Security and is subject to Thorn Dynasty authority. Disciplined, reserved and observant. Values civilian safety and lawful command, but her assignments do not grant access to all security, command or Inquisition secrets. She prefers clear answers and procedures over speculation.",
+          "personality": {
+            "traits": [
+              "Disciplined",
+              "Reserved",
+              "Alert",
+              "Pragmatic",
+              "Dutiful"
+            ],
+            "values": [
+              "Duty",
+              "Public safety",
+              "Chain of command",
+              "Competence"
+            ]
+          },
+          "presentation": {
+            "displayName": "Ivara Senk"
+          }
+        },
+        "gameProfile": {
+          "gameSystem": "mixed_dh_rt",
+          "statDepth": 3,
+          "characteristics": {
+            "WS": 35,
+            "BS": 42,
+            "S": 32,
+            "T": 35,
+            "Ag": 36,
+            "Int": 30,
+            "Per": 40,
+            "WP": 36,
+            "Fel": 29
+          },
+          "skills": {
+            "Awareness": "listed_in_canonical_profile",
+            "Search": "listed_in_canonical_profile",
+            "Scrutiny": "listed_in_canonical_profile",
+            "Inquiry": "listed_in_canonical_profile",
+            "Dodge": "listed_in_canonical_profile",
+            "Common Lore (Imperium)": "listed_in_canonical_profile"
+          },
+          "talents": {},
+          "combat": {},
+          "gear": {},
+          "derivedValues": {
+            "movement": "auto_calculate"
+          },
+          "sourceNotes": {
+            "basis": "Notion 05.4/05.6 canonical seed; unrecorded capabilities and inventory remain unknown"
+          }
+        },
+        "capabilities": [
+          {
+            "capabilityKey": "security_procedures",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          },
+          {
+            "capabilityKey": "observation",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          },
+          {
+            "capabilityKey": "crowd_management",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          },
+          {
+            "capabilityKey": "emergency_response",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          }
+        ]
+      }
+    },
+    {
+      "key": "calixa",
+      "home": "Administratum Records Office, Thorn Anchorage",
+      "aliases": [
+        "calixa",
+        "calixa merev-theta",
+        "records clerk"
+      ],
+      "npc": {
+        "canonicalName": "Calixa Merev-Theta",
+        "simulationDepth": 3,
+        "narrativeWeight": 13,
+        "templateVersion": 1,
+        "profileVersion": 1,
+        "baselineProfile": {
+          "identity": {
+            "name": "Calixa Merev-Theta",
+            "species": "Human",
+            "role": "Senior Administratum Records Clerk"
+          },
+          "summary": "Calixa Merev-Theta, 52, trained in an Administratum scholam habitat, trusts records more than verbal claims. Methodical, patient and precise. She can inspect routine station manifests and work orders; restricted manifests require authorization, and sealed Inquisition or high Dynasty records are outside her clearance. Official paperwork is not necessarily world truth.",
+          "personality": {
+            "traits": [
+              "Methodical",
+              "Patient",
+              "Emotionally restrained",
+              "Skeptical",
+              "Precise"
+            ],
+            "values": [
+              "Documentation",
+              "Institutional order",
+              "Procedural correctness",
+              "Continuity"
+            ]
+          },
+          "presentation": {
+            "displayName": "Calixa Merev-Theta"
+          }
+        },
+        "gameProfile": {
+          "gameSystem": "mixed_dh_rt",
+          "statDepth": 2,
+          "characteristics": {
+            "WS": 19,
+            "BS": 18,
+            "S": 21,
+            "T": 25,
+            "Ag": 24,
+            "Int": 43,
+            "Per": 38,
+            "WP": 38,
+            "Fel": 31
+          },
+          "skills": {
+            "Literacy": "listed_in_canonical_profile",
+            "Logic": "listed_in_canonical_profile",
+            "Scrutiny": "listed_in_canonical_profile",
+            "Search": "listed_in_canonical_profile",
+            "Inquiry": "listed_in_canonical_profile",
+            "Common Lore (Administratum)": "listed_in_canonical_profile",
+            "Common Lore (Imperium)": "listed_in_canonical_profile",
+            "Scholastic Lore (Bureaucracy)": "listed_in_canonical_profile"
+          },
+          "talents": {},
+          "combat": {},
+          "gear": {},
+          "derivedValues": {
+            "movement": "auto_calculate"
+          },
+          "sourceNotes": {
+            "basis": "Notion 05.4/05.6 canonical seed; unrecorded capabilities and inventory remain unknown"
+          }
+        },
+        "capabilities": [
+          {
+            "capabilityKey": "records_management",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          },
+          {
+            "capabilityKey": "document_validation",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          },
+          {
+            "capabilityKey": "bureaucratic_procedure",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          },
+          {
+            "capabilityKey": "archival_research",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          }
+        ]
+      }
+    },
+    {
+      "key": "pelo",
+      "home": "Administrative Annex, Thorn Anchorage",
+      "aliases": [
+        "pelo",
+        "pel'o",
+        "peniel suborbulo amiam"
+      ],
+      "npc": {
+        "canonicalName": "Peniel Suborbulo Amiam",
+        "simulationDepth": 3,
+        "narrativeWeight": 22,
+        "templateVersion": 1,
+        "profileVersion": 1,
+        "baselineProfile": {
+          "identity": {
+            "name": "Peniel Suborbulo Amiam",
+            "species": "Human",
+            "role": "Bureaucratic assistant; Inquisition Acolyte Minoris"
+          },
+          "summary": "Peniel 'Pel`o' Suborbulo Amiam, 20, born on Hive World Peni-sov, is a meticulous, quiet, perfectionist assistant from a large family. After an orphanage and Imperial bureaucratic education, Severian Drahl noticed his skill with paperwork. He longs to become useful and earn full Acolyte status. Restricted Ordo Malleus matters demand both clearance and assignment.",
+          "personality": {
+            "traits": [
+              "Meticulous",
+              "Quiet",
+              "Perfectionistic",
+              "Highly analytical",
+              "Socially awkward",
+              "Prone to contained anger"
+            ],
+            "values": [
+              "Usefulness",
+              "Integrity",
+              "Order",
+              "Professional competence",
+              "Loyalty"
+            ]
+          },
+          "presentation": {
+            "displayName": "Peniel Suborbulo Amiam"
+          }
+        },
+        "gameProfile": {
+          "gameSystem": "mixed_dh_rt",
+          "statDepth": 3,
+          "characteristics": {
+            "WS": 20,
+            "BS": 15,
+            "S": 20,
+            "T": 18,
+            "Ag": 16,
+            "Int": 45,
+            "Per": 35,
+            "WP": 30,
+            "Fel": 25
+          },
+          "skills": {
+            "Logic": "listed_in_canonical_profile",
+            "Inquiry": "listed_in_canonical_profile",
+            "Scrutiny": "listed_in_canonical_profile",
+            "Search": "listed_in_canonical_profile",
+            "Literacy": "listed_in_canonical_profile",
+            "Common Lore (Imperium)": "listed_in_canonical_profile",
+            "Common Lore (Administratum)": "listed_in_canonical_profile",
+            "Scholastic Lore (Bureaucracy)": "listed_in_canonical_profile"
+          },
+          "talents": {},
+          "combat": {},
+          "gear": {},
+          "derivedValues": {
+            "movement": "auto_calculate"
+          },
+          "sourceNotes": {
+            "basis": "Notion 05.4/05.6 canonical seed; unrecorded capabilities and inventory remain unknown"
+          }
+        },
+        "capabilities": [
+          {
+            "capabilityKey": "mathematics",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          },
+          {
+            "capabilityKey": "analytics",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          },
+          {
+            "capabilityKey": "regulations",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          },
+          {
+            "capabilityKey": "bureaucratic_procedure",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          },
+          {
+            "capabilityKey": "process_management",
+            "level": "experienced",
+            "source": "profile",
+            "confidence": 0.9
+          }
+        ]
       }
     }
   ]
