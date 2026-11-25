@@ -170,6 +170,7 @@ export function composeM219Context(sections: Record<string, unknown>) {
       "Permitted attributed recollections",
       relevantRecords(sections.permittedMemories, request),
     ],
+    ["Relationship attitude toward current speaker", sections.relevantRelationships ?? []],
     ["Older attributed dialogue (not world truth)", excerpts],
     ["Recent attributed dialogue (not world truth)", history],
     ["Current player request", request],

@@ -96,6 +96,37 @@ command.addSubcommand((sub) =>
     ),
 );
 
+
+command.addSubcommand(sub=>sub.setName("tasks")
+  .setDescription("Show NPC tasks visible to you")
+  .addStringOption(o=>o.setName("npc").setDescription("NPC alias")
+    .setRequired(true).setMaxLength(150)));
+command.addSubcommand(sub=>sub.setName("availability")
+  .setDescription("DM: update availability at the NPC base")
+  .addStringOption(o=>o.setName("npc").setDescription("NPC alias").setRequired(true).setMaxLength(150))
+  .addStringOption(o=>o.setName("state").setDescription("Availability").setRequired(true)
+    .addChoices({name:"Available",value:"available"},{name:"Busy",value:"busy"},{name:"Unavailable",value:"unavailable"})));
+command.addSubcommand(sub=>sub.setName("summon")
+  .setDescription("DM: summon an NPC into this registered shared scene")
+  .addStringOption(o=>o.setName("npc").setDescription("NPC alias").setRequired(true).setMaxLength(150))
+  .addStringOption(o=>o.setName("reason").setDescription("Narrative justification").setRequired(true).setMinLength(10).setMaxLength(400)));
+command.addSubcommand(sub=>sub.setName("return-home")
+  .setDescription("DM: return this NPC to its registered home")
+  .addStringOption(o=>o.setName("npc").setDescription("NPC alias").setRequired(true).setMaxLength(150)));
+command.addSubcommand(sub=>sub.setName("task-update")
+  .setDescription("DM: transition a task and store a report")
+  .addStringOption(o=>o.setName("task").setDescription("Full task UUID").setRequired(true).setMaxLength(36))
+  .addStringOption(o=>o.setName("status").setDescription("Next lifecycle state").setRequired(true)
+    .addChoices(
+      {name:"Accept",value:"accepted"},{name:"Start",value:"active"},
+      {name:"Block",value:"blocked"},{name:"Complete",value:"completed"},
+      {name:"Fail",value:"failed"},{name:"Cancel",value:"cancelled"}
+    ))
+  .addStringOption(o=>o.setName("reason").setDescription("Result, failure or blocked reason").setMaxLength(1000)));
+command.addSubcommand(sub=>sub.setName("task-report")
+  .setDescription("Read stored reports for your NPC task")
+  .addStringOption(o=>o.setName("task").setDescription("Full task UUID").setRequired(true).setMaxLength(36)));
+
 const options = (i: ChatInputCommandInteraction): NpcCommand => {
   const name = i.options.getSubcommand();
   for (const action of generalActions) if (name === action) return { action };
@@ -105,6 +136,27 @@ const options = (i: ChatInputCommandInteraction): NpcCommand => {
         action,
         alias: normalizeAlias(i.options.getString("npc", true)),
       };
+  if (name === "tasks" || name === "return-home")
+    return { action:name, alias:normalizeAlias(i.options.getString("npc",true)) };
+  if (name === "availability") {
+    const state=i.options.getString("state",true);
+    if (state==="available" || state==="busy" || state==="unavailable")
+      return {action:"availability",alias:normalizeAlias(i.options.getString("npc",true)),availability:state};
+    return {action:"invalid"};
+  }
+  if (name === "summon")
+    return {action:"summon",alias:normalizeAlias(i.options.getString("npc",true)),
+      reason:i.options.getString("reason",true)};
+  if (name === "task-report")
+    return {action:"task-report",taskId:i.options.getString("task",true)};
+  if (name === "task-update") {
+    const state=i.options.getString("status",true);
+    if (state==="accepted" || state==="active" || state==="blocked" || state==="completed" ||
+        state==="failed" || state==="cancelled")
+      return {action:"task-update",taskId:i.options.getString("task",true),
+        status:state,reason:i.options.getString("reason")??undefined};
+    return {action:"invalid"};
+  }
   if (name === "access") {
     const role = i.options.getString("role", true);
     if (role === "dm" || role === "player" || role === "remove")
