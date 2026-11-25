@@ -194,14 +194,14 @@ export function createTextGenerator(
             signal,
           );
         } finally {
-          if (config.provider === "raon")
+          if ((config.provider === "raon" || config.provider === "local"))
             observation.tokenCountMs =
               (observation.tokenCountMs ?? 0) +
               Math.round(performance.now() - countStarted);
         }
       };
       let inputTokens = await countInput();
-      if (config.provider === "raon") {
+      if ((config.provider === "raon" || config.provider === "local")) {
         if (
           inputTokens + input.maxOutputTokens > config.contextTokens &&
           data.compactMessages

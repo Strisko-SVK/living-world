@@ -2,9 +2,19 @@ import { z } from "zod";
 
 const integer = (max: number) => z.coerce.number().int().positive().max(max);
 const schema = z.object({
-  LLM_PROVIDER: z.enum(["disabled", "openai", "raon"]).default("disabled"),
+  LLM_PROVIDER: z
+    .enum(["disabled", "openai", "raon", "local"])
+    .default("disabled"),
   RAON_BASE_URL: z.string().default("http://127.0.0.1:18000"),
   RAON_CONTEXT_TOKENS: integer(4096).default(4096),
+  LOCAL_BASE_URL: z.string().default("http://127.0.0.1:18000"),
+  LOCAL_CONTEXT_TOKENS: integer(32768).default(4096),
+  LOCAL_TEMPERATURE: z.coerce.number().finite().min(0).max(2).default(0.1),
+  LOCAL_PRESENCE_PENALTY: z.coerce.number().finite().min(-2).max(2).default(0),
+  LOCAL_TOP_P: z.coerce.number().finite().min(0).max(1).default(1),
+  LOCAL_TOP_K: z.coerce.number().int().min(0).max(1000).default(40),
+  LOCAL_MIN_P: z.coerce.number().finite().min(0).max(1).default(0),
+  LOCAL_ENABLE_THINKING: z.enum(["true", "false"]).default("false"),
   OPENAI_API_KEY: z.string().regex(/^\S+$/).optional(),
   LLM_MODEL: z
     .string()
@@ -25,8 +35,12 @@ export function getLlmConfig(environment: NodeJS.ProcessEnv = process.env) {
   if (!result.success) throw new Error("Invalid LLM configuration.");
   const e = result.data;
   if (e.LLM_PROVIDER === "disabled") return { enabled: false as const };
-  if (e.LLM_PROVIDER === "raon") {
-    const baseUrl = new URL(e.RAON_BASE_URL);
+  if (e.LLM_PROVIDER === "raon" || e.LLM_PROVIDER === "local") {
+    const isLocal = e.LLM_PROVIDER === "local";
+    const baseUrl = new URL(isLocal ? e.LOCAL_BASE_URL : e.RAON_BASE_URL);
+    const contextTokens = isLocal
+      ? e.LOCAL_CONTEXT_TOKENS
+      : e.RAON_CONTEXT_TOKENS;
     if (
       environment.NODE_ENV === "production" ||
       baseUrl.protocol !== "http:" ||
@@ -37,17 +51,25 @@ export function getLlmConfig(environment: NodeJS.ProcessEnv = process.env) {
       baseUrl.search ||
       baseUrl.hash ||
       !baseUrl.port ||
-      e.LLM_MAX_OUTPUT_TOKENS >= e.RAON_CONTEXT_TOKENS
+      e.LLM_MAX_OUTPUT_TOKENS >= contextTokens
     )
       throw new Error(
-        "Raon requires a loopback DEV endpoint and room for input.",
+        "Local inference requires a loopback DEV endpoint and room for input.",
       );
+    if (isLocal && !e.LLM_MODEL)
+      throw new Error("Local inference requires an explicit model alias.");
     return {
       enabled: true as const,
-      provider: "raon" as const,
+      provider: e.LLM_PROVIDER,
       baseUrl: baseUrl.origin,
       model: e.LLM_MODEL ?? "Raon-1-nano",
-      contextTokens: e.RAON_CONTEXT_TOKENS,
+      contextTokens,
+      temperature: isLocal ? e.LOCAL_TEMPERATURE : 0.1,
+      presencePenalty: isLocal ? e.LOCAL_PRESENCE_PENALTY : 0,
+      topP: isLocal ? e.LOCAL_TOP_P : 1,
+      topK: isLocal ? e.LOCAL_TOP_K : 40,
+      minP: isLocal ? e.LOCAL_MIN_P : 0,
+      thinkingEnabled: isLocal && e.LOCAL_ENABLE_THINKING === "true",
       timeoutMs: e.LLM_TIMEOUT_MS,
       maxOutputTokens: e.LLM_MAX_OUTPUT_TOKENS,
       maxAttempts: 1,
@@ -85,4 +107,9 @@ export function getLlmConfig(environment: NodeJS.ProcessEnv = process.env) {
 }
 export type LlmConfig = ReturnType<typeof getLlmConfig>;
 export type EnabledLlmConfig = Extract<LlmConfig, { provider: "openai" }>;
-export type RaonConfig = Extract<LlmConfig, { provider: "raon" }>;
+export type LocalInferenceConfig = Extract<
+  LlmConfig,
+  { provider: "raon" | "local" }
+>;
+// Backwards-compatible alias for the existing llama.cpp adapter.
+export type RaonConfig = LocalInferenceConfig;

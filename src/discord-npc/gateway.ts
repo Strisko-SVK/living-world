@@ -15,6 +15,7 @@ import { verifyGatewayDevDatabase } from "../admin/gateway-dev-db.js";
 import { gatewaySmokeBotId } from "../admin/discord-gateway-smoke.js";
 import { getLlmConfig } from "../llm/config.js";
 import { createDatabaseClient } from "../db/client.js";
+import { startNpcEnrichmentWorker } from "./enrichment.js";
 import { normalizeAlias } from "../domains/entity/alias-normalizer.js";
 import { snowflake, type SceneRoute } from "./registry.js";
 import {
@@ -95,6 +96,37 @@ command.addSubcommand((sub) =>
     ),
 );
 
+
+command.addSubcommand(sub=>sub.setName("tasks")
+  .setDescription("Show NPC tasks visible to you")
+  .addStringOption(o=>o.setName("npc").setDescription("NPC alias")
+    .setRequired(true).setMaxLength(150)));
+command.addSubcommand(sub=>sub.setName("availability")
+  .setDescription("DM: update availability at the NPC base")
+  .addStringOption(o=>o.setName("npc").setDescription("NPC alias").setRequired(true).setMaxLength(150))
+  .addStringOption(o=>o.setName("state").setDescription("Availability").setRequired(true)
+    .addChoices({name:"Available",value:"available"},{name:"Busy",value:"busy"},{name:"Unavailable",value:"unavailable"})));
+command.addSubcommand(sub=>sub.setName("summon")
+  .setDescription("DM: summon an NPC into this registered shared scene")
+  .addStringOption(o=>o.setName("npc").setDescription("NPC alias").setRequired(true).setMaxLength(150))
+  .addStringOption(o=>o.setName("reason").setDescription("Narrative justification").setRequired(true).setMinLength(10).setMaxLength(400)));
+command.addSubcommand(sub=>sub.setName("return-home")
+  .setDescription("DM: return this NPC to its registered home")
+  .addStringOption(o=>o.setName("npc").setDescription("NPC alias").setRequired(true).setMaxLength(150)));
+command.addSubcommand(sub=>sub.setName("task-update")
+  .setDescription("DM: transition a task and store a report")
+  .addStringOption(o=>o.setName("task").setDescription("Full task UUID").setRequired(true).setMaxLength(36))
+  .addStringOption(o=>o.setName("status").setDescription("Next lifecycle state").setRequired(true)
+    .addChoices(
+      {name:"Accept",value:"accepted"},{name:"Start",value:"active"},
+      {name:"Block",value:"blocked"},{name:"Complete",value:"completed"},
+      {name:"Fail",value:"failed"},{name:"Cancel",value:"cancelled"}
+    ))
+  .addStringOption(o=>o.setName("reason").setDescription("Result, failure or blocked reason").setMaxLength(1000)));
+command.addSubcommand(sub=>sub.setName("task-report")
+  .setDescription("Read stored reports for your NPC task")
+  .addStringOption(o=>o.setName("task").setDescription("Full task UUID").setRequired(true).setMaxLength(36)));
+
 const options = (i: ChatInputCommandInteraction): NpcCommand => {
   const name = i.options.getSubcommand();
   for (const action of generalActions) if (name === action) return { action };
@@ -104,6 +136,27 @@ const options = (i: ChatInputCommandInteraction): NpcCommand => {
         action,
         alias: normalizeAlias(i.options.getString("npc", true)),
       };
+  if (name === "tasks" || name === "return-home")
+    return { action:name, alias:normalizeAlias(i.options.getString("npc",true)) };
+  if (name === "availability") {
+    const state=i.options.getString("state",true);
+    if (state==="available" || state==="busy" || state==="unavailable")
+      return {action:"availability",alias:normalizeAlias(i.options.getString("npc",true)),availability:state};
+    return {action:"invalid"};
+  }
+  if (name === "summon")
+    return {action:"summon",alias:normalizeAlias(i.options.getString("npc",true)),
+      reason:i.options.getString("reason",true)};
+  if (name === "task-report")
+    return {action:"task-report",taskId:i.options.getString("task",true)};
+  if (name === "task-update") {
+    const state=i.options.getString("status",true);
+    if (state==="accepted" || state==="active" || state==="blocked" || state==="completed" ||
+        state==="failed" || state==="cancelled")
+      return {action:"task-update",taskId:i.options.getString("task",true),
+        status:state,reason:i.options.getString("reason")??undefined};
+    return {action:"invalid"};
+  }
   if (name === "access") {
     const role = i.options.getString("role", true);
     if (role === "dm" || role === "player" || role === "remove")
@@ -130,20 +183,21 @@ export async function startNativeNpcGateway(
     !/^\S{20,}$/u.test(token)
   )
     throw new Error("The allowed DEV guild and bot token are required.");
+  // Opt in to the model-independent local endpoint. Existing RAON DEV setups
+  // remain the default; only this trusted operator setting can switch providers.
+  const inferenceProvider = env.LW_NPC_INFERENCE_PROVIDER ?? "raon";
+  if (inferenceProvider !== "raon" && inferenceProvider !== "local")
+    throw new Error("Unsupported native DEV inference provider.");
   const inferenceEnv = {
     ...env,
-    LLM_PROVIDER: "raon",
-    LLM_MAX_OUTPUT_TOKENS: env.RAON_DEV_OUTPUT_TOKENS ?? "192",
+    LLM_PROVIDER: inferenceProvider,
+    LLM_MODEL: env.LW_NPC_INFERENCE_MODEL ?? env.LLM_MODEL,
+    LLM_MAX_OUTPUT_TOKENS:
+      env.LW_NPC_OUTPUT_TOKENS ?? env.RAON_DEV_OUTPUT_TOKENS ?? "192",
   };
   const provider = getLlmConfig(inferenceEnv);
-  if (
-    !provider.enabled ||
-    provider.provider !== "raon" ||
-    provider.contextTokens !== 4096
-  )
-    throw new Error(
-      "The native DEV Gateway requires the 4096-token RAON profile.",
-    );
+  if (!provider.enabled || provider.provider !== inferenceProvider)
+    throw new Error("The native DEV Gateway requires a local inference profile.");
 
   const database = createDatabaseClient(env);
   const intents = ["Guilds", "GuildMessages", "MessageContent"] as const;
@@ -271,7 +325,7 @@ export async function startNativeNpcGateway(
     guildId,
     botId: gatewaySmokeBotId,
     token,
-    env: inferenceEnv,
+    env: { ...inferenceEnv, LW_NPC_TEMPLATE_FILE: inferenceEnv.LW_NPC_TEMPLATE_FILE ?? "config/npcs/m219-barman.json" },
     signal,
     port,
     diagnose,
@@ -367,6 +421,7 @@ export async function startNativeNpcGateway(
     });
   });
 
+  let enrichment: Awaited<ReturnType<typeof startNpcEnrichmentWorker>> | undefined;
   let lease: PoolClient | undefined;
   let stopping: Promise<void> | undefined;
   const stop = () =>
@@ -379,6 +434,7 @@ export async function startNativeNpcGateway(
         await adapter.stop();
         await Promise.allSettled(pendingEvents);
         await runtime.drain();
+        if (enrichment) await enrichment.stop();
       } finally {
         lease?.off("error", onStop);
         lease?.release(true);
@@ -412,6 +468,7 @@ export async function startNativeNpcGateway(
     const guild = await client.guilds.fetch(guildId);
     // Upsert only this application command. Preserve any other guild commands.
     await guild.commands.create(command.toJSON());
+    enrichment = await startNpcEnrichmentWorker(database.db, inferenceEnv, signal, diagnose);
     operational = true;
     diagnose({ event: "native_gateway", outcome: "ready" });
     return { stop };

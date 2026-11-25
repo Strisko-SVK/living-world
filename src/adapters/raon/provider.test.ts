@@ -179,4 +179,66 @@ describe("Raon Chat Completions", () => {
   ])("rejects ineligible local configuration %j", (env) =>
     expect(() => config(env)).toThrow(),
   );
+  it("runs a Qwen-style local alias with explicit model settings and no paid ledger", async () => {
+    const c = getLlmConfig({
+      LLM_PROVIDER: "local",
+      LLM_MODEL: "Qwen3.5-4B",
+      LLM_MAX_OUTPUT_TOKENS: "192",
+      LOCAL_CONTEXT_TOKENS: "4096",
+      LOCAL_TEMPERATURE: "0.7",
+      LOCAL_PRESENCE_PENALTY: "1.5",
+      LOCAL_TOP_P: "0.8",
+      LOCAL_TOP_K: "20",
+      LOCAL_MIN_P: "0",
+      LOCAL_ENABLE_THINKING: "false",
+    });
+    if (!c.enabled || c.provider !== "local")
+      throw new Error("Expected local model fixture.");
+    const http = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ prompt: "rendered local prompt" }))
+      .mockResolvedValueOnce(Response.json({ tokens: [1, 2, 3] }))
+      .mockResolvedValueOnce(
+        Response.json({
+          model: "Qwen3.5-4B",
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { role: "assistant", content: '{"speech":"Understood."}' },
+            },
+          ],
+          usage: { prompt_tokens: 3, completion_tokens: 6, total_tokens: 9 },
+        }),
+      );
+    const budget = fakeBudget();
+    const result = await createTextGenerator(
+      c,
+      createRaonProvider(c, http),
+      budget,
+    )({
+      ...request,
+      responseFormat: {
+        name: "npc_speech",
+        schema: { type: "object", properties: { speech: { type: "string" } } },
+      },
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      observation: { provider: "local", model: "Qwen3.5-4B", costMicros: null },
+    });
+    const body = JSON.parse(String(http.mock.calls[2][1]?.body));
+    expect(body).toMatchObject({
+      model: "Qwen3.5-4B",
+      max_tokens: 192,
+      temperature: 0.7,
+      presence_penalty: 1.5,
+      top_p: 0.8,
+      top_k: 20,
+      min_p: 0,
+      chat_template_kwargs: { enable_thinking: false },
+    });
+    expect(budget.reserve).not.toHaveBeenCalled();
+    expect(budget.settle).not.toHaveBeenCalled();
+  });
+
 });

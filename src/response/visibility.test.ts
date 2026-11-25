@@ -141,6 +141,26 @@ describe("conservative response access boundary", () => {
     );
     expect(bundle).toEqual(before);
   });
+  it("keeps first-party native player recollections/claims within their owner and excludes ordinary hearsay", async () => {
+    const { f, bundle } = await fixture();
+    bundle.world.key = "lw-dev-discord-1700000000000000013";
+    f.current.discordNativeSource = true;
+    bundle.current.interaction.discordNativeSource = true;
+    const claim = bundle.knowledge[0].claims[0];
+    claim.record.classification = "reported_claim";
+    claim.record.subjectEntityId = ids.speaker;
+    const source = claim.provenance.sources[0];
+    source.externalRef = "living-world-native-turn:" + ids.interaction;
+    source.provenanceNote = "living-world-native-player-verified-v1";
+    expect(filterResponseContext(bundle, f.current).sections.permittedKnowledge).toEqual([
+      { kind: "attributed_player_report_not_verified", statement: claim.record.claimText },
+    ]);
+    source.sourceEntityId = ids.otherNpc;
+    expect(filterResponseContext(bundle, f.current).sections.permittedKnowledge).toEqual([]);
+    source.sourceEntityId = ids.speaker;
+    source.provenanceNote = "Not a disclosure grant";
+    expect(filterResponseContext(bundle, f.current).sections.permittedKnowledge).toEqual([]);
+  });
   it("accepts bounded plain speech and rejects control characters and extra action structure", () => {
     expect(validateNpcSpeech('{"speech":" Hello. "}', 10, [])).toBe("Hello.");
     expect(

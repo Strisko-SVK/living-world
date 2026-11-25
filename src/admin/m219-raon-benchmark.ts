@@ -20,24 +20,27 @@ export async function runM219Benchmark(
     : dialogueCases;
   if (!cases.length) throw new Error("Unknown benchmark scenario.");
 
+  const benchmarkProvider = env.M219_BENCH_PROVIDER ?? "raon";
+  if (benchmarkProvider !== "raon" && benchmarkProvider !== "local")
+    throw new Error("Benchmark requires an explicitly local provider.");
   const config = getLlmConfig({
     ...env,
-    LLM_PROVIDER: "raon",
-    LLM_MAX_OUTPUT_TOKENS: env.RAON_DEV_OUTPUT_TOKENS ?? "192",
+    LLM_PROVIDER: benchmarkProvider,
+    LLM_MODEL: env.M219_BENCH_MODEL ?? env.LLM_MODEL,
+    LLM_MAX_OUTPUT_TOKENS:
+      env.M219_BENCH_OUTPUT_TOKENS ?? env.RAON_DEV_OUTPUT_TOKENS ?? "192",
   });
-  if (
-    !config.enabled ||
-    config.provider !== "raon" ||
-    config.contextTokens !== 4096
-  )
-    throw new Error(
-      "Benchmark requires the existing loopback RAON 4096 configuration.",
-    );
+  if (!config.enabled || config.provider !== benchmarkProvider)
+    throw new Error("Benchmark requires private local inference.");
 
   const prompt = env.RAON_BENCH_PROMPT ?? "baseline";
   if (prompt !== "baseline" && prompt !== "m219-v1")
     throw new Error("Invalid benchmark prompt version.");
-  const temperature = Number(env.RAON_BENCH_TEMPERATURE ?? "0.1");
+  const temperature = Number(
+    env.M219_BENCH_TEMPERATURE ??
+      env.RAON_BENCH_TEMPERATURE ??
+      config.temperature,
+  );
   if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2)
     throw new Error("Invalid benchmark temperature.");
 
@@ -57,19 +60,30 @@ export async function runM219Benchmark(
   write({
     event: "m219_benchmark_config",
     datasetVersion: dialogueDatasetVersion,
+    provider: config.provider,
     configuredModel: config.model,
     contextTokens: config.contextTokens,
     maxOutputTokens: config.maxOutputTokens,
     timeoutMs: config.timeoutMs,
     temperature,
     prompt,
-    presencePenalty: 0,
-    thinking: false,
-    quantization: env.RAON_BENCH_QUANTIZATION ?? "operator_evidence_required",
+    presencePenalty: config.presencePenalty,
+    topP: config.topP,
+    topK: config.topK,
+    minP: config.minP,
+    thinking: config.thinkingEnabled,
+    quantization:
+      env.M219_BENCH_QUANTIZATION ??
+      env.RAON_BENCH_QUANTIZATION ??
+      "operator_evidence_required",
     runtimeRevision:
-      env.RAON_BENCH_RUNTIME_REVISION ?? "operator_evidence_required",
+      env.M219_BENCH_RUNTIME_REVISION ??
+      env.RAON_BENCH_RUNTIME_REVISION ??
+      "operator_evidence_required",
     runtimeConfiguration:
-      env.RAON_BENCH_RUNTIME_CONFIG ?? "operator_evidence_required",
+      env.M219_BENCH_RUNTIME_CONFIG ??
+      env.RAON_BENCH_RUNTIME_CONFIG ??
+      "operator_evidence_required",
     metadataSource: "operator_supplied_or_unknown",
     seed: "not_configured",
     scenarios: cases.length,
@@ -94,7 +108,7 @@ if (
   void runM219Benchmark(process.argv.slice(2), process.env, controller.signal)
     .catch(() => {
       console.error(
-        "M2.19 benchmark stopped or failed; inspect local RAON settings.",
+        "M2.19 benchmark stopped or failed; inspect local inference settings.",
       );
       process.exitCode = 1;
     })

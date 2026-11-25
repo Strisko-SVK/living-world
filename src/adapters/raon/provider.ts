@@ -103,7 +103,7 @@ export function createRaonProvider(
           ),
         })),
       ],
-      chat_template_kwargs: { enable_thinking: false },
+      chat_template_kwargs: { enable_thinking: config.thinkingEnabled },
       ...(request.responseFormat && {
         response_format: {
           type: "json_schema",
@@ -141,8 +141,11 @@ export function createRaonProvider(
           ...chat(request),
           stream: false,
           max_tokens: request.maxOutputTokens,
-          temperature: request.temperature ?? 0.1,
-          presence_penalty: 0,
+          temperature: request.temperature ?? config.temperature,
+          presence_penalty: config.presencePenalty,
+          ...(config.provider === "local"
+            ? { top_p: config.topP, top_k: config.topK, min_p: config.minP }
+            : {}),
         },
         completionSchema,
         signal,

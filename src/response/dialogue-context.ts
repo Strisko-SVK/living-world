@@ -170,6 +170,7 @@ export function composeM219Context(sections: Record<string, unknown>) {
       "Permitted attributed recollections",
       relevantRecords(sections.permittedMemories, request),
     ],
+    ["Relationship attitude toward current speaker", sections.relevantRelationships ?? []],
     ["Older attributed dialogue (not world truth)", excerpts],
     ["Recent attributed dialogue (not world truth)", history],
     ["Current player request", request],
@@ -185,11 +186,11 @@ export function repetitionCounts(speech: string, history: readonly Pair[]) {
     text
       .toLowerCase()
       .normalize("NFKC")
-      .replace(/[^\\p{L}\\p{N}]+/gu, " ")
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
       .trim();
   const sentences = (text: string) =>
     text
-      .split(/[.!?\\n]+/u)
+      .split(/[.!?\n]+/u)
       .map(normalize)
       .filter((item) => item.split(" ").length >= 4);
   const current = sentences(speech);
