@@ -2,7 +2,9 @@ import { z } from "zod";
 
 const integer = (max: number) => z.coerce.number().int().positive().max(max);
 const schema = z.object({
-  LLM_PROVIDER: z.enum(["disabled", "openai", "raon", "local"]).default("disabled"),
+  LLM_PROVIDER: z
+    .enum(["disabled", "openai", "raon", "local"])
+    .default("disabled"),
   RAON_BASE_URL: z.string().default("http://127.0.0.1:18000"),
   RAON_CONTEXT_TOKENS: integer(4096).default(4096),
   LOCAL_BASE_URL: z.string().default("http://127.0.0.1:18000"),
