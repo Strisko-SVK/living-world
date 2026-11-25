@@ -130,20 +130,21 @@ export async function startNativeNpcGateway(
     !/^\S{20,}$/u.test(token)
   )
     throw new Error("The allowed DEV guild and bot token are required.");
+  // Opt in to the model-independent local endpoint. Existing RAON DEV setups
+  // remain the default; only this trusted operator setting can switch providers.
+  const inferenceProvider = env.LW_NPC_INFERENCE_PROVIDER ?? "raon";
+  if (inferenceProvider !== "raon" && inferenceProvider !== "local")
+    throw new Error("Unsupported native DEV inference provider.");
   const inferenceEnv = {
     ...env,
-    LLM_PROVIDER: "raon",
-    LLM_MAX_OUTPUT_TOKENS: env.RAON_DEV_OUTPUT_TOKENS ?? "192",
+    LLM_PROVIDER: inferenceProvider,
+    LLM_MODEL: env.LW_NPC_INFERENCE_MODEL ?? env.LLM_MODEL,
+    LLM_MAX_OUTPUT_TOKENS:
+      env.LW_NPC_OUTPUT_TOKENS ?? env.RAON_DEV_OUTPUT_TOKENS ?? "192",
   };
   const provider = getLlmConfig(inferenceEnv);
-  if (
-    !provider.enabled ||
-    provider.provider !== "raon" ||
-    provider.contextTokens !== 4096
-  )
-    throw new Error(
-      "The native DEV Gateway requires the 4096-token RAON profile.",
-    );
+  if (!provider.enabled || provider.provider !== inferenceProvider)
+    throw new Error("The native DEV Gateway requires a local inference profile.");
 
   const database = createDatabaseClient(env);
   const intents = ["Guilds", "GuildMessages", "MessageContent"] as const;
