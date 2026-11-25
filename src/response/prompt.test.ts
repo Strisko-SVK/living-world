@@ -16,7 +16,7 @@ describe("M2.19 adaptive NPC response policy", () => {
   it("preserves current intent, NPC voice and strict output boundaries", () => {
     const prompt = composeResponsePrompt(context, 2000, "natural-v2");
     expect(prompt.messages[0].content).toContain("Tell me more.");
-    expect(prompt.instructions.system).toContain("in-character");
+    expect(prompt.instructions.system).toContain("in character");
     expect(prompt.instructions.system).toContain("concise");
     expect(prompt.instructions.system).toContain("expand");
     expect(prompt.instructions.system).not.toContain("one to three");
