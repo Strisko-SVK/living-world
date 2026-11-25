@@ -15,6 +15,7 @@ import { verifyGatewayDevDatabase } from "../admin/gateway-dev-db.js";
 import { gatewaySmokeBotId } from "../admin/discord-gateway-smoke.js";
 import { getLlmConfig } from "../llm/config.js";
 import { createDatabaseClient } from "../db/client.js";
+import { startNpcEnrichmentWorker } from "./enrichment.js";
 import { normalizeAlias } from "../domains/entity/alias-normalizer.js";
 import { snowflake, type SceneRoute } from "./registry.js";
 import {
@@ -368,6 +369,7 @@ export async function startNativeNpcGateway(
     });
   });
 
+  let enrichment: Awaited<ReturnType<typeof startNpcEnrichmentWorker>> | undefined;
   let lease: PoolClient | undefined;
   let stopping: Promise<void> | undefined;
   const stop = () =>
@@ -380,6 +382,7 @@ export async function startNativeNpcGateway(
         await adapter.stop();
         await Promise.allSettled(pendingEvents);
         await runtime.drain();
+        if (enrichment) await enrichment.stop();
       } finally {
         lease?.off("error", onStop);
         lease?.release(true);
@@ -413,6 +416,7 @@ export async function startNativeNpcGateway(
     const guild = await client.guilds.fetch(guildId);
     // Upsert only this application command. Preserve any other guild commands.
     await guild.commands.create(command.toJSON());
+    enrichment = await startNpcEnrichmentWorker(database.db, inferenceEnv, signal, diagnose);
     operational = true;
     diagnose({ event: "native_gateway", outcome: "ready" });
     return { stop };

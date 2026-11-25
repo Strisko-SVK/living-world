@@ -33,3 +33,4 @@ export * from "./dev-first-reply-consents.js";
 export * from "./discord-conversations.js";
 
 export * from "./discord-npc-lifecycle.js";
+export * from "./npc-turn-enrichments.js";
