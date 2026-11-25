@@ -244,7 +244,7 @@ export function createNativeNpcRuntime(
         campaignCategoryApproved(campaign,actual.categoryId) &&
         currentCampaign?.active &&
         currentCampaign.worldId===campaign.worldId &&
-        member?.active);
+        !!member);
     };
     if (!(await precheck())) return "unavailable";
     const [claimed] = await db.update(taskReports).set({deliveryStatus:"failed"})
